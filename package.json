@@ -1,0 +1,11 @@
+{
+  "name": "signal-bot",
+  "version": "1.5.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

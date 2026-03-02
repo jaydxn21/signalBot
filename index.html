@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Bot v1.5 | Pro Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link href="css/styles.css" rel="stylesheet">
+    <link rel="icon" href="favicon.ico">
+</head>
+<body class="flex flex-col h-screen p-4 gap-4 bg-gradient-to-b from-slate-950 to-black">
+
+    <div id="auth-overlay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md">
+        <div class="glass-panel p-8 w-full max-w-md rounded-2xl flex flex-col gap-6 text-center border-t-4 border-cyan-500 glow-cyan">
+            <div>
+                <h1 class="text-3xl font-black text-white tracking-tight uppercase">Signal Bot <span class="text-cyan-400 italic text-xl">v1.5</span></h1>
+                <p class="text-[10px] text-slate-500 font-mono mt-1 tracking-[0.2em]">ENCRYPTED TERMINAL ACCESS</p>
+            </div>
+            <input type="password" id="api-token" placeholder="Paste Deriv API Token"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-center text-white font-mono focus:border-cyan-500 outline-none transition-all">
+            <button id="btn-login" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded-lg uppercase tracking-widest text-sm transition-all">
+                Initialize System
+            </button>
+        </div>
+    </div>
+
+    <header class="h-16 shrink-0 flex items-center justify-between px-6 glass-panel rounded-xl glow-cyan">
+        <div class="flex items-center gap-4">
+            <div id="connection-indicator" class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_red]"></div>
+            <h2 class="text-sm font-black text-white tracking-[0.3em] uppercase">Live <span class="text-cyan-400">Monitor</span></h2>
+        </div>
+        <div class="glass-panel px-5 py-1.5 rounded-lg border-cyan-500/20 border flex items-center gap-2">
+            <span id="clock" class="font-mono text-cyan-400 font-bold text-xl">00:00:00</span>
+            <button id="btn-logout" class="text-xs text-slate-500 hover:text-red-400 p-2">Log Out</button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex gap-5 overflow-hidden min-h-0">
+
+        <aside class="w-96 glass-panel rounded-2xl p-6 flex flex-col gap-6 overflow-y-auto shrink-0">
+
+            <!-- Strategy -->
+            <div class="space-y-3">
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Strategy Engine</label>
+                <select id="strategy" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-cyan-400 font-mono focus:border-cyan-500 outline-none">
+                    <optgroup label="── Forex / Gold ──">
+                        <option value="momentum">Momentum Scalper</option>
+                        <option value="trend">Trend Follow</option>
+                        <option value="reversal">Reversal</option>
+                        <option value="swing">Swing Master (ICT)</option>
+                        <option value="h4_kiss">KISS H4</option>
+                        <option value="orb">ORB Scalper</option>
+                        <option value="london_breakout">London Breakout</option>
+                        <option value="news_fade">News Fade</option>
+                    </optgroup>
+                    <optgroup label="── Synthetics ──">
+                        <option value="synthetic_scalp">Synthetic Scalper (BB+RSI)</option>
+                        <option value="rsi_fade">RSI Fade Scalper</option>
+                        <option value="range_boundary">Range Boundary Scalper</option>
+                    </optgroup>
+                    <optgroup label="── Crypto ──">
+                        <option value="crypto_scalp">Crypto Scalper (Breakout)</option>
+                        <option value="vwap_reversion">VWAP Reversion</option>
+                        <option value="candle_speed">Candle Speed Scalper</option>
+                    </optgroup>
+                    <optgroup label="── Universal ──">
+                        <option value="ultra_scalp">⚡ Ultra Scalper (Test)</option>
+                    </optgroup>
+                </select>
+
+                <!-- Strategy Info Card -->
+                <div id="strategy-card" class="rounded-xl p-3 border text-[10px] leading-relaxed font-mono transition-all"></div>
+            </div>
+
+            <!-- ORB HTF -->
+            <div id="orb-htf-row" class="space-y-2 hidden">
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ORB Analysis TF</label>
+                <select id="orb-htf" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-amber-400 outline-none">
+                    <option value="300">M5</option>
+                    <option value="900">M15</option>
+                </select>
+                <p class="text-[10px] text-slate-500 italic">Chart runs on M1. Strategy confirms on this TF.</p>
+            </div>
+
+            <!-- Analysis HUD -->
+            <div class="p-4 bg-slate-950/50 rounded-xl border-l-2 border-amber-500">
+                <div class="flex justify-between items-center mb-3">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Analysis HUD</p>
+                    <span id="session-timer" class="text-[10px] font-mono text-slate-500">00:00:00</span>
+                </div>
+                <div class="grid grid-cols-2 gap-y-2 text-xs font-mono">
+                    <span class="text-slate-500">RSI (14):</span>
+                    <span id="rsi-value" class="text-right text-cyan-400">—</span>
+                    <span class="text-slate-500">ATR:</span>
+                    <span id="atr-value" class="text-right text-emerald-400">—</span>
+                    <span class="text-slate-500">Market:</span>
+                    <span id="daily-bias" class="text-right text-slate-500">—</span>
+                    <span class="text-slate-500">Win Rate:</span>
+                    <span id="session-stats" class="text-right text-white">0% (0W / 0L)</span>
+                </div>
+                <div class="mt-3 pt-2 border-t border-slate-800">
+                    <span id="session-pnl" class="text-xs font-mono text-slate-500">Est. P&L: 0.00</span>
+                </div>
+            </div>
+
+            <!-- Overlays — all deselected by default -->
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Overlays</label>
+                <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-400 uppercase font-bold">
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-asian">   Asian Range</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-pdhpdl">  PDH/PDL</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-major">   Major S/R</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-fvg">     FVG Boxes</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-h4">      H4 KISS</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-orb">     ORB Range</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-ob">      Order Blocks</label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-bos">     Break of Struct</label>
+                </div>
+            </div>
+
+            <!-- Trade History -->
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Trade History</label>
+                <div class="bg-slate-950/50 rounded-xl p-2">
+                    <div class="grid grid-cols-5 gap-1 text-[9px] font-mono text-slate-600 pb-1 border-b border-slate-800 mb-1">
+                        <span>Time</span><span>Type</span><span>Entry</span><span>Result</span><span>P&L</span>
+                    </div>
+                    <div id="trade-history" class="max-h-28 overflow-y-auto"></div>
+                    <p id="trade-history-empty" class="text-[9px] text-slate-600 text-center py-2 italic">No trades yet this session</p>
+                </div>
+            </div>
+
+            <!-- Asset -->
+            <div class="space-y-3">
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Asset</label>
+                <div class="grid grid-cols-4 gap-1">
+                    <button data-cat="volatility" onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Vol</button>
+                    <button data-cat="crypto"     onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Crypto</button>
+                    <button data-cat="forex"      onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Forex</button>
+                    <button data-cat="jump"       onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Jump</button>
+                </div>
+                <select id="symbol" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none"></select>
+            </div>
+
+            <!-- Timeframe -->
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-slate-500 uppercase">Timeframe</label>
+                <select id="timeframe" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-emerald-400 outline-none">
+                    <option value="60">M1</option>
+                    <option value="120">M2</option>
+                    <option value="300">M5</option>
+                    <option value="600">M10</option>
+                    <option value="900">M15</option>
+                    <option value="1800">M30</option>
+                    <option value="3600">H1</option>
+                    <option value="14400">H4</option>
+                    <option value="86400">D1</option>
+                </select>
+            </div>
+
+            <button id="btn-start" class="mt-auto w-full py-4 rounded-xl bg-slate-800 border border-slate-600 text-white font-black text-xs uppercase tracking-[0.2em] transition-all hover:bg-slate-700">
+                START BOT
+            </button>
+        </aside>
+
+        <section class="flex-1 flex flex-col gap-5 min-w-0">
+            <div class="flex-1 glass-panel rounded-2xl p-2 glow-cyan relative overflow-hidden">
+                <div id="chart" class="w-full h-full"></div>
+            </div>
+            <div class="h-52 glass-panel rounded-2xl p-4 flex flex-col shrink-0">
+                <div class="flex justify-between items-center mb-2 border-b border-slate-800 pb-2">
+                    <span class="text-[10px] font-bold uppercase text-slate-500 tracking-widest">System Event Logs</span>
+                    <button onclick="document.getElementById('logs').innerHTML=''" class="text-[9px] text-slate-600 hover:text-red-400">CLEAR TERMINAL</button>
+                </div>
+                <div id="logs" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1.5 pr-2"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const strategyInfo = {
+            momentum:        { label: '📈 Momentum Scalper',         badge: 'FOREX/GOLD',    color: 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300', badgeColor: 'bg-emerald-900/50 text-emerald-400', desc: 'Engulfing candles, 3-consecutive, and big body patterns with EMA + H4 trend confirmation. Session-aware — London & New York only for Forex/Gold.', tf: 'M5', sym: 'Gold, EUR/USD, GBP/USD' },
+            trend:           { label: '🔄 Trend Follow',             badge: 'ALL MARKETS',   color: 'border-cyan-500/40 bg-cyan-950/30 text-cyan-300',           badgeColor: 'bg-cyan-900/50 text-cyan-400',     desc: 'Follows EMA 50 with RSI confirmation. Enters pullbacks in trend direction.', tf: 'M15/H1', sym: 'Any' },
+            reversal:        { label: '↩️ Reversal',                 badge: 'ALL MARKETS',   color: 'border-amber-500/40 bg-amber-950/30 text-amber-300',        badgeColor: 'bg-amber-900/50 text-amber-400',   desc: 'Targets RSI extremes (80/20) with price action confirmation. Catches overextended moves.', tf: 'M15/H1', sym: 'Any' },
+            swing:           { label: '🌊 Swing Master (ICT)',       badge: 'FOREX/GOLD',    color: 'border-violet-500/40 bg-violet-950/30 text-violet-300',     badgeColor: 'bg-violet-900/50 text-violet-400', desc: 'ICT Fair Value Gap and liquidity sweep detection. Institutional order flow signatures.', tf: 'H1/H4', sym: 'Gold, Major pairs' },
+            h4_kiss:         { label: '💋 KISS H4',                  badge: 'FOREX/GOLD',    color: 'border-pink-500/40 bg-pink-950/30 text-pink-300',           badgeColor: 'bg-pink-900/50 text-pink-400',     desc: 'Breakouts and bounces off previous H4 levels. Simple and effective on trending markets.', tf: 'M15', sym: 'Gold, Major pairs' },
+            orb:             { label: '⏱️ ORB Scalper',              badge: 'SYNTHETICS',    color: 'border-orange-500/40 bg-orange-950/30 text-orange-300',     badgeColor: 'bg-orange-900/50 text-orange-400', desc: 'Opening Range Breakout — 00:00-00:15 UTC range, fires on M1 breakout confirmed on M5/M15.', tf: 'M1 chart / M5 analysis', sym: 'Vol indices, BTC' },
+            london_breakout: { label: '🌅 London Breakout',          badge: 'FOREX/GOLD',    color: 'border-yellow-500/40 bg-yellow-950/30 text-yellow-200',     badgeColor: 'bg-yellow-900/50 text-yellow-400', desc: 'Marks Asian session range (00:00-06:00 UTC) then trades the breakout when London opens at 08:00. One trade per day maximum.', tf: 'M5/M15', sym: 'Gold, GBP/USD, EUR/USD' },
+            news_fade:       { label: '📰 News Fade',                badge: 'FOREX/GOLD',    color: 'border-red-500/40 bg-red-950/30 text-red-300',              badgeColor: 'bg-red-900/50 text-red-400',       desc: 'Detects ATR spikes 3x+ normal (news events) then fades the spike expecting 30-50% retracement. Best during NFP, CPI, FOMC.', tf: 'M5', sym: 'Gold, EUR/USD, GBP/USD' },
+            synthetic_scalp: { label: '🎲 Synthetic Scalper',        badge: 'SYNTHETICS',    color: 'border-cyan-400/40 bg-cyan-950/30 text-cyan-200',           badgeColor: 'bg-cyan-900/60 text-cyan-300',     desc: 'Mean reversion using Bollinger Band extremes + RSI. Price snaps back to the mean on synthetics by design. Works 24/7.', tf: 'M1/M5', sym: 'V10-V100, Jump indices' },
+            rsi_fade:        { label: '📉 RSI Fade Scalper',         badge: 'SYNTHETICS',    color: 'border-teal-500/40 bg-teal-950/30 text-teal-200',           badgeColor: 'bg-teal-900/50 text-teal-400',     desc: 'Pure RSI extreme fading for synthetics. When RSI hits 88+ or 12-, the volatility algorithm is statistically obligated to revert. Simplest and fastest synthetic strategy.', tf: 'M1/M5', sym: 'V10-V100, Jump indices' },
+            range_boundary:  { label: '📦 Range Boundary Scalper',   badge: 'SYNTHETICS',    color: 'border-indigo-500/40 bg-indigo-950/30 text-indigo-200',     badgeColor: 'bg-indigo-900/50 text-indigo-400', desc: 'Marks the 50-candle statistical range boundary, then scalps price rejecting at the top or bottom. Synthetics respect range boundaries more than any real market.', tf: 'M5/M15', sym: 'V10-V100, Jump indices' },
+            crypto_scalp:    { label: '₿ Crypto Scalper',            badge: 'CRYPTO',        color: 'border-yellow-500/40 bg-yellow-950/30 text-yellow-200',     badgeColor: 'bg-yellow-900/50 text-yellow-400', desc: 'Detects tight consolidation then fires on large body breakout candle. Avoids RSI exhaustion entries. Built for BTC/ETH coil-and-explode patterns.', tf: 'M5/M15', sym: 'BTC, ETH, LTC' },
+            vwap_reversion:  { label: '⚖️ VWAP Reversion',           badge: 'CRYPTO',        color: 'border-lime-500/40 bg-lime-950/30 text-lime-200',           badgeColor: 'bg-lime-900/50 text-lime-400',     desc: 'Trades when price deviates 1.5x ATR from approximate VWAP then starts reverting. BTC consistently gravitates back to VWAP intraday.', tf: 'M5/M15', sym: 'BTC, ETH' },
+            candle_speed:    { label: '🚀 Candle Speed Scalper',      badge: 'CRYPTO',        color: 'border-rose-500/40 bg-rose-950/30 text-rose-200',           badgeColor: 'bg-rose-900/50 text-rose-400',     desc: 'Detects ATR spikes 2x+ normal (liquidation cascades) and enters in the burst direction. Captures BTC liquidation moves with quick TP.', tf: 'M1/M5', sym: 'BTC, ETH' },
+            ultra_scalp:     { label: '⚡ Ultra Scalper (TEST)',      badge: 'ALL SYMBOLS',   color: 'border-fuchsia-500/40 bg-fuchsia-950/30 text-fuchsia-200',  badgeColor: 'bg-fuchsia-900/50 text-fuchsia-400', desc: 'FASTEST strategy — fires within seconds on any symbol. Requires just 2 consecutive same-direction candles + live candle confirming. Demo/pipeline testing only. Fires very frequently.', tf: 'M1', sym: 'Any symbol' },
+        };
+
+        function renderStrategyCard(key) {
+            const info = strategyInfo[key];
+            if (!info) return;
+            const card = document.getElementById('strategy-card');
+            card.className = `rounded-xl p-3 border text-[10px] leading-relaxed font-mono transition-all ${info.color}`;
+            card.innerHTML = `
+                <div class="flex items-center justify-between mb-2">
+                    <span class="font-bold text-[11px]">${info.label}</span>
+                    <span class="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${info.badgeColor}">${info.badge}</span>
+                </div>
+                <p class="opacity-80 mb-2">${info.desc}</p>
+                <div class="flex gap-3 opacity-60 text-[9px]">
+                    <span>⏱ ${info.tf}</span>
+                    <span>📊 ${info.sym}</span>
+                </div>`;
+        }
+
+        // ─── Symbol Categories ─────────────────────────────────────────────
+        const SYMBOL_CATEGORIES = {
+            volatility: [
+                { value: 'R_10',    label: 'Volatility 10 Index'  },
+                { value: 'R_25',    label: 'Volatility 25 Index'  },
+                { value: 'R_50',    label: 'Volatility 50 Index'  },
+                { value: 'R_75',    label: 'Volatility 75 Index'  },
+                { value: 'R_100',   label: 'Volatility 100 Index' },
+                { value: '1HZ10V',  label: 'Volatility 10 (1s)'   },
+                { value: '1HZ25V',  label: 'Volatility 25 (1s)'   },
+                { value: '1HZ50V',  label: 'Volatility 50 (1s)'   },
+                { value: '1HZ75V',  label: 'Volatility 75 (1s)'   },
+                { value: '1HZ100V', label: 'Volatility 100 (1s)'  },
+            ],
+            crypto: [
+                { value: 'cryBTCUSD', label: 'Bitcoin / USD'  },
+                { value: 'cryETHUSD', label: 'Ethereum / USD' },
+                { value: 'cryLTCUSD', label: 'Litecoin / USD' },
+                { value: 'cryXRPUSD', label: 'Ripple / USD'   },
+            ],
+            forex: [
+                { value: 'frxXAUUSD', label: 'Gold / USD'   },
+                { value: 'frxXAGUSD', label: 'Silver / USD' },
+                { value: 'frxEURUSD', label: 'EUR / USD'    },
+                { value: 'frxGBPUSD', label: 'GBP / USD'    },
+                { value: 'frxUSDJPY', label: 'USD / JPY'    },
+                { value: 'frxAUDUSD', label: 'AUD / USD'    },
+                { value: 'frxUSDCAD', label: 'USD / CAD'    },
+                { value: 'frxUSDCHF', label: 'USD / CHF'    },
+                { value: 'frxEURGBP', label: 'EUR / GBP'    },
+                { value: 'frxGBPJPY', label: 'GBP / JPY'    },
+            ],
+            jump: [
+                { value: 'JD10',  label: 'Jump 10 Index'  },
+                { value: 'JD25',  label: 'Jump 25 Index'  },
+                { value: 'JD50',  label: 'Jump 50 Index'  },
+                { value: 'JD75',  label: 'Jump 75 Index'  },
+                { value: 'JD100', label: 'Jump 100 Index' },
+            ]
+        };
+
+        function setCategory(btn) {
+            document.querySelectorAll('.cat-btn').forEach(b => {
+                b.className = 'cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all';
+            });
+            btn.className = 'cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-cyan-900/50 border border-cyan-500/50 text-cyan-400 transition-all';
+            currentCategory = btn.dataset.cat;
+            populateSymbols(currentCategory);
+        }
+
+        function populateSymbols(category, selectedValue = null) {
+            const select  = document.getElementById('symbol');
+            const symbols = SYMBOL_CATEGORIES[category] || [];
+            select.innerHTML = symbols.map(s =>
+                `<option value="${s.value}" ${s.value === selectedValue ? 'selected' : ''}>${s.label}</option>`
+            ).join('');
+        }
+
+        let currentCategory = 'volatility';
+        populateSymbols('volatility');
+        document.querySelector('[data-cat="volatility"]').className =
+            'cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-cyan-900/50 border border-cyan-500/50 text-cyan-400 transition-all';
+        renderStrategyCard('momentum');
+
+        document.getElementById('strategy').addEventListener('change', function() {
+            renderStrategyCard(this.value);
+            const orbRow   = document.getElementById('orb-htf-row');
+            const tfSelect = document.getElementById('timeframe');
+            if (this.value === 'orb') {
+                orbRow.classList.remove('hidden');
+                tfSelect.value = '60';
+            } else if (['momentum', 'london_breakout', 'news_fade'].includes(this.value)) {
+                orbRow.classList.add('hidden');
+                tfSelect.value = '300';
+                const forexBtn = document.querySelector('[data-cat="forex"]');
+                if (forexBtn) setCategory(forexBtn);
+            } else if (['synthetic_scalp', 'rsi_fade', 'range_boundary'].includes(this.value)) {
+                orbRow.classList.add('hidden');
+                tfSelect.value = '300';
+                const volBtn = document.querySelector('[data-cat="volatility"]');
+                if (volBtn) setCategory(volBtn);
+            } else if (['crypto_scalp', 'vwap_reversion', 'candle_speed'].includes(this.value)) {
+                orbRow.classList.add('hidden');
+                tfSelect.value = '300';
+                const cryptoBtn = document.querySelector('[data-cat="crypto"]');
+                if (cryptoBtn) setCategory(cryptoBtn);
+            } else if (this.value === 'ultra_scalp') {
+                orbRow.classList.add('hidden');
+                tfSelect.value = '60';
+            } else {
+                orbRow.classList.add('hidden');
+            }
+        });
+
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString();
+        }, 1000);
+
+        function setStatus(connected) {
+            const dot = document.getElementById('connection-indicator');
+            dot.className = connected ?
+                'w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]' :
+                'w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_red]';
+        }
+    </script>
+
+<script type="module" src="./signal-bot.js"></script>
+</body>
+</html>
