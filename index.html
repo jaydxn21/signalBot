@@ -3,324 +3,383 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Signal Bot v1.5 | Pro Terminal</title>
+    <title>NEXUS | Terminal v2.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <link href="css/styles.css" rel="stylesheet">
     <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
 </head>
-<body class="flex flex-col h-screen p-4 gap-4 bg-gradient-to-b from-slate-950 to-black">
+<body>
 
-    <div id="auth-overlay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md">
-        <div class="glass-panel p-8 w-full max-w-md rounded-2xl flex flex-col gap-6 text-center border-t-4 border-cyan-500 glow-cyan">
-            <div>
-                <h1 class="text-3xl font-black text-white tracking-tight uppercase">Signal Bot <span class="text-cyan-400 italic text-xl">v1.5</span></h1>
-                <p class="text-[10px] text-slate-500 font-mono mt-1 tracking-[0.2em]">ENCRYPTED TERMINAL ACCESS</p>
-            </div>
-            <input type="password" id="api-token" placeholder="Paste Deriv API Token"
-                   class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-center text-white font-mono focus:border-cyan-500 outline-none transition-all">
-            <button id="btn-login" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded-lg uppercase tracking-widest text-sm transition-all">
-                Initialize System
-            </button>
-        </div>
+<!-- ── WAVE CANVAS ──────────────────────────────────────────── -->
+<canvas id="wave-canvas"></canvas>
+
+<!-- ── AUTH OVERLAY ─────────────────────────────────────────── -->
+<div id="auth-overlay">
+    <div class="auth-box">
+        <h1>NEXUS</h1>
+        <p class="mono" style="font-size:0.6rem;letter-spacing:0.14em;color:var(--text-muted);margin-bottom:28px;">SIGNAL TERMINAL v2.0</p>
+        <input type="password" id="api-token" placeholder="Enter Deriv API Token"
+               style="margin-bottom:12px;padding:12px 14px;font-size:0.78rem;">
+        <button id="btn-login" class="btn-pro" style="width:100%;padding:12px;font-size:0.72rem;letter-spacing:0.1em;">
+            INITIALIZE SYSTEM
+        </button>
     </div>
+</div>
 
-    <header class="h-16 shrink-0 flex items-center justify-between px-6 glass-panel rounded-xl glow-cyan">
-        <div class="flex items-center gap-4">
-            <div id="connection-indicator" class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_red]"></div>
-            <h2 class="text-sm font-black text-white tracking-[0.3em] uppercase">Live <span class="text-cyan-400">Monitor</span></h2>
+<!-- ── APP SHELL ─────────────────────────────────────────────── -->
+<div id="app-shell">
+
+    <!-- NAV RAIL -->
+    <nav id="nav-rail">
+        <div class="nav-logo">NXS</div>
+
+        <div class="nav-item active" data-page="terminal" onclick="switchPage('terminal',this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span class="nav-tooltip">Terminal</span>
         </div>
-        <div class="glass-panel px-5 py-1.5 rounded-lg border-cyan-500/20 border flex items-center gap-2">
-            <span id="clock" class="font-mono text-cyan-400 font-bold text-xl">00:00:00</span>
-            <button id="btn-logout" class="text-xs text-slate-500 hover:text-red-400 p-2">Log Out</button>
+
+        <div class="nav-item" data-page="market" onclick="switchPage('market',this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+            <span class="nav-tooltip">Market</span>
         </div>
-    </header>
 
-    <main class="flex-1 flex gap-5 overflow-hidden min-h-0">
+        <div class="nav-item" data-page="analytics" onclick="switchPage('analytics',this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 10l3 3 3-3 4 4"/></svg>
+            <span class="nav-tooltip">Analytics</span>
+        </div>
 
-        <aside class="w-96 glass-panel rounded-2xl p-6 flex flex-col gap-6 overflow-y-auto shrink-0">
+        <div class="nav-item" data-page="history" onclick="switchPage('history',this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+            <span class="nav-tooltip">Journal</span>
+        </div>
 
-            <!-- Strategy -->
-            <div class="space-y-3">
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Strategy Engine</label>
-                <select id="strategy" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-cyan-400 font-mono focus:border-cyan-500 outline-none">
-                    <optgroup label="── Forex / Gold ──">
-                        <option value="momentum">Momentum Scalper</option>
-                        <option value="trend">Trend Follow</option>
-                        <option value="reversal">Reversal</option>
-                        <option value="swing">Swing Master (ICT)</option>
-                        <option value="h4_kiss">KISS H4</option>
-                        <option value="orb">ORB Scalper</option>
-                        <option value="london_breakout">London Breakout</option>
-                        <option value="news_fade">News Fade</option>
-                    </optgroup>
-                    <optgroup label="── Synthetics ──">
-                        <option value="synthetic_scalp">Synthetic Scalper (BB+RSI)</option>
-                        <option value="rsi_fade">RSI Fade Scalper</option>
-                        <option value="range_boundary">Range Boundary Scalper</option>
-                    </optgroup>
-                    <optgroup label="── Crypto ──">
-                        <option value="crypto_scalp">Crypto Scalper (Breakout)</option>
-                        <option value="vwap_reversion">VWAP Reversion</option>
-                        <option value="candle_speed">Candle Speed Scalper</option>
-                    </optgroup>
-                    <optgroup label="── Universal ──">
-                        <option value="ultra_scalp">⚡ Ultra Scalper (Test)</option>
-                    </optgroup>
-                </select>
+        <div class="nav-spacer"></div>
 
-                <!-- Strategy Info Card -->
-                <div id="strategy-card" class="rounded-xl p-3 border text-[10px] leading-relaxed font-mono transition-all"></div>
-            </div>
+        <div class="nav-item" data-page="settings" onclick="switchPage('settings',this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span class="nav-tooltip">Settings</span>
+        </div>
+    </nav>
 
-            <!-- ORB HTF -->
-            <div id="orb-htf-row" class="space-y-2 hidden">
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ORB Analysis TF</label>
-                <select id="orb-htf" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-amber-400 outline-none">
-                    <option value="300">M5</option>
-                    <option value="900">M15</option>
-                </select>
-                <p class="text-[10px] text-slate-500 italic">Chart runs on M1. Strategy confirms on this TF.</p>
-            </div>
+    <!-- MAIN CONTENT -->
+    <div id="main-content">
 
-            <!-- Analysis HUD -->
-            <div class="p-4 bg-slate-950/50 rounded-xl border-l-2 border-amber-500">
-                <div class="flex justify-between items-center mb-3">
-                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Analysis HUD</p>
-                    <span id="session-timer" class="text-[10px] font-mono text-slate-500">00:00:00</span>
-                </div>
-                <div class="grid grid-cols-2 gap-y-2 text-xs font-mono">
-                    <span class="text-slate-500">RSI (14):</span>
-                    <span id="rsi-value" class="text-right text-cyan-400">—</span>
-                    <span class="text-slate-500">ATR:</span>
-                    <span id="atr-value" class="text-right text-emerald-400">—</span>
-                    <span class="text-slate-500">Market:</span>
-                    <span id="daily-bias" class="text-right text-slate-500">—</span>
-                    <span class="text-slate-500">Win Rate:</span>
-                    <span id="session-stats" class="text-right text-white">0% (0W / 0L)</span>
-                </div>
-                <div class="mt-3 pt-2 border-t border-slate-800">
-                    <span id="session-pnl" class="text-xs font-mono text-slate-500">Est. P&L: 0.00</span>
+        <!-- HEADER -->
+        <header>
+            <div style="display:flex;align-items:center;">
+                <span class="nexus-logo">NEXUS</span>
+                <div class="header-status">
+                    <div class="status-chip"><div id="connection-indicator" class="status-dot status-offline"></div><span id="conn-label">Offline</span></div>
+                    <div class="status-chip"><div id="mt5-indicator" class="status-dot status-offline"></div><span>MT5 Bridge</span></div>
                 </div>
             </div>
+            <div style="display:flex;align-items:center;gap:14px;">
+                <div style="text-align:right;"><div id="clock">00:00:00</div><div id="utc-date">UTC</div></div>
+                <button id="btn-logout">Logout ×</button>
+            </div>
+        </header>
 
-            <!-- Overlays — all deselected by default -->
-            <div class="space-y-2">
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Overlays</label>
-                <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-400 uppercase font-bold">
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-asian">   Asian Range</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-pdhpdl">  PDH/PDL</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-major">   Major S/R</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-fvg">     FVG Boxes</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-h4">      H4 KISS</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-orb">     ORB Range</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-ob">      Order Blocks</label>
-                    <label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="checkbox" id="show-bos">     Break of Struct</label>
+        <!-- TICKER -->
+        <div id="ticker">
+            <div style="width:100%;overflow:hidden;">
+                <div class="ticker-inner">
+                    <span>V10 <span class="pnl-pos">+0.12%</span></span><span>V25 <span class="pnl-neg">-0.08%</span></span>
+                    <span>BTC/USD <span class="pnl-pos">+2.18%</span></span><span>XAU/USD <span class="pnl-neg">-0.41%</span></span>
+                    <span>V100 <span class="pnl-pos">+0.67%</span></span><span>ETH/USD <span class="pnl-pos">+1.54%</span></span>
+                    <span>EUR/USD <span class="pnl-neg">-0.12%</span></span><span>GBP/USD <span class="pnl-pos">+0.31%</span></span>
+                    <span>USD/JPY <span class="pnl-pos">+0.09%</span></span>
+                    <!-- duplicate -->
+                    <span>V10 <span class="pnl-pos">+0.12%</span></span><span>V25 <span class="pnl-neg">-0.08%</span></span>
+                    <span>BTC/USD <span class="pnl-pos">+2.18%</span></span><span>XAU/USD <span class="pnl-neg">-0.41%</span></span>
+                    <span>V100 <span class="pnl-pos">+0.67%</span></span><span>ETH/USD <span class="pnl-pos">+1.54%</span></span>
+                    <span>EUR/USD <span class="pnl-neg">-0.12%</span></span><span>GBP/USD <span class="pnl-pos">+0.31%</span></span>
+                    <span>USD/JPY <span class="pnl-pos">+0.09%</span></span>
                 </div>
             </div>
+        </div>
 
-            <!-- Trade History -->
-            <div class="space-y-2">
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Trade History</label>
-                <div class="bg-slate-950/50 rounded-xl p-2">
-                    <div class="grid grid-cols-5 gap-1 text-[9px] font-mono text-slate-600 pb-1 border-b border-slate-800 mb-1">
-                        <span>Time</span><span>Type</span><span>Entry</span><span>Result</span><span>P&L</span>
+        <!-- WORKSPACE -->
+        <div id="workspace">
+
+            <!-- SIDEBAR (shared) -->
+            <aside id="sidebar">
+
+                <!-- Session stats -->
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Active Bots</div>
+                        <div id="stat-active" class="stat-value" style="color:var(--accent);">0</div>
                     </div>
-                    <div id="trade-history" class="max-h-28 overflow-y-auto"></div>
-                    <p id="trade-history-empty" class="text-[9px] text-slate-600 text-center py-2 italic">No trades yet this session</p>
+                    <div class="stat-item">
+                        <div class="stat-label">Win Rate</div>
+                        <div id="session-stats" class="stat-value" style="color:var(--accent2);">—</div>
+                    </div>
+                    <div class="stat-item" style="grid-column:span 2;">
+                        <div class="stat-label">Est. Session P&amp;L</div>
+                        <div id="session-pnl" class="stat-value mono">0.00</div>
+                    </div>
+                </div>
+
+                <!-- Bot list -->
+                <div id="bot-list" class="bot-list"></div>
+
+                <!-- Add bot -->
+                <button id="btn-add-bot" class="btn-pro btn-outline" style="width:100%;margin-bottom:12px;font-size:0.66rem;">
+                    + Add Bot Instance
+                </button>
+
+                <!-- Automations -->
+                <div class="automations-wrap" style="border-top:1px solid var(--border-subtle);padding-top:12px;margin-top:2px;">
+                    <div class="stat-label" style="margin-bottom:10px;">Automations</div>
+                    <label><span>Loss Protection (3×)</span><input type="checkbox" id="auto-stop-losses" checked></label>
+                    <label><span>Log Training Data</span><input type="checkbox" id="auto-log" checked></label>
+                    <label><span>MT5 Auto-Push</span><input type="checkbox" id="auto-mt5"></label>
+                    <label><span>Session Filter</span><input type="checkbox" id="auto-session"></label>
+                </div>
+
+            </aside>
+
+            <!-- ══ TERMINAL PAGE ══════════════════════════════ -->
+            <div id="page-terminal" class="page-panel active">
+
+                <!-- Chart -->
+                <div id="chart-area">
+                    <div class="chart-hud">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span id="chart-symbol-label" class="mono" style="font-size:0.74rem;font-weight:500;color:var(--text-dark);letter-spacing:0.06em;">NO ACTIVE FEED</span>
+                            <span id="chart-tf-label" class="mono" style="font-size:0.6rem;color:var(--text-muted);background:rgba(15,23,42,0.06);padding:2px 8px;border-radius:10px;"></span>
+                        </div>
+                        <div class="hud-right">
+                            <div class="hud-stat"><div class="stat-label">RSI</div><div id="rsi-value" class="mono" style="font-size:0.7rem;color:var(--text-dark);">—</div></div>
+                            <div class="hud-stat"><div class="stat-label">ATR</div><div id="atr-value" class="mono" style="font-size:0.7rem;color:var(--accent2);">—</div></div>
+                            <div class="hud-stat"><div class="stat-label">Market</div><div id="daily-bias" class="mono" style="font-size:0.7rem;color:var(--text-muted);">—</div></div>
+                            <div class="hud-stat"><div class="stat-label">Session</div><div id="session-timer" class="mono" style="font-size:0.7rem;color:var(--text-dark);">00:00:00</div></div>
+                        </div>
+                    </div>
+                    <div style="position:relative;flex:1;min-height:0;">
+                        <div id="chart" style="width:100%;height:100%;"></div>
+                        <div id="chart-placeholder">
+                            <h2>NEXUS</h2>
+                            <p>SELECT A BOT TO VIEW CHART</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Log — compact -->
+                <div id="log-area">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <span class="stat-label" style="color:rgba(241,245,249,0.4);">System Terminal</span>
+                        <div style="display:flex;gap:12px;align-items:center;">
+                            <span id="log-count">0 events</span>
+                            <button id="clear-logs">CLEAR</button>
+                        </div>
+                    </div>
+                    <div id="logs"></div>
+                </div>
+
+            </div>
+
+            <!-- ══ MARKET PAGE ════════════════════════════════ -->
+            <div id="page-market" class="page-panel" style="overflow-y:auto;">
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:2px;">
+                    <div class="analytics-card" style="grid-column:span 3;">
+                        <div class="stat-label">Market Overview</div>
+                        <p style="font-size:0.7rem;color:var(--text-sub);margin-top:4px;">Prices update live when bots are connected.</p>
+                    </div>
+                    <div class="market-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="mono" style="font-weight:500;font-size:0.78rem;color:var(--text-dark);">BTC/USD</span><span class="analytics-badge badge-up">+2.18%</span></div><div class="mono" style="font-size:1.4rem;font-weight:500;color:var(--text-dark);">68,412.50</div><div class="mini-bars"><div class="mini-bar up" style="height:55%"></div><div class="mini-bar up" style="height:70%"></div><div class="mini-bar down" style="height:45%"></div><div class="mini-bar up" style="height:80%"></div><div class="mini-bar up" style="height:65%"></div><div class="mini-bar up" style="height:90%"></div><div class="mini-bar down" style="height:60%"></div><div class="mini-bar up" style="height:100%"></div></div></div>
+                    <div class="market-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="mono" style="font-weight:500;font-size:0.78rem;color:var(--text-dark);">XAU/USD</span><span class="analytics-badge badge-down">-0.41%</span></div><div class="mono" style="font-size:1.4rem;font-weight:500;color:var(--text-dark);">2,318.75</div><div class="mini-bars"><div class="mini-bar up" style="height:80%"></div><div class="mini-bar down" style="height:60%"></div><div class="mini-bar down" style="height:50%"></div><div class="mini-bar up" style="height:65%"></div><div class="mini-bar down" style="height:40%"></div><div class="mini-bar down" style="height:35%"></div><div class="mini-bar up" style="height:55%"></div><div class="mini-bar down" style="height:45%"></div></div></div>
+                    <div class="market-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="mono" style="font-weight:500;font-size:0.78rem;color:var(--text-dark);">EUR/USD</span><span class="analytics-badge badge-down">-0.12%</span></div><div class="mono" style="font-size:1.4rem;font-weight:500;color:var(--text-dark);">1.08412</div><div class="mini-bars"><div class="mini-bar up" style="height:65%"></div><div class="mini-bar up" style="height:72%"></div><div class="mini-bar down" style="height:55%"></div><div class="mini-bar down" style="height:48%"></div><div class="mini-bar up" style="height:60%"></div><div class="mini-bar down" style="height:52%"></div><div class="mini-bar down" style="height:44%"></div><div class="mini-bar down" style="height:40%"></div></div></div>
+                    <div class="market-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="mono" style="font-weight:500;font-size:0.78rem;color:var(--text-dark);">V100 Index</span><span class="analytics-badge badge-up">+0.67%</span></div><div class="mono" style="font-size:1.4rem;font-weight:500;color:var(--text-dark);">9,847.32</div><div class="mini-bars"><div class="mini-bar up" style="height:50%"></div><div class="mini-bar up" style="height:68%"></div><div class="mini-bar up" style="height:75%"></div><div class="mini-bar down" style="height:62%"></div><div class="mini-bar up" style="height:80%"></div><div class="mini-bar up" style="height:88%"></div><div class="mini-bar up" style="height:92%"></div><div class="mini-bar up" style="height:100%"></div></div></div>
+                    <div class="market-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="mono" style="font-weight:500;font-size:0.78rem;color:var(--text-dark);">ETH/USD</span><span class="analytics-badge badge-up">+1.54%</span></div><div class="mono" style="font-size:1.4rem;font-weight:500;color:var(--text-dark);">3,621.80</div><div class="mini-bars"><div class="mini-bar down" style="height:55%"></div><div class="mini-bar up" style="height:70%"></div><div class="mini-bar up" style="height:78%"></div><div class="mini-bar up" style="height:84%"></div><div class="mini-bar down" style="height:72%"></div><div class="mini-bar up" style="height:90%"></div><div class="mini-bar up" style="height:95%"></div><div class="mini-bar up" style="height:100%"></div></div></div>
+                    <div class="market-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="mono" style="font-weight:500;font-size:0.78rem;color:var(--text-dark);">GBP/USD</span><span class="analytics-badge badge-up">+0.31%</span></div><div class="mono" style="font-size:1.4rem;font-weight:500;color:var(--text-dark);">1.26840</div><div class="mini-bars"><div class="mini-bar down" style="height:60%"></div><div class="mini-bar up" style="height:65%"></div><div class="mini-bar up" style="height:70%"></div><div class="mini-bar down" style="height:58%"></div><div class="mini-bar up" style="height:74%"></div><div class="mini-bar up" style="height:80%"></div><div class="mini-bar up" style="height:85%"></div><div class="mini-bar up" style="height:90%"></div></div></div>
                 </div>
             </div>
 
-            <!-- Asset -->
-            <div class="space-y-3">
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Asset</label>
-                <div class="grid grid-cols-4 gap-1">
-                    <button data-cat="volatility" onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Vol</button>
-                    <button data-cat="crypto"     onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Crypto</button>
-                    <button data-cat="forex"      onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Forex</button>
-                    <button data-cat="jump"       onclick="setCategory(this)" class="cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all">Jump</button>
+            <!-- ══ ANALYTICS PAGE ═════════════════════════════ -->
+            <div id="page-analytics" class="page-panel" style="overflow-y:auto;">
+                <div class="analytics-grid">
+                    <div class="analytics-card dark"><div class="stat-label">Total Trades</div><div class="analytics-big-num">142</div><span class="analytics-badge badge-up">+12 this week</span></div>
+                    <div class="analytics-card"><div class="stat-label">Win Rate</div><div class="analytics-big-num" style="color:var(--accent2);">68.3%</div><span class="analytics-badge badge-up">↑ 3.1%</span></div>
+                    <div class="analytics-card"><div class="stat-label">Avg RR Ratio</div><div class="analytics-big-num">1.82</div><span class="analytics-badge badge-up">Good</span></div>
+                    <div class="analytics-card dark span-2"><div class="stat-label">Cumulative P&amp;L</div><div class="analytics-big-num" style="color:var(--accent2);">+$1,248.40</div><div class="mini-bars" style="height:60px;margin-top:14px;"><div class="mini-bar up" style="height:40%"></div><div class="mini-bar up" style="height:55%"></div><div class="mini-bar down" style="height:35%"></div><div class="mini-bar up" style="height:65%"></div><div class="mini-bar up" style="height:72%"></div><div class="mini-bar down" style="height:50%"></div><div class="mini-bar up" style="height:80%"></div><div class="mini-bar up" style="height:88%"></div><div class="mini-bar up" style="height:95%"></div><div class="mini-bar down" style="height:78%"></div><div class="mini-bar up" style="height:85%"></div><div class="mini-bar up" style="height:100%"></div></div></div>
+                    <div class="analytics-card"><div class="stat-label">Max Drawdown</div><div class="analytics-big-num" style="color:var(--accent3);">-$184</div><span class="analytics-badge badge-down">12.8%</span></div>
+                    <div class="analytics-card"><div class="stat-label">Best Strategy</div><div style="font-size:0.88rem;font-weight:600;color:var(--text-dark);margin:8px 0 6px;">Momentum Scalper</div><span class="analytics-badge badge-up">74% WR</span></div>
+                    <div class="analytics-card"><div class="stat-label">Worst Symbol</div><div class="mono" style="font-size:0.88rem;font-weight:500;color:var(--text-dark);margin:8px 0 6px;">XAUUSD</div><span class="analytics-badge badge-down">44% WR</span></div>
+                    <div class="analytics-card"><div class="stat-label">Avg Trade Duration</div><div class="analytics-big-num">14m</div><span style="font-size:0.62rem;color:var(--text-muted);">per signal</span></div>
                 </div>
-                <select id="symbol" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none"></select>
             </div>
 
-            <!-- Timeframe -->
-            <div class="space-y-2">
-                <label class="text-[10px] font-bold text-slate-500 uppercase">Timeframe</label>
-                <select id="timeframe" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-emerald-400 outline-none">
+            <!-- ══ TRADE HISTORY PAGE ═════════════════════════ -->
+            <div id="page-history" class="page-panel">
+                <div class="trade-table-wrap">
+                    <table class="trade-table">
+                        <thead>
+                            <tr><th>Time</th><th>Symbol</th><th>Strategy</th><th>Direction</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Result</th><th>P&amp;L</th></tr>
+                        </thead>
+                        <tbody id="trade-history-body">
+                            <tr><td>09:14:22</td><td>BTCUSD</td><td>Momentum</td><td><span class="trade-badge trade-buy">BUY</span></td><td>68,210.00</td><td>68,580.50</td><td>67,950.00</td><td>68,600.00</td><td><span class="trade-badge trade-tp">TP</span></td><td style="color:var(--accent2);">+370.50</td></tr>
+                            <tr><td>10:02:47</td><td>XAUUSD</td><td>KISS H4</td><td><span class="trade-badge trade-sell">SELL</span></td><td>2,324.10</td><td>2,319.40</td><td>2,327.00</td><td>2,315.00</td><td><span class="trade-badge trade-sl">SL</span></td><td style="color:var(--accent3);">-290.00</td></tr>
+                            <tr><td>11:38:55</td><td>V100</td><td>BB+RSI</td><td><span class="trade-badge trade-buy">BUY</span></td><td>9,812.40</td><td>9,847.32</td><td>9,790.00</td><td>9,860.00</td><td><span class="trade-badge trade-tp">TP</span></td><td style="color:var(--accent2);">+34.92</td></tr>
+                            <tr><td>12:15:10</td><td>EURUSD</td><td>Momentum</td><td><span class="trade-badge trade-sell">SELL</span></td><td>1.08520</td><td>1.08412</td><td>1.08640</td><td>1.08380</td><td><span class="trade-badge trade-tp">TP</span></td><td style="color:var(--accent2);">+108.00</td></tr>
+                            <tr><td>13:44:30</td><td>ETHUSD</td><td>Momentum</td><td><span class="trade-badge trade-buy">BUY</span></td><td>3,588.20</td><td>3,621.80</td><td>3,560.00</td><td>3,630.00</td><td><span class="trade-badge trade-tp">TP</span></td><td style="color:var(--accent2);">+33.60</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ SETTINGS PAGE ══════════════════════════════ -->
+            <div id="page-settings" class="page-panel" style="overflow-y:auto;">
+                <div class="settings-grid">
+                    <div class="settings-card"><h3>Connection</h3><div class="settings-row"><span>Deriv API Token</span><input type="password" value="••••••••••••" style="width:130px;font-size:0.7rem;padding:5px 10px;"></div><div class="settings-row"><span>MT5 Server URL</span><input type="text" placeholder="localhost:8080" style="width:130px;font-size:0.7rem;padding:5px 10px;"></div><div class="settings-row"><label>Auto-reconnect</label><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div></div>
+                    <div class="settings-card"><h3>Risk Management</h3><div class="settings-row"><span>Max Daily Loss ($)</span><input type="number" value="500" style="width:75px;font-size:0.7rem;padding:5px 10px;"></div><div class="settings-row"><span>Max Bots Running</span><input type="number" value="3" style="width:75px;font-size:0.7rem;padding:5px 10px;"></div><div class="settings-row"><label>Loss Protection</label><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div><div class="settings-row"><label>Session Filter</label><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label></div></div>
+                    <div class="settings-card"><h3>Data &amp; Logging</h3><div class="settings-row"><label>Log Training Data</label><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div><div class="settings-row"><label>Export CSV on Stop</label><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label></div><div class="settings-row"><span>Log Retention (days)</span><input type="number" value="30" style="width:75px;font-size:0.7rem;padding:5px 10px;"></div></div>
+                    <div class="settings-card"><h3>Display</h3><div class="settings-row"><label>Wave Background</label><label class="toggle"><input type="checkbox" id="toggle-waves" checked onchange="document.getElementById('wave-canvas').style.opacity=this.checked?'0.55':'0'"><span class="toggle-slider"></span></label></div><div class="settings-row"><label>Ticker Bar</label><label class="toggle"><input type="checkbox" checked onchange="document.getElementById('ticker').style.display=this.checked?'flex':'none'"><span class="toggle-slider"></span></label></div><div class="settings-row"><span>Chart Theme</span><select style="width:100px;font-size:0.68rem;padding:5px 8px;"><option>Light</option><option>Dark</option></select></div></div>
+                </div>
+            </div>
+
+        </div><!-- /workspace -->
+    </div><!-- /main-content -->
+</div><!-- /app-shell -->
+
+<!-- ── BOT CARD TEMPLATE ─────────────────────────────────────── -->
+<template id="bot-card-template">
+    <div class="bot-card stopped" data-bot-id="">
+
+        <!-- Header row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div class="status-dot status-offline bot-status-dot"></div>
+                <span class="bot-symbol-label">—</span>
+            </div>
+            <button class="bot-remove-btn" title="Remove">×</button>
+        </div>
+
+        <!-- Strategy selector — full width -->
+        <div style="margin-bottom:6px;">
+            <div class="stat-label" style="margin-bottom:4px;">Strategy</div>
+            <select class="bot-strategy-select">
+                <option value="momentum">Momentum Scalper</option>
+                <option value="h4_kiss">KISS H4</option>
+                <option value="synthetic_scalp">BB+RSI Synthetic</option>
+            </select>
+        </div>
+
+        <!-- Symbol + TF row -->
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+            <div style="flex:1;min-width:0;">
+                <div class="stat-label" style="margin-bottom:4px;">Symbol</div>
+                <select class="bot-symbol-select"></select>
+            </div>
+            <div style="width:60px;">
+                <div class="stat-label" style="margin-bottom:4px;">TF</div>
+                <select class="bot-tf-select">
                     <option value="60">M1</option>
-                    <option value="120">M2</option>
-                    <option value="300">M5</option>
-                    <option value="600">M10</option>
+                    <option value="300" selected>M5</option>
                     <option value="900">M15</option>
-                    <option value="1800">M30</option>
                     <option value="3600">H1</option>
                     <option value="14400">H4</option>
-                    <option value="86400">D1</option>
                 </select>
             </div>
+        </div>
 
-            <button id="btn-start" class="mt-auto w-full py-4 rounded-xl bg-slate-800 border border-slate-600 text-white font-black text-xs uppercase tracking-[0.2em] transition-all hover:bg-slate-700">
-                START BOT
-            </button>
-        </aside>
+        <hr class="bot-card-divider">
 
-        <section class="flex-1 flex flex-col gap-5 min-w-0">
-            <div class="flex-1 glass-panel rounded-2xl p-2 glow-cyan relative overflow-hidden">
-                <div id="chart" class="w-full h-full"></div>
-            </div>
-            <div class="h-52 glass-panel rounded-2xl p-4 flex flex-col shrink-0">
-                <div class="flex justify-between items-center mb-2 border-b border-slate-800 pb-2">
-                    <span class="text-[10px] font-bold uppercase text-slate-500 tracking-widest">System Event Logs</span>
-                    <button onclick="document.getElementById('logs').innerHTML=''" class="text-[9px] text-slate-600 hover:text-red-400">CLEAR TERMINAL</button>
+        <!-- Stats -->
+        <div class="stat-grid" style="margin-bottom:10px;">
+            <div class="stat-item">
+                <div class="stat-label">W / L</div>
+                <div class="stat-value" style="font-size:0.85rem;">
+                    <span class="bot-wins" style="color:var(--accent2);">0</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem;"> / </span>
+                    <span class="bot-losses" style="color:var(--accent3);">0</span>
                 </div>
-                <div id="logs" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1.5 pr-2"></div>
             </div>
-        </section>
-    </main>
+            <div class="stat-item">
+                <div class="stat-label">P&amp;L</div>
+                <div class="bot-pnl stat-value" style="font-size:0.85rem;">0.00</div>
+            </div>
+        </div>
 
-    <script>
-        const strategyInfo = {
-            momentum:        { label: '📈 Momentum Scalper',         badge: 'FOREX/GOLD',    color: 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300', badgeColor: 'bg-emerald-900/50 text-emerald-400', desc: 'Engulfing candles, 3-consecutive, and big body patterns with EMA + H4 trend confirmation. Session-aware — London & New York only for Forex/Gold.', tf: 'M5', sym: 'Gold, EUR/USD, GBP/USD' },
-            trend:           { label: '🔄 Trend Follow',             badge: 'ALL MARKETS',   color: 'border-cyan-500/40 bg-cyan-950/30 text-cyan-300',           badgeColor: 'bg-cyan-900/50 text-cyan-400',     desc: 'Follows EMA 50 with RSI confirmation. Enters pullbacks in trend direction.', tf: 'M15/H1', sym: 'Any' },
-            reversal:        { label: '↩️ Reversal',                 badge: 'ALL MARKETS',   color: 'border-amber-500/40 bg-amber-950/30 text-amber-300',        badgeColor: 'bg-amber-900/50 text-amber-400',   desc: 'Targets RSI extremes (80/20) with price action confirmation. Catches overextended moves.', tf: 'M15/H1', sym: 'Any' },
-            swing:           { label: '🌊 Swing Master (ICT)',       badge: 'FOREX/GOLD',    color: 'border-violet-500/40 bg-violet-950/30 text-violet-300',     badgeColor: 'bg-violet-900/50 text-violet-400', desc: 'ICT Fair Value Gap and liquidity sweep detection. Institutional order flow signatures.', tf: 'H1/H4', sym: 'Gold, Major pairs' },
-            h4_kiss:         { label: '💋 KISS H4',                  badge: 'FOREX/GOLD',    color: 'border-pink-500/40 bg-pink-950/30 text-pink-300',           badgeColor: 'bg-pink-900/50 text-pink-400',     desc: 'Breakouts and bounces off previous H4 levels. Simple and effective on trending markets.', tf: 'M15', sym: 'Gold, Major pairs' },
-            orb:             { label: '⏱️ ORB Scalper',              badge: 'SYNTHETICS',    color: 'border-orange-500/40 bg-orange-950/30 text-orange-300',     badgeColor: 'bg-orange-900/50 text-orange-400', desc: 'Opening Range Breakout — 00:00-00:15 UTC range, fires on M1 breakout confirmed on M5/M15.', tf: 'M1 chart / M5 analysis', sym: 'Vol indices, BTC' },
-            london_breakout: { label: '🌅 London Breakout',          badge: 'FOREX/GOLD',    color: 'border-yellow-500/40 bg-yellow-950/30 text-yellow-200',     badgeColor: 'bg-yellow-900/50 text-yellow-400', desc: 'Marks Asian session range (00:00-06:00 UTC) then trades the breakout when London opens at 08:00. One trade per day maximum.', tf: 'M5/M15', sym: 'Gold, GBP/USD, EUR/USD' },
-            news_fade:       { label: '📰 News Fade',                badge: 'FOREX/GOLD',    color: 'border-red-500/40 bg-red-950/30 text-red-300',              badgeColor: 'bg-red-900/50 text-red-400',       desc: 'Detects ATR spikes 3x+ normal (news events) then fades the spike expecting 30-50% retracement. Best during NFP, CPI, FOMC.', tf: 'M5', sym: 'Gold, EUR/USD, GBP/USD' },
-            synthetic_scalp: { label: '🎲 Synthetic Scalper',        badge: 'SYNTHETICS',    color: 'border-cyan-400/40 bg-cyan-950/30 text-cyan-200',           badgeColor: 'bg-cyan-900/60 text-cyan-300',     desc: 'Mean reversion using Bollinger Band extremes + RSI. Price snaps back to the mean on synthetics by design. Works 24/7.', tf: 'M1/M5', sym: 'V10-V100, Jump indices' },
-            rsi_fade:        { label: '📉 RSI Fade Scalper',         badge: 'SYNTHETICS',    color: 'border-teal-500/40 bg-teal-950/30 text-teal-200',           badgeColor: 'bg-teal-900/50 text-teal-400',     desc: 'Pure RSI extreme fading for synthetics. When RSI hits 88+ or 12-, the volatility algorithm is statistically obligated to revert. Simplest and fastest synthetic strategy.', tf: 'M1/M5', sym: 'V10-V100, Jump indices' },
-            range_boundary:  { label: '📦 Range Boundary Scalper',   badge: 'SYNTHETICS',    color: 'border-indigo-500/40 bg-indigo-950/30 text-indigo-200',     badgeColor: 'bg-indigo-900/50 text-indigo-400', desc: 'Marks the 50-candle statistical range boundary, then scalps price rejecting at the top or bottom. Synthetics respect range boundaries more than any real market.', tf: 'M5/M15', sym: 'V10-V100, Jump indices' },
-            crypto_scalp:    { label: '₿ Crypto Scalper',            badge: 'CRYPTO',        color: 'border-yellow-500/40 bg-yellow-950/30 text-yellow-200',     badgeColor: 'bg-yellow-900/50 text-yellow-400', desc: 'Detects tight consolidation then fires on large body breakout candle. Avoids RSI exhaustion entries. Built for BTC/ETH coil-and-explode patterns.', tf: 'M5/M15', sym: 'BTC, ETH, LTC' },
-            vwap_reversion:  { label: '⚖️ VWAP Reversion',           badge: 'CRYPTO',        color: 'border-lime-500/40 bg-lime-950/30 text-lime-200',           badgeColor: 'bg-lime-900/50 text-lime-400',     desc: 'Trades when price deviates 1.5x ATR from approximate VWAP then starts reverting. BTC consistently gravitates back to VWAP intraday.', tf: 'M5/M15', sym: 'BTC, ETH' },
-            candle_speed:    { label: '🚀 Candle Speed Scalper',      badge: 'CRYPTO',        color: 'border-rose-500/40 bg-rose-950/30 text-rose-200',           badgeColor: 'bg-rose-900/50 text-rose-400',     desc: 'Detects ATR spikes 2x+ normal (liquidation cascades) and enters in the burst direction. Captures BTC liquidation moves with quick TP.', tf: 'M1/M5', sym: 'BTC, ETH' },
-            ultra_scalp:     { label: '⚡ Ultra Scalper (TEST)',      badge: 'ALL SYMBOLS',   color: 'border-fuchsia-500/40 bg-fuchsia-950/30 text-fuchsia-200',  badgeColor: 'bg-fuchsia-900/50 text-fuchsia-400', desc: 'FASTEST strategy — fires within seconds on any symbol. Requires just 2 consecutive same-direction candles + live candle confirming. Demo/pipeline testing only. Fires very frequently.', tf: 'M1', sym: 'Any symbol' },
-        };
+        <button class="bot-toggle-btn btn-pro" style="width:100%;padding:9px;font-size:0.66rem;letter-spacing:0.08em;">
+            START BOT
+        </button>
+    </div>
+</template>
 
-        function renderStrategyCard(key) {
-            const info = strategyInfo[key];
-            if (!info) return;
-            const card = document.getElementById('strategy-card');
-            card.className = `rounded-xl p-3 border text-[10px] leading-relaxed font-mono transition-all ${info.color}`;
-            card.innerHTML = `
-                <div class="flex items-center justify-between mb-2">
-                    <span class="font-bold text-[11px]">${info.label}</span>
-                    <span class="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${info.badgeColor}">${info.badge}</span>
-                </div>
-                <p class="opacity-80 mb-2">${info.desc}</p>
-                <div class="flex gap-3 opacity-60 text-[9px]">
-                    <span>⏱ ${info.tf}</span>
-                    <span>📊 ${info.sym}</span>
-                </div>`;
-        }
+<!-- ── SCRIPTS ───────────────────────────────────────────────── -->
+<script type="module" src="js/ui-manager.js"></script>
+<script type="module" src="signal-bot.js"></script>
 
-        // ─── Symbol Categories ─────────────────────────────────────────────
-        const SYMBOL_CATEGORIES = {
-            volatility: [
-                { value: 'R_10',    label: 'Volatility 10 Index'  },
-                { value: 'R_25',    label: 'Volatility 25 Index'  },
-                { value: 'R_50',    label: 'Volatility 50 Index'  },
-                { value: 'R_75',    label: 'Volatility 75 Index'  },
-                { value: 'R_100',   label: 'Volatility 100 Index' },
-                { value: '1HZ10V',  label: 'Volatility 10 (1s)'   },
-                { value: '1HZ25V',  label: 'Volatility 25 (1s)'   },
-                { value: '1HZ50V',  label: 'Volatility 50 (1s)'   },
-                { value: '1HZ75V',  label: 'Volatility 75 (1s)'   },
-                { value: '1HZ100V', label: 'Volatility 100 (1s)'  },
-            ],
-            crypto: [
-                { value: 'cryBTCUSD', label: 'Bitcoin / USD'  },
-                { value: 'cryETHUSD', label: 'Ethereum / USD' },
-                { value: 'cryLTCUSD', label: 'Litecoin / USD' },
-                { value: 'cryXRPUSD', label: 'Ripple / USD'   },
-            ],
-            forex: [
-                { value: 'frxXAUUSD', label: 'Gold / USD'   },
-                { value: 'frxXAGUSD', label: 'Silver / USD' },
-                { value: 'frxEURUSD', label: 'EUR / USD'    },
-                { value: 'frxGBPUSD', label: 'GBP / USD'    },
-                { value: 'frxUSDJPY', label: 'USD / JPY'    },
-                { value: 'frxAUDUSD', label: 'AUD / USD'    },
-                { value: 'frxUSDCAD', label: 'USD / CAD'    },
-                { value: 'frxUSDCHF', label: 'USD / CHF'    },
-                { value: 'frxEURGBP', label: 'EUR / GBP'    },
-                { value: 'frxGBPJPY', label: 'GBP / JPY'    },
-            ],
-            jump: [
-                { value: 'JD10',  label: 'Jump 10 Index'  },
-                { value: 'JD25',  label: 'Jump 25 Index'  },
-                { value: 'JD50',  label: 'Jump 50 Index'  },
-                { value: 'JD75',  label: 'Jump 75 Index'  },
-                { value: 'JD100', label: 'Jump 100 Index' },
-            ]
-        };
+<script>
+/* ── CLOCK ──────────────────────────────────────────────────── */
+(function () {
+    const pad = n => String(n).padStart(2, '0');
+    function tick() {
+        const n = new Date();
+        const cl = document.getElementById('clock');
+        const dt = document.getElementById('utc-date');
+        if (cl) cl.textContent = `${pad(n.getUTCHours())}:${pad(n.getUTCMinutes())}:${pad(n.getUTCSeconds())}`;
+        if (dt) { const p = n.toUTCString().split(' '); dt.textContent = `${p[1]} ${p[2]} ${p[3]} UTC`; }
+    }
+    setInterval(tick, 1000);
+    tick();
+})();
 
-        function setCategory(btn) {
-            document.querySelectorAll('.cat-btn').forEach(b => {
-                b.className = 'cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-all';
-            });
-            btn.className = 'cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-cyan-900/50 border border-cyan-500/50 text-cyan-400 transition-all';
-            currentCategory = btn.dataset.cat;
-            populateSymbols(currentCategory);
-        }
+/* ── PAGE SWITCHER ──────────────────────────────────────────── */
+function switchPage(pageId, navEl) {
+    document.querySelectorAll('.page-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const panel = document.getElementById('page-' + pageId);
+    if (panel) panel.classList.add('active');
+    if (navEl) navEl.classList.add('active');
+    // Show sidebar only on terminal page; hide on full-page views
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.style.display = (pageId === 'terminal') ? 'flex' : 'none';
+}
 
-        function populateSymbols(category, selectedValue = null) {
-            const select  = document.getElementById('symbol');
-            const symbols = SYMBOL_CATEGORIES[category] || [];
-            select.innerHTML = symbols.map(s =>
-                `<option value="${s.value}" ${s.value === selectedValue ? 'selected' : ''}>${s.label}</option>`
-            ).join('');
-        }
+/* ── WAVE BACKGROUND ────────────────────────────────────────── */
+(function initWaves() {
+    const canvas = document.getElementById('wave-canvas');
+    const ctx    = canvas.getContext('2d');
+    let W, H, t  = 0;
 
-        let currentCategory = 'volatility';
-        populateSymbols('volatility');
-        document.querySelector('[data-cat="volatility"]').className =
-            'cat-btn py-1.5 text-[9px] font-bold uppercase rounded-lg bg-cyan-900/50 border border-cyan-500/50 text-cyan-400 transition-all';
-        renderStrategyCard('momentum');
+    function resize() {
+        W = canvas.width  = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
 
-        document.getElementById('strategy').addEventListener('change', function() {
-            renderStrategyCard(this.value);
-            const orbRow   = document.getElementById('orb-htf-row');
-            const tfSelect = document.getElementById('timeframe');
-            if (this.value === 'orb') {
-                orbRow.classList.remove('hidden');
-                tfSelect.value = '60';
-            } else if (['momentum', 'london_breakout', 'news_fade'].includes(this.value)) {
-                orbRow.classList.add('hidden');
-                tfSelect.value = '300';
-                const forexBtn = document.querySelector('[data-cat="forex"]');
-                if (forexBtn) setCategory(forexBtn);
-            } else if (['synthetic_scalp', 'rsi_fade', 'range_boundary'].includes(this.value)) {
-                orbRow.classList.add('hidden');
-                tfSelect.value = '300';
-                const volBtn = document.querySelector('[data-cat="volatility"]');
-                if (volBtn) setCategory(volBtn);
-            } else if (['crypto_scalp', 'vwap_reversion', 'candle_speed'].includes(this.value)) {
-                orbRow.classList.add('hidden');
-                tfSelect.value = '300';
-                const cryptoBtn = document.querySelector('[data-cat="crypto"]');
-                if (cryptoBtn) setCategory(cryptoBtn);
-            } else if (this.value === 'ultra_scalp') {
-                orbRow.classList.add('hidden');
-                tfSelect.value = '60';
-            } else {
-                orbRow.classList.add('hidden');
+    const waves = [
+        { amp: 40, freq: 0.0044, speed: 0.006, y: 0.30, color: 'rgba(148,163,184,0.18)', lw: 1.5 },
+        { amp: 28, freq: 0.0056, speed: 0.009, y: 0.46, color: 'rgba(100,130,200,0.13)', lw: 1.2 },
+        { amp: 48, freq: 0.0034, speed: 0.004, y: 0.60, color: 'rgba(148,163,184,0.11)', lw: 1.8 },
+        { amp: 22, freq: 0.0072, speed: 0.012, y: 0.74, color: 'rgba(80,110,180,0.09)',  lw: 1.0 },
+        { amp: 34, freq: 0.0026, speed: 0.003, y: 0.18, color: 'rgba(160,180,212,0.10)', lw: 1.4 },
+    ];
+
+    function draw() {
+        ctx.clearRect(0, 0, W, H);
+        waves.forEach(w => {
+            ctx.beginPath();
+            ctx.strokeStyle = w.color;
+            ctx.lineWidth   = w.lw;
+            ctx.moveTo(0, H * w.y + Math.sin(t * w.speed) * w.amp);
+            for (let x = 0; x <= W; x += 3) {
+                const y = H * w.y
+                    + Math.sin(x * w.freq + t * w.speed) * w.amp
+                    + Math.sin(x * w.freq * 0.5 + t * w.speed * 0.7) * (w.amp * 0.4);
+                ctx.lineTo(x, y);
             }
+            ctx.stroke();
         });
+        t += 1;
+        requestAnimationFrame(draw);
+    }
+    draw();
+})();
+</script>
 
-        setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString();
-        }, 1000);
-
-        function setStatus(connected) {
-            const dot = document.getElementById('connection-indicator');
-            dot.className = connected ?
-                'w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]' :
-                'w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_red]';
-        }
-    </script>
-
-<script type="module" src="./signal-bot.js"></script>
 </body>
 </html>

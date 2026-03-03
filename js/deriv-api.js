@@ -2,11 +2,11 @@ import { UIManager } from './ui-manager.js';
 
 export class DerivAPI {
     constructor(appId, onMessage) {
-        this.appId = appId;
-        this.onMessage = onMessage;
-        this.socket = null;
+        this.appId      = appId;
+        this.onMessage  = onMessage;
+        this.socket     = null;
         this._pingInterval = null;
-        this.symbolMap = {}; // Deriv symbol → display name
+        this.symbolMap  = {};
     }
 
     connect(token) {
@@ -15,6 +15,7 @@ export class DerivAPI {
         this.socket.onopen = () => {
             this.socket.send(JSON.stringify({ authorize: token }));
             this.startKeepAlive();
+            UIManager.log('WebSocket opened — authorizing...', 'info');
         };
 
         this.socket.onmessage = (msg) => {
@@ -25,28 +26,29 @@ export class DerivAPI {
         this.socket.onclose = () => {
             clearInterval(this._pingInterval);
             UIManager.setConnectionStatus(false);
-            UIManager.log("Connection closed.", "text-amber-400");
+            // ✅ FIXED: use 'warn' not Tailwind class string
+            UIManager.log('Connection closed — will not auto-reconnect.', 'warn');
         };
 
         this.socket.onerror = (err) => {
-            console.error("WebSocket error:", err);
-            UIManager.log("WebSocket error. Check console.", "text-red-400");
+            console.error('WebSocket error:', err);
+            // ✅ FIXED: use 'warn' not Tailwind class string
+            UIManager.log('WebSocket error — check browser console.', 'warn');
         };
     }
 
-    // Call this after authorization to populate symbol map
     fetchActiveSymbols() {
         this.socket.send(JSON.stringify({ active_symbols: 'brief' }));
     }
 
     subscribe(symbol, granularity) {
         const request = {
-            ticks_history: symbol,
-            subscribe: 1,
-            granularity: parseInt(granularity),
-            count: 500,
-            style: 'candles',
-            end: 'latest',
+            ticks_history:    symbol,
+            subscribe:        1,
+            granularity:      parseInt(granularity),
+            count:            500,
+            style:            'candles',
+            end:              'latest',
             adjust_start_time: 1
         };
         this.socket.send(JSON.stringify(request));
@@ -59,5 +61,13 @@ export class DerivAPI {
                 this.socket.send(JSON.stringify({ ping: 1 }));
             }
         }, 30000);
+    }
+
+    disconnect() {
+        clearInterval(this._pingInterval);
+        if (this.socket) {
+            this.socket.close();
+            this.socket = null;
+        }
     }
 }
