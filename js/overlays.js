@@ -1,255 +1,306 @@
+// js/overlays.js
+// All chart overlay drawings for NEXUS.
+// Each function takes a LightweightCharts candleSeries and candle array.
+// Call OverlayManager.clearAll(series) before redrawing.
+
+// Jamaica is UTC-5 (no DST). All session times are expressed in UTC
+// but derived from Jamaica local time by adding 5 hours.
+const JA_OFFSET = 5 * 3600; // seconds to add to get UTC from Jamaica time
+
+// Returns the UTC timestamp for midnight Jamaica time on the day of `unixTs`
+function _jaMidnightUTC(unixTs) {
+    const jaTime  = unixTs - JA_OFFSET;          // shift to Jamaica time
+    const jaMid   = jaTime - (jaTime % 86400);   // midnight in Jamaica
+    return jaMid + JA_OFFSET;                    // back to UTC
+}
+
 export const OverlayManager = {
-    _lines:    [],
-    _markers:  [],
-    _series:   null,
+
+    _lines: [],   // tracks all active price lines for cleanup
 
     clearAll(series) {
-        this._lines.forEach(l => { try { series.removePriceLine(l); } catch(e) {} });
-        this._lines = [];
-        this._markers = [];
-        if (series) series.setMarkers([]);
-    },
-
-    _addLine(series, price, color, label, style = 0, width = 1) {
-        const line = series.createPriceLine({
-            price,
-            color,
-            lineWidth: width,
-            lineStyle: style,
-            axisLabelVisible: true,
-            title: label
+        this._lines.forEach(line => {
+            try { series.removePriceLine(line); } catch(e) {}
         });
-        this._lines.push(line);
-        return line;
+        this._lines = [];
     },
 
-    // ── Asian Range ──────────────────────────────────────────────────────────
+    _addLine(series, price, title, color, style = 1, width = 1) {
+        if (!price || isNaN(price)) return;
+        try {
+            const line = series.createPriceLine({
+                price,
+                color,
+                lineWidth:        width,
+                lineStyle:        style, // 0=solid 1=dotted 2=dashed 3=large dashed
+                axisLabelVisible: true,
+                title,
+            });
+            this._lines.push(line);
+        } catch(e) {}
+    },
+
+    // ── ASIAN SESSION RANGE ────────────────────────────────────
+    // Asian session: 00:00–08:00 Tokyo (19:00–03:00 EST / 00:00–08:00 UTC+9)
+    // In Jamaica time: 11:00 PM prior day – 07:00 AM
+    // In UTC: 04:00 – 12:00 UTC
     drawAsianRange(series, candles) {
-        if (!candles || candles.length < 2) return;
-        const now        = new Date();
-        const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
-        const asianEnd   = todayStart + 6 * 3600;
-        const asian      = candles.filter(c => c.time >= todayStart && c.time < asianEnd);
-        if (!asian.length) return;
-        const high = Math.max(...asian.map(c => c.high));
-        const low  = Math.min(...asian.map(c => c.low));
-        this._addLine(series, high, '#f59e0b88', 'Asian H', 1, 1);
-        this._addLine(series, low,  '#f59e0b88', 'Asian L', 1, 1);
+        if (!candles?.length) return;
+
+        const now       = candles[candles.length - 1].time;
+        const jaMidUTC  = _jaMidnightUTC(now);
+        const asianStart = jaMidUTC - JA_OFFSET + 4 * 3600; // 04:00 UTC (prev midnight + offsets)
+        const asianEnd   = asianStart + 8 * 3600;             // 12:00 UTC = 07:00 Jamaica
+
+        const session = candles.filter(c =>
+            c.time >= asianStart && c.time < asianEnd
+        );
+        if (session.length < 3) return;
+
+        const high = Math.max(...session.map(c => c.high));
+        const low  = Math.min(...session.map(c => c.low));
+
+        this._addLine(series, high, 'Asia H', 'rgba(168,85,247,0.7)',  2, 1);
+        this._addLine(series, low,  'Asia L', 'rgba(168,85,247,0.7)',  2, 1);
     },
 
-    // ── PDH / PDL ────────────────────────────────────────────────────────────
+    // ── PREVIOUS DAY HIGH / LOW ────────────────────────────────
     drawPDHPDL(series, h4Candles) {
-        if (!h4Candles || h4Candles.length < 2) return;
-        const prev = h4Candles[h4Candles.length - 2];
-        this._addLine(series, prev.high, '#38bdf888', 'PDH', 2, 1);
-        this._addLine(series, prev.low,  '#f4728488', 'PDL', 2, 1);
+        if (!h4Candles?.length) return;
+
+        const now       = h4Candles[h4Candles.length - 1].time;
+        const today     = _jaMidnightUTC(now);
+        const yesterday = today - 86400;
+
+        const prevDay = h4Candles.filter(c =>
+            c.time >= yesterday && c.time < today
+        );
+        if (prevDay.length < 2) return;
+
+        const pdh = Math.max(...prevDay.map(c => c.high));
+        const pdl = Math.min(...prevDay.map(c => c.low));
+
+        this._addLine(series, pdh, 'PDH', 'rgba(251,146,60,0.8)',  3, 1);
+        this._addLine(series, pdl, 'PDL', 'rgba(251,146,60,0.8)',  3, 1);
     },
 
-    // ── Fair Value Gaps — BOXES ──────────────────────────────────────────────
-    // FVG = 3-candle pattern where candle[1] leaves a gap between candle[0] high
-    // and candle[2] low (bullish) or candle[0] low and candle[2] high (bearish)
+    // ── FAIR VALUE GAPS (FVG) ──────────────────────────────────
+    // A 3-candle pattern where candle 1 high < candle 3 low (bull FVG)
+    // or candle 1 low > candle 3 high (bear FVG)
     drawFVG(series, candles) {
         if (!candles || candles.length < 3) return;
-        const recent   = candles.slice(-30);
-        const markers  = [];
+
+        const recent = candles.slice(-60); // scan last 60 bars
+        const found  = [];
 
         for (let i = 1; i < recent.length - 1; i++) {
-            const prev = recent[i - 1];
-            const curr = recent[i];
-            const next = recent[i + 1];
+            const c1 = recent[i - 1];
+            const c2 = recent[i];
+            const c3 = recent[i + 1];
 
-            // Bullish FVG — gap between prev.high and next.low
-            if (next.low > prev.high) {
-                markers.push({
-                    time:     curr.time,
-                    position: 'belowBar',
-                    color:    '#22c55e',
-                    shape:    'square',
-                    text:     `▣ FVG ${prev.high.toFixed(2)}-${next.low.toFixed(2)}`
-                });
-                // Draw box boundaries
-                this._addLine(series, prev.high, '#22c55e44', 'FVG↑ bot', 1, 1);
-                this._addLine(series, next.low,  '#22c55e44', 'FVG↑ top', 1, 1);
+            // Bullish FVG: gap between c1 high and c3 low
+            if (c3.low > c1.high) {
+                found.push({ mid: (c1.high + c3.low) / 2, type: 'bull' });
             }
-
-            // Bearish FVG — gap between next.high and prev.low
-            if (next.high < prev.low) {
-                markers.push({
-                    time:     curr.time,
-                    position: 'aboveBar',
-                    color:    '#ef4444',
-                    shape:    'square',
-                    text:     `▣ FVG ${next.high.toFixed(2)}-${prev.low.toFixed(2)}`
-                });
-                this._addLine(series, prev.low,  '#ef444444', 'FVG↓ top', 1, 1);
-                this._addLine(series, next.high, '#ef444444', 'FVG↓ bot', 1, 1);
+            // Bearish FVG: gap between c1 low and c3 high
+            if (c3.high < c1.low) {
+                found.push({ mid: (c1.low + c3.high) / 2, type: 'bear' });
             }
         }
 
-        if (markers.length) series.setMarkers(markers);
-    },
-
-    // ── Order Blocks ─────────────────────────────────────────────────────────
-    // Order Block = last bearish candle before a bullish impulse (bull OB)
-    // or last bullish candle before a bearish impulse (bear OB)
-    // These are institutional accumulation/distribution zones
-    drawOrderBlocks(series, candles) {
-        if (!candles || candles.length < 10) return;
-        const recent  = candles.slice(-50);
-        const markers = [];
-
-        for (let i = 2; i < recent.length - 3; i++) {
-            const c    = recent[i];
-            const next = recent[i + 1];
-            const n2   = recent[i + 2];
-            const n3   = recent[i + 3];
-
-            // Bullish Order Block — bearish candle followed by 3 bullish candles
-            // (institution sold, then bought aggressively — OB is demand zone)
-            const isBearOB  = c.close  < c.open;
-            const impulseUp = next.close > next.open &&
-                              n2.close   > n2.open   &&
-                              n3.close   > n3.open   &&
-                              n3.close   > c.high;
-
-            if (isBearOB && impulseUp) {
-                this._addLine(series, c.high, '#3b82f688', '⬛ Bull OB', 1, 2);
-                this._addLine(series, c.low,  '#3b82f644', '',          1, 1);
-                markers.push({
-                    time:     c.time,
-                    position: 'belowBar',
-                    color:    '#3b82f6',
-                    shape:    'square',
-                    text:     `OB↑ ${c.low.toFixed(2)}-${c.high.toFixed(2)}`
-                });
-            }
-
-            // Bearish Order Block — bullish candle followed by 3 bearish candles
-            const isBullOB   = c.close   > c.open;
-            const impulseDown = next.close < next.open &&
-                                n2.close   < n2.open   &&
-                                n3.close   < n3.open   &&
-                                n3.close   < c.low;
-
-            if (isBullOB && impulseDown) {
-                this._addLine(series, c.high, '#f9731644', '',           1, 1);
-                this._addLine(series, c.low,  '#f9731688', '⬛ Bear OB', 1, 2);
-                markers.push({
-                    time:     c.time,
-                    position: 'aboveBar',
-                    color:    '#f97316',
-                    shape:    'square',
-                    text:     `OB↓ ${c.low.toFixed(2)}-${c.high.toFixed(2)}`
-                });
-            }
-        }
-
-        if (markers.length) {
-            const existing = series.markers ? series.markers() : [];
-            series.setMarkers([...existing, ...markers]);
-        }
-    },
-
-    // ── Break of Structure ───────────────────────────────────────────────────
-    // BOS = price closes above a significant swing high (bullish BOS)
-    // or below a significant swing low (bearish BOS)
-    // Identifies trend changes and continuation signals
-    drawBreakOfStructure(series, candles) {
-        if (!candles || candles.length < 20) return;
-        const recent  = candles.slice(-60);
-        const markers = [];
-
-        for (let i = 10; i < recent.length - 2; i++) {
-            // Find swing high — candle higher than 5 candles each side
-            const window = 5;
-            const slice  = recent.slice(Math.max(0, i - window), i + window + 1);
-            const swingHigh = Math.max(...slice.map(c => c.high));
-            const swingLow  = Math.min(...slice.map(c => c.low));
-            const isSwingHigh = recent[i].high === swingHigh;
-            const isSwingLow  = recent[i].low  === swingLow;
-
-            // Check if a subsequent candle broke this level
-            for (let j = i + 1; j < Math.min(i + 10, recent.length); j++) {
-                // Bullish BOS — close above swing high
-                if (isSwingHigh && recent[j].close > recent[i].high) {
-                    this._addLine(series, recent[i].high, '#22c55eaa', '⚡ BOS↑', 0, 2);
-                    markers.push({
-                        time:     recent[j].time,
-                        position: 'aboveBar',
-                        color:    '#22c55e',
-                        shape:    'arrowUp',
-                        text:     'BOS↑'
-                    });
-                    break;
-                }
-                // Bearish BOS — close below swing low
-                if (isSwingLow && recent[j].close < recent[i].low) {
-                    this._addLine(series, recent[i].low, '#ef4444aa', '⚡ BOS↓', 0, 2);
-                    markers.push({
-                        time:     recent[j].time,
-                        position: 'belowBar',
-                        color:    '#ef4444',
-                        shape:    'arrowDown',
-                        text:     'BOS↓'
-                    });
-                    break;
-                }
-            }
-        }
-
-        if (markers.length) {
-            const existing = series.markers ? series.markers() : [];
-            series.setMarkers([...existing, ...markers]);
-        }
-    },
-
-    // ── H4 KISS ──────────────────────────────────────────────────────────────
-    drawH4Kiss(series, h4Candles) {
-        if (!h4Candles || h4Candles.length < 5) return;
-        const last = h4Candles[h4Candles.length - 1];
-        this._addLine(series, last.high, '#a78bfa88', 'H4 Hi', 0, 1);
-        this._addLine(series, last.low,  '#a78bfa88', 'H4 Lo', 0, 1);
-    },
-
-    // ── Major S/R ────────────────────────────────────────────────────────────
-    drawMajorSR(series, candles) {
-        if (!candles || candles.length < 50) return;
-        const recent  = candles.slice(-100);
-        const levels  = [];
-
-        for (let i = 5; i < recent.length - 5; i++) {
-            const c = recent[i];
-            const isHigh = recent.slice(i - 5, i + 6).every(x => x.high <= c.high);
-            const isLow  = recent.slice(i - 5, i + 6).every(x => x.low  >= c.low);
-            if (isHigh) levels.push({ price: c.high, type: 'R' });
-            if (isLow)  levels.push({ price: c.low,  type: 'S' });
-        }
-
-        // Deduplicate close levels
-        const deduped = levels.filter((l, i) =>
-            !levels.slice(0, i).some(x => Math.abs(x.price - l.price) < (candles[0]?.close || 1) * 0.001)
-        ).slice(-6);
-
-        deduped.forEach(l => {
-            this._addLine(
-                series, l.price,
-                l.type === 'R' ? '#f4728455' : '#22c55e55',
-                l.type, 2, 1
-            );
+        // Only draw the 3 most recent FVGs to avoid clutter
+        found.slice(-3).forEach(({ mid, type }) => {
+            const color = type === 'bull'
+                ? 'rgba(16,185,129,0.6)'
+                : 'rgba(239,68,68,0.6)';
+            this._addLine(series, mid, type === 'bull' ? 'FVG ↑' : 'FVG ↓', color, 2, 1);
         });
     },
 
-    // ── ORB Range ────────────────────────────────────────────────────────────
+    // ── H4 KISS LEVEL ──────────────────────────────────────────
+    // The H4 EMA21 level — price often "kisses" it before continuing
+    drawH4Kiss(series, h4Candles) {
+        if (!h4Candles || h4Candles.length < 21) return;
+
+        const period = 21;
+        const k      = 2 / (period + 1);
+        let ema = h4Candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
+        for (let i = period; i < h4Candles.length; i++) {
+            ema = h4Candles[i].close * k + ema * (1 - k);
+        }
+
+        this._addLine(series, ema, 'H4 EMA21', 'rgba(37,99,235,0.65)', 2, 1);
+    },
+
+    // ── MAJOR SUPPORT & RESISTANCE ─────────────────────────────
+    // Finds swing highs/lows with at least 3 touches
+    drawMajorSR(series, candles) {
+        if (!candles || candles.length < 20) return;
+
+        const lookback = Math.min(candles.length, 200);
+        const slice    = candles.slice(-lookback);
+        const atr      = _calcATR(slice, 14) || 0.001;
+        const tolerance = atr * 0.5;
+
+        const levels = [];
+
+        // Find swing highs and lows
+        for (let i = 2; i < slice.length - 2; i++) {
+            const c = slice[i];
+            const isSwingHigh = c.high > slice[i-1].high && c.high > slice[i-2].high
+                             && c.high > slice[i+1].high && c.high > slice[i+2].high;
+            const isSwingLow  = c.low  < slice[i-1].low  && c.low  < slice[i-2].low
+                             && c.low  < slice[i+1].low  && c.low  < slice[i+2].low;
+
+            if (isSwingHigh) levels.push({ price: c.high, type: 'R' });
+            if (isSwingLow)  levels.push({ price: c.low,  type: 'S' });
+        }
+
+        // Cluster nearby levels and keep those with 2+ touches
+        const clusters = [];
+        levels.forEach(l => {
+            const existing = clusters.find(c =>
+                Math.abs(c.price - l.price) < tolerance
+            );
+            if (existing) {
+                existing.count++;
+                existing.price = (existing.price + l.price) / 2; // average
+            } else {
+                clusters.push({ ...l, count: 1 });
+            }
+        });
+
+        // Draw top 4 most-tested levels
+        clusters
+            .filter(c => c.count >= 2)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 4)
+            .forEach(({ price, type, count }) => {
+                const color = type === 'R'
+                    ? 'rgba(239,68,68,0.55)'
+                    : 'rgba(16,185,129,0.55)';
+                this._addLine(series, price, `${type}${count}`, color, 2, 1);
+            });
+    },
+
+    // ── ORB — OPENING RANGE BREAKOUT ───────────────────────────
+    // ORB = NY open 09:30–10:00 EST = 14:30–15:00 UTC
+    // Jamaica is EST so 09:30–10:00 Jamaica = 14:30–15:00 UTC
     drawORBRange(series, candles) {
-        if (!candles || candles.length < 2) return;
-        const now       = new Date();
-        const todayUTC  = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
-        const orbEnd    = todayUTC + 15 * 60;
-        const orb       = candles.filter(c => c.time >= todayUTC && c.time < orbEnd);
-        if (!orb.length) return;
-        const high = Math.max(...orb.map(c => c.high));
-        const low  = Math.min(...orb.map(c => c.low));
-        this._addLine(series, high, '#f59e0bcc', 'ORB Hi', 0, 2);
-        this._addLine(series, low,  '#f59e0bcc', 'ORB Lo', 0, 2);
-    }
+        if (!candles?.length) return;
+
+        const now       = candles[candles.length - 1].time;
+        const jaMidUTC  = _jaMidnightUTC(now);
+        const orbStart  = jaMidUTC + 9 * 3600 + 1800;  // 09:30 Jamaica = 14:30 UTC
+        const orbEnd    = orbStart + 1800;               // 10:00 Jamaica = 15:00 UTC
+
+        const orbCandles = candles.filter(c =>
+            c.time >= orbStart && c.time < orbEnd
+        );
+        if (orbCandles.length < 2) return;
+
+        const high = Math.max(...orbCandles.map(c => c.high));
+        const low  = Math.min(...orbCandles.map(c => c.low));
+
+        this._addLine(series, high, 'ORB H', 'rgba(234,179,8,0.75)',  3, 1);
+        this._addLine(series, low,  'ORB L', 'rgba(234,179,8,0.75)',  3, 1);
+    },
+
+    // ── ORDER BLOCKS ───────────────────────────────────────────
+    // Last bearish candle before a strong bull move (bull OB)
+    // Last bullish candle before a strong bear move (bear OB)
+    drawOrderBlocks(series, candles) {
+        if (!candles || candles.length < 10) return;
+
+        const atr     = _calcATR(candles, 14) || 0.001;
+        const recent  = candles.slice(-80);
+        const obs     = [];
+
+        for (let i = 1; i < recent.length - 2; i++) {
+            const c  = recent[i];
+            const n1 = recent[i + 1];
+            const n2 = recent[i + 2];
+
+            // Bullish OB: bearish candle followed by 2 strong bullish candles
+            const isBearCandle = c.close < c.open;
+            const strongBullMove = n1.close > n1.open && n2.close > n2.open
+                && (n2.close - c.low) > atr * 1.5;
+
+            if (isBearCandle && strongBullMove) {
+                obs.push({ price: (c.open + c.close) / 2, type: 'bull' });
+            }
+
+            // Bearish OB: bullish candle followed by 2 strong bearish candles
+            const isBullCandle = c.close > c.open;
+            const strongBearMove = n1.close < n1.open && n2.close < n2.open
+                && (c.high - n2.close) > atr * 1.5;
+
+            if (isBullCandle && strongBearMove) {
+                obs.push({ price: (c.open + c.close) / 2, type: 'bear' });
+            }
+        }
+
+        // Draw most recent 2 of each
+        const bulls = obs.filter(o => o.type === 'bull').slice(-2);
+        const bears = obs.filter(o => o.type === 'bear').slice(-2);
+
+        bulls.forEach(({ price }) =>
+            this._addLine(series, price, 'Bull OB', 'rgba(16,185,129,0.7)', 2, 1)
+        );
+        bears.forEach(({ price }) =>
+            this._addLine(series, price, 'Bear OB', 'rgba(239,68,68,0.7)',  2, 1)
+        );
+    },
+
+    // ── BREAK OF STRUCTURE ─────────────────────────────────────
+    // Marks the most recent BOS — when price breaks a prior swing high/low
+    drawBreakOfStructure(series, candles) {
+        if (!candles || candles.length < 20) return;
+
+        const recent = candles.slice(-50);
+        const last   = recent[recent.length - 1];
+
+        // Find most recent swing high broken to upside (BOS up)
+        let swingHigh = null;
+        for (let i = recent.length - 10; i >= 5; i--) {
+            const c = recent[i];
+            if (c.high > recent[i-1].high && c.high > recent[i-2].high
+             && c.high > recent[i+1].high && c.high > recent[i+2].high) {
+                swingHigh = c.high;
+                break;
+            }
+        }
+
+        // Find most recent swing low broken to downside (BOS down)
+        let swingLow = null;
+        for (let i = recent.length - 10; i >= 5; i--) {
+            const c = recent[i];
+            if (c.low < recent[i-1].low && c.low < recent[i-2].low
+             && c.low < recent[i+1].low && c.low < recent[i+2].low) {
+                swingLow = c.low;
+                break;
+            }
+        }
+
+        if (swingHigh && last.close > swingHigh) {
+            this._addLine(series, swingHigh, 'BOS ↑', 'rgba(16,185,129,0.8)', 3, 2);
+        }
+        if (swingLow && last.close < swingLow) {
+            this._addLine(series, swingLow, 'BOS ↓', 'rgba(239,68,68,0.8)',   3, 2);
+        }
+    },
 };
+
+// ── HELPERS ───────────────────────────────────────────────────
+function _calcATR(candles, period = 14) {
+    if (candles.length < period + 1) return null;
+    const trs = candles.slice(1).map((c, i) => {
+        const prev = candles[i];
+        return Math.max(
+            c.high - c.low,
+            Math.abs(c.high - prev.close),
+            Math.abs(c.low  - prev.close)
+        );
+    });
+    return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+}

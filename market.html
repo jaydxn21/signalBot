@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS | Market</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<canvas id="wave-canvas"></canvas>
+<div id="app-shell">
+    <div id="nexus-nav"></div>
+    <div id="main-content">
+        <div id="nexus-header"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
+                        background:var(--surface-white);backdrop-filter:blur(20px);
+                        border:1px solid var(--border-light);border-radius:var(--r-md);
+                        box-shadow:var(--shadow-sm);padding:10px 16px;">
+                <span class="stat-label">Market Overview</span>
+                <span id="market-status-banner" class="mono" style="font-size:0.62rem;color:var(--text-muted);"></span>
+            </div>
+            <div id="market-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;"></div>
+        </div>
+    </div>
+</div>
+<script type="module" src="js/nav.js"></script>
+<script type="module">
+    import { Market } from './js/pages/market.js';
+    document.addEventListener('DOMContentLoaded', () => Market.init());
+</script>
+</body>
+</html>

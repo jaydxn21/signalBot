@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS | Analytics</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<canvas id="wave-canvas"></canvas>
+
+<div id="app-shell">
+
+    <div id="nexus-nav"></div>
+
+    <div id="main-content">
+
+        <div id="nexus-header"></div>
+
+        <!-- ANALYTICS CONTENT -->
+        <div style="flex:1;overflow-y:auto;padding:2px;">
+            <div class="analytics-grid">
+
+                <!-- Total Trades -->
+                <div class="analytics-card dark">
+                    <div class="stat-label">Total Trades</div>
+                    <div id="an-total-trades" class="analytics-big-num">0</div>
+                    <span id="an-pnl-badge" class="analytics-badge badge-up">+0</span>
+                </div>
+
+                <!-- Win Rate -->
+                <div class="analytics-card">
+                    <div class="stat-label">Win Rate</div>
+                    <div id="an-win-rate" class="analytics-big-num">—</div>
+                    <span id="an-wr-badge" class="analytics-badge badge-up">0W / 0L</span>
+                </div>
+
+                <!-- Avg RR -->
+                <div class="analytics-card">
+                    <div class="stat-label">Avg RR Ratio</div>
+                    <div id="an-avg-rr" class="analytics-big-num">—</div>
+                    <span style="font-size:0.62rem;color:var(--text-muted);">risk / reward</span>
+                </div>
+
+                <!-- Cumulative P&L — full width -->
+                <div class="analytics-card dark span-2">
+                    <div class="stat-label">Cumulative P&amp;L</div>
+                    <div id="an-total-pnl" class="analytics-big-num">+$0.00</div>
+                    <div id="an-pnl-bars" class="mini-bars" style="height:60px;margin-top:14px;"></div>
+                </div>
+
+                <!-- Max Drawdown -->
+                <div class="analytics-card">
+                    <div class="stat-label">Max Drawdown</div>
+                    <div id="an-max-drawdown" class="analytics-big-num" style="color:var(--accent3);">$0.00</div>
+                    <span id="an-dd-badge" class="analytics-badge badge-down">0%</span>
+                </div>
+
+                <!-- Best Strategy -->
+                <div class="analytics-card">
+                    <div class="stat-label">Best Strategy</div>
+                    <div id="an-best-strategy" style="font-size:0.88rem;font-weight:600;color:var(--text-dark);margin:8px 0 6px;">—</div>
+                    <span id="an-best-badge" class="analytics-badge badge-up">—</span>
+                </div>
+
+                <!-- Worst Symbol -->
+                <div class="analytics-card">
+                    <div class="stat-label">Worst Symbol</div>
+                    <div id="an-worst-symbol" class="mono" style="font-size:0.88rem;font-weight:500;color:var(--text-dark);margin:8px 0 6px;">—</div>
+                    <span id="an-worst-badge" class="analytics-badge badge-down">—</span>
+                </div>
+
+                <!-- Avg Duration placeholder -->
+                <div class="analytics-card">
+                    <div class="stat-label">Avg Trade Duration</div>
+                    <div id="an-avg-duration" class="analytics-big-num">—</div>
+                    <span style="font-size:0.62rem;color:var(--text-muted);">per signal</span>
+                </div>
+
+                <!-- No data notice — hidden when trades exist -->
+                <div id="an-empty-notice" class="analytics-card" style="grid-column:1/-1;text-align:center;padding:40px 20px;">
+                    <div style="font-size:0.72rem;letter-spacing:0.08em;color:var(--text-muted);">NO TRADES YET</div>
+                    <div style="font-size:0.65rem;color:var(--text-muted);margin-top:6px;">Start a bot on the Terminal to begin recording trades</div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script type="module">
+    import './js/nav.js';
+    import { Analytics } from './js/pages/analytics.js';
+    document.addEventListener('DOMContentLoaded', () => {
+        Analytics.init();
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS | Journal</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<canvas id="wave-canvas"></canvas>
+<div id="app-shell">
+    <div id="nexus-nav"></div>
+    <div id="main-content">
+        <div id="nexus-header"></div>
+        <div id="journal-page" style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden;">
+
+            <!-- Summary + export -->
+            <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:8px;flex-shrink:0;">
+                <div class="stat-item"><div class="stat-label">Total Trades</div><div id="jnl-total" class="stat-value">0</div></div>
+                <div class="stat-item"><div class="stat-label">Wins</div><div id="jnl-wins" class="stat-value" style="color:var(--accent2);">0</div></div>
+                <div class="stat-item"><div class="stat-label">Losses</div><div id="jnl-losses" class="stat-value" style="color:var(--accent3);">0</div></div>
+                <div class="stat-item"><div class="stat-label">Win Rate</div><div id="jnl-winrate" class="stat-value">—</div></div>
+                <div class="stat-item"><div class="stat-label">Total P&L</div><div id="jnl-total-pnl" class="stat-value mono">0.00</div></div>
+                <div style="display:flex;align-items:center;">
+                    <button id="btn-export-csv" class="btn-pro" style="white-space:nowrap;padding:8px 14px;font-size:0.63rem;">↓ Export CSV</button>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-white);backdrop-filter:blur(20px);border:1px solid var(--border-light);border-radius:var(--r-md);box-shadow:var(--shadow-sm);padding:10px 14px;">
+                <span class="stat-label" style="white-space:nowrap;">Filter by</span>
+                <select id="filter-symbol" style="flex:1;max-width:160px;"><option value="all">All Symbols</option></select>
+                <select id="filter-strategy" style="flex:1;max-width:160px;"><option value="all">All Strategies</option></select>
+                <select id="filter-outcome" style="flex:1;max-width:130px;">
+                    <option value="all">All Outcomes</option>
+                    <option value="TP">TP Only</option>
+                    <option value="SL">SL Only</option>
+                </select>
+                <button id="filter-clear" class="btn-pro btn-outline" style="padding:7px 12px;font-size:0.62rem;">Clear</button>
+                <span id="journal-count" class="mono" style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;">0 trades</span>
+            </div>
+
+            <!-- Table -->
+            <div class="trade-table-wrap" style="flex:1;overflow-y:auto;">
+                <table class="trade-table">
+                    <thead>
+                        <tr><th>Time</th><th>Symbol</th><th>Strategy</th><th>Direction</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Result</th><th>P&L</th></tr>
+                    </thead>
+                    <tbody id="trade-history-body">
+                        <tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted);font-size:0.72rem;letter-spacing:0.06em;">NO TRADES YET — START A BOT ON THE TERMINAL</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="module" src="js/nav.js"></script>
+<script type="module">
+    import { Journal } from './js/pages/journal.js';
+    document.addEventListener('DOMContentLoaded', () => Journal.init());
+</script>
+</body>
+</html>

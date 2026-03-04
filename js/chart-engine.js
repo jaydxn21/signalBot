@@ -20,7 +20,7 @@ export class ChartEngine {
             timeScale: {
                 timeVisible:    true,
                 secondsVisible: false,
-                timezone:       'UTC',
+                timezone:       'America/Jamaica',
                 borderColor:    'rgba(148,163,184,0.2)',
             },
             rightPriceScale: {

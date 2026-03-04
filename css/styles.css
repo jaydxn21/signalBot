@@ -65,7 +65,8 @@ body {
         radial-gradient(ellipse 55% 50% at 82% 88%,  rgba(190,208,232,0.55) 0%, transparent 55%),
         radial-gradient(ellipse 45% 40% at 55% 48%,  rgba(220,230,244,0.30) 0%, transparent 60%);
     height: 100vh;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: hidden;
     position: relative;
 }
 
@@ -77,7 +78,7 @@ body {
     height: 100%;
     z-index: 0;
     pointer-events: none;
-    opacity: 0.55;
+    opacity: 0.75;
 }
 
 body::before {
@@ -100,10 +101,13 @@ body::before {
     height: 100vh;
     padding: 10px;
     gap: 8px;
+    overflow: visible;
 }
 
 /* ── NAV RAIL ───────────────────────────────────────────────── */
 #nav-rail {
+    z-index: 50;
+    overflow: visible;
     width: var(--nav-rail-w);
     flex-shrink: 0;
     background: var(--surface-nav);
@@ -168,7 +172,7 @@ body::before {
 
 .nav-item .nav-tooltip {
     position: absolute;
-    left: calc(100% + 10px);
+    left: calc(100% + 12px);
     top: 50%;
     transform: translateY(-50%);
     background: var(--surface-dark);
@@ -324,19 +328,12 @@ header {
     gap: 8px;
 }
 
-/* Chart takes remaining space; log is fixed height */
+/* Chart area — wrapper only, no overflow clipping */
 #chart-area {
     flex: 1;
     min-height: 0;
-    background: var(--surface-white);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border-light);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-card);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
     position: relative;
 }
 
@@ -825,3 +822,242 @@ input[type="checkbox"] {
 ::-webkit-scrollbar-track    { background: transparent; }
 ::-webkit-scrollbar-thumb    { background: rgba(100,116,139,0.22); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-light); }
+
+/* ── CHART GRID SPLIT SCREEN ────────────────────────────────── */
+#chart-grid {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    gap: 4px;
+    position: relative;
+    height: 100%;
+    width: 100%;
+}
+
+.chart-grid-single { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.chart-grid-2      { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.chart-grid-3      { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.chart-grid-4      { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+/* 3-bot layout: first panel spans full height on left */
+.chart-grid-3 .chart-panel:first-child {
+    grid-row: span 2;
+}
+
+.chart-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-white);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-light);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    width: 100%;
+}
+
+.chart-panel:hover {
+    border-color: rgba(37,99,235,0.3);
+}
+
+.chart-panel.chart-panel-focused {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.chart-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.6);
+    gap: 8px;
+}
+
+.chart-panel-symbol {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    letter-spacing: 0.04em;
+}
+
+.chart-panel-tf {
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    background: rgba(15,23,42,0.06);
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-family: var(--font-mono);
+}
+
+.chart-panel-hud {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    justify-content: center;
+}
+
+.chart-hud-item {
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.chart-hud-val {
+    font-family: var(--font-mono);
+    color: var(--text-dark);
+    font-size: 0.65rem;
+}
+.chart-hud-val.atr { color: var(--accent2); }
+
+.chart-expand-btn {
+    background: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+    padding: 0;
+}
+.chart-expand-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.chart-canvas {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
+.chart-placeholder-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    pointer-events: none;
+}
+.chart-placeholder-empty h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: rgba(15,23,42,0.12);
+}
+.chart-placeholder-empty p {
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    color: rgba(15,23,42,0.2);
+}
+
+/* Split view button in HUD */
+#btn-split-view { display: none; }
+
+/* ── RISK ALERT ANIMATION ───────────────────────────────────── */
+@keyframes riskSlideIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── NAV TOOLTIP — hidden, replaced by JS body injection ──── */
+.nav-item .nav-tooltip { display: none !important; }
+
+/* ── OVERLAY PANEL (focus mode only) ───────────────────────── */
+#overlay-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 50;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-light);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-float);
+    min-width: 160px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+#overlay-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-dark);
+    cursor: default;
+    background: rgba(15,23,42,0.03);
+}
+
+#overlay-panel-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1;
+    padding: 0 2px;
+    transition: color 0.15s;
+}
+#overlay-panel-toggle:hover { color: var(--text-dark); }
+
+#overlay-panel-body {
+    padding: 6px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+#overlay-panel.collapsed #overlay-panel-body { display: none; }
+#overlay-panel.collapsed { min-width: unset; }
+
+.overlay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 0.65rem;
+    color: var(--text-body);
+    user-select: none;
+}
+.overlay-row:hover { background: rgba(37,99,235,0.06); }
+.overlay-row input[type="checkbox"] {
+    width: 13px;
+    height: 13px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.overlay-row span { flex: 1; }
+
+/* Active row highlight */
+.overlay-row:has(input:checked) {
+    color: var(--accent);
+    font-weight: 500;
+}

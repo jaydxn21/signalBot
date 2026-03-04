@@ -14,6 +14,25 @@ import { LondonBreakout }     from './strategies/london-breakout.js';
 import { NewsFadeScalper }    from './strategies/news-fade.js';
 import { UltraScalper }       from './strategies/ultra-scalper.js';
 
+// --- ADD THIS MAP ABOVE THE CLASS ---
+const STRATEGY_MODULES = {
+    h4_kiss: KissStrategy,
+    swing: SwingStrategy,
+    scalp: ScalpStrategy,
+    trend: TrendStrategy,
+    orb: ORBStrategy,
+    momentum: MomentumStrategy,
+    synthetic_scalp: SyntheticScalper,
+    crypto_scalp: CryptoScalper,
+    rsi_fade: RSIFadeScalper,
+    range_boundary: RangeBoundaryScalper,
+    vwap_reversion: VWAPReversionScalper,
+    candle_speed: CandleSpeedScalper,
+    london_breakout: LondonBreakout,
+    news_fade: NewsFadeScalper,
+    ultra_scalp: UltraScalper,
+};
+
 export class StrategyEngine {
     constructor() {
         this.lastSignalTime = 0;
@@ -46,5 +65,13 @@ export class StrategyEngine {
         }
 
         return null;
+    }
+
+    // --- ADD THIS METHOD AFTER analyze() ---
+    registerLoss(strategyType) {
+        const module = STRATEGY_MODULES[strategyType];
+        if (module && typeof module.registerLoss === 'function') {
+            module.registerLoss();
+        }
     }
 }

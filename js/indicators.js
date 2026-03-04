@@ -3,7 +3,9 @@ export const Indicators = {
         if (candles.length < period + 1) return null;
         let sum = 0;
         for (let i = candles.length - period; i < candles.length; i++) {
-            const c = candles[i], p = candles[i - 1] || c;
+            const c = candles[i];
+            const p = candles[i - 1];
+            if (!p) continue;   // skip if no previous candle
             sum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
         }
         return sum / period;

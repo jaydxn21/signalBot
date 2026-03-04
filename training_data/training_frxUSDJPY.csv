@@ -1,0 +1,3 @@
+timestamp,unix,symbol,timeframe,type,entry,open,high,low,atr,rsi,ema8,ema21,ema_diff,is_trending,is_volatile,bull_score,bear_score,outcome,pnl,sl,tp,hold_candles
+2026-03-04T12:20:00.000Z,1772626800,frxUSDJPY,300,BUY,157.139,157.067,157.14,157.057,0.07829,44.25,157.11307,157.1561,-0.04302,1,1,0,0,SL,-0.07829,157.06071,157.25643,300
+2026-03-04T13:00:00.000Z,1772629200,frxUSDJPY,300,SELL,157.303,157.314,157.319,157.303,0.06493,98.52,157.22134,157.19314,0.0282,1,1,2,0,TP,0.09739,157.36793,157.20561,0
