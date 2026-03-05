@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS | Strategy Builder</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/strategy-builder.css">
+</head>
+<body>
+
+<canvas id="wave-canvas"></canvas>
+
+<div id="app-shell">
+    <div id="nexus-nav"></div>
+    <div id="main-content">
+        <div id="nexus-header"></div>
+
+        <div id="workspace" style="padding:0;overflow:hidden;gap:0;">
+        <div id="sb-layout">
+
+            <!-- ── LEFT: strategy selector + rule composer ── -->
+            <div id="sb-left">
+
+                <div class="sb-section-label">STRATEGY BUILDER</div>
+
+                <!-- Base strategy picker -->
+                <div class="sb-field-group">
+                    <label class="sb-label">BASE STRATEGY</label>
+                    <div style="display:flex;gap:6px;">
+                        <select id="sb-base-strategy" class="sb-select" style="flex:1">
+                            <option value="__new__">── New from scratch ──</option>
+                            <optgroup label="⚡ Synthetic">
+                                <option value="synthetic_scalp">BB+RSI Synthetic</option>
+                                <option value="ultra_scalp">Ultra Scalper</option>
+                                <option value="candle_speed">Candle Speed</option>
+                                <option value="range_boundary">Range Boundary</option>
+                                <option value="rsi_fade">RSI Fade</option>
+                            </optgroup>
+                            <optgroup label="💱 Forex">
+                                <option value="momentum">Momentum</option>
+                                <option value="h4_kiss">KISS H4</option>
+                                <option value="london_breakout">London Breakout</option>
+                                <option value="vwap_reversion">VWAP Reversion</option>
+                                <option value="swing">Swing</option>
+                                <option value="trend">Trend Follow</option>
+                                <option value="orb">ORB</option>
+                            </optgroup>
+                            <optgroup label="📁 Saved Custom">
+                                <!-- populated dynamically -->
+                            </optgroup>
+                        </select>
+                        <button id="sb-load-btn" class="sb-btn-secondary">LOAD</button>
+                    </div>
+                </div>
+
+                <!-- Strategy name -->
+                <div class="sb-field-group">
+                    <label class="sb-label">STRATEGY NAME</label>
+                    <input id="sb-name" type="text" class="sb-input" placeholder="e.g. vwap_reversion_v2">
+                </div>
+
+                <!-- Parameters -->
+                <div class="sb-field-group">
+                    <label class="sb-label">PARAMETERS</label>
+                    <div class="sb-params-grid">
+                        <div>
+                            <div class="sb-param-label">SL MULTIPLIER (×ATR)</div>
+                            <input id="sb-sl-mult" type="number" class="sb-input" value="1.5" step="0.1" min="0.5" max="5">
+                        </div>
+                        <div>
+                            <div class="sb-param-label">TP MULTIPLIER (×ATR)</div>
+                            <input id="sb-tp-mult" type="number" class="sb-input" value="2.0" step="0.1" min="0.5" max="10">
+                        </div>
+                        <div>
+                            <div class="sb-param-label">WARMUP BARS</div>
+                            <input id="sb-warmup" type="number" class="sb-input" value="50" step="5" min="10">
+                        </div>
+                        <div>
+                            <div class="sb-param-label">MIN BARS BETWEEN</div>
+                            <input id="sb-min-bars" type="number" class="sb-input" value="2" step="1" min="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Direction filter -->
+                <div class="sb-field-group">
+                    <label class="sb-label">ALLOWED DIRECTIONS</label>
+                    <div style="display:flex;gap:8px;">
+                        <label class="sb-check-label">
+                            <input type="checkbox" id="sb-allow-buy" checked> BUY
+                        </label>
+                        <label class="sb-check-label">
+                            <input type="checkbox" id="sb-allow-sell" checked> SELL
+                        </label>
+                    </div>
+                </div>
+
+                <div class="sb-divider"></div>
+
+                <!-- BUY Rules -->
+                <div class="sb-section-label" style="color:#10b981;">BUY CONDITIONS
+                    <span class="sb-logic-toggle" id="sb-buy-logic-label">ALL (AND)</span>
+                    <button class="sb-logic-btn" id="sb-buy-logic-btn" onclick="window.sbToggleLogic('buy')">toggle AND/OR</button>
+                </div>
+                <div id="sb-buy-rules" class="sb-rules-list"></div>
+                <button class="sb-add-rule-btn" onclick="window.sbAddRule('buy')">+ ADD BUY CONDITION</button>
+
+                <div class="sb-divider"></div>
+
+                <!-- SELL Rules -->
+                <div class="sb-section-label" style="color:#ef4444;">SELL CONDITIONS
+                    <span class="sb-logic-toggle" id="sb-sell-logic-label">ALL (AND)</span>
+                    <button class="sb-logic-btn" id="sb-sell-logic-btn" onclick="window.sbToggleLogic('sell')">toggle AND/OR</button>
+                </div>
+                <div id="sb-sell-rules" class="sb-rules-list"></div>
+                <button class="sb-add-rule-btn" onclick="window.sbAddRule('sell')">+ ADD SELL CONDITION</button>
+
+                <div class="sb-divider"></div>
+
+                <!-- Session filter -->
+                <div class="sb-field-group">
+                    <label class="sb-label">SESSION FILTER (EST)</label>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <input id="sb-session-from" type="number" class="sb-input" value="0"  min="0" max="23" style="width:60px"> h
+                        <span style="color:var(--text-muted);font-size:0.7rem;">to</span>
+                        <input id="sb-session-to"   type="number" class="sb-input" value="23" min="0" max="23" style="width:60px"> h
+                        <label class="sb-check-label" style="margin-left:4px;">
+                            <input type="checkbox" id="sb-session-enabled"> enable
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Save + Test -->
+                <div style="display:flex;gap:8px;margin-top:8px;">
+                    <button id="sb-save-btn" class="sb-btn-primary" style="flex:1">💾  SAVE STRATEGY</button>
+                    <button id="sb-test-btn" class="sb-btn-secondary" style="flex:1">▶  QUICK BACKTEST</button>
+                </div>
+                <button id="sb-export-code-btn" class="sb-btn-ghost" style="width:100%;margin-top:6px;">
+                    &lt;/&gt;  EXPORT AS .JS FILE
+                </button>
+
+            </div>
+
+            <!-- ── RIGHT: preview + backtest results ── -->
+            <div id="sb-right">
+
+                <!-- Strategy preview -->
+                <div id="sb-preview-wrap">
+                    <div class="sb-panel-label">STRATEGY LOGIC PREVIEW</div>
+                    <div id="sb-preview-code"></div>
+                </div>
+
+                <!-- Quick backtest config -->
+                <div id="sb-bt-config-bar">
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        <div>
+                            <div class="sb-param-label">SYMBOL</div>
+                            <select id="sb-bt-symbol" class="sb-select" style="width:140px">
+                                <option value="R_100">Volatility 100</option>
+                                <option value="frxUSDJPY">USD/JPY</option>
+                                <option value="frxEURUSD">EUR/USD</option>
+                                <option value="1HZ100V">V100 (1s)</option>
+                                <option value="frxXAUUSD">Gold</option>
+                                <option value="cryBTCUSD">BTC/USD</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="sb-param-label">TIMEFRAME</div>
+                            <select id="sb-bt-tf" class="sb-select" style="width:80px">
+                                <option value="60">M1</option>
+                                <option value="300" selected>M5</option>
+                                <option value="900">M15</option>
+                                <option value="1800">M30</option>
+                                <option value="3600">H1</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="sb-param-label">CANDLES</div>
+                            <select id="sb-bt-count" class="sb-select" style="width:90px">
+                                <option value="500">500</option>
+                                <option value="1000" selected>1 000</option>
+                                <option value="2000">2 000</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="sb-param-label">STAKE</div>
+                            <input id="sb-bt-stake" type="number" class="sb-input" value="10" style="width:70px">
+                        </div>
+                        <button id="sb-bt-run-btn" class="sb-btn-primary" style="margin-top:14px;min-width:120px;">
+                            ▶  RUN TEST
+                        </button>
+                        <div id="sb-bt-progress" style="display:none;font-size:0.6rem;color:var(--text-muted);margin-top:14px;font-family:var(--font-mono);">
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results split -->
+                <div id="sb-results-wrap" style="display:none;">
+
+                    <!-- KPI row -->
+                    <div id="sb-kpi-row"></div>
+
+                    <!-- IS vs OOS comparison -->
+                    <div id="sb-wf-row"></div>
+
+                    <!-- Equity canvas -->
+                    <div id="sb-equity-wrap">
+                        <div class="sb-panel-label">EQUITY CURVE  <span style="color:#2563eb;font-size:0.55rem;">■ in-sample</span>  <span style="color:#10b981;font-size:0.55rem;">■ out-of-sample</span></div>
+                        <canvas id="sb-equity-canvas" style="width:100%;height:100px;display:block;"></canvas>
+                    </div>
+
+                    <!-- Suggestions -->
+                    <div id="sb-suggestions-wrap">
+                        <div class="sb-panel-label">SUGGESTIONS
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:6px;">rule-based · AI-powered coming soon</span>
+                        </div>
+                        <div id="sb-suggestions"></div>
+                    </div>
+
+                </div>
+
+                <!-- Empty state -->
+                <div id="sb-empty-state">
+                    <div class="sb-empty-icon">⚙</div>
+                    <div class="sb-empty-text">Load a strategy or build from scratch,<br>then run a quick backtest to see results</div>
+                </div>
+
+            </div>
+
+        </div>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import './js/nav.js';
+    import { StrategyBuilder } from './js/pages/strategy-builder.js';
+    document.addEventListener('DOMContentLoaded', () => StrategyBuilder.init());
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ import { SessionState }      from './js/session-state.js';
 import { Analytics }         from './js/pages/analytics.js';
 import { Settings }          from './js/pages/settings.js';
 import { ChartManager, initChartManager } from './js/chart-manager.js';
+import { ConfidenceEngine }          from './js/confidence.js';
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
@@ -115,13 +116,16 @@ class BotState {
         this.h4Candles    = [];
         this.rsiState     = { prevAvgGain: 0, prevAvgLoss: 0, initialized: false };
         this.strategy     = new StrategyEngine();
-        this.openSignal   = null;
-        this.lastFiredMs  = 0;
-        this.isActive     = false;
-        this.sessionStart = null;
-        this.wins         = 0;
-        this.losses       = 0;
-        this.pnl          = 0;
+        this.openSignal      = null;
+        this.lastFiredMs     = 0;
+        this.lastSLTimeMs    = 0;   // timestamp of last SL hit (for cooldown)
+        this.lastSLBarIdx    = 0;   // candle index of last SL (for re-entry delay)
+        this.h4KissCandidate = null; // {dir, bar} — first touch, waiting for confirmation
+        this.isActive        = false;
+        this.sessionStart    = null;
+        this.wins            = 0;
+        this.losses          = 0;
+        this.pnl             = 0;
     }
 }
 
@@ -348,6 +352,11 @@ window.focusBot = function(id) {
         setTimeout(() => {
             ChartManager.loadMain(id, bot.candles);
             redrawOverlays();
+            // Restore open signal markers if this bot has an active trade
+            if (bot.openSignal) {
+                const eng = ChartManager.mainEngine();
+                if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
+            }
         }, 30);
     } else {
         // Single bot — show overlay panel always
@@ -366,6 +375,14 @@ window.focusBot = function(id) {
 window.onSplitView = function() {
     _showOverlayPanel(false);
 };
+
+// Get the correct ChartEngine for a bot — main engine if focused, split engine otherwise
+function _engineFor(botId) {
+    if (!ChartManager.isSplitMode() && botId === focusedBotId) {
+        return ChartManager.mainEngine();
+    }
+    return ChartManager.get(botId);
+}
 
 function subscribeBot(bot) {
     api.subscribe(bot.config.symbol, bot.config.tf);
@@ -436,6 +453,20 @@ function handleData(data) {
                 if (eng) {
                     eng.setData(history);
                     if (bot.id === focusedBotId) redrawOverlays();
+                    else if (ChartManager.isSplitMode()) {
+                        // Draw this bot's overlays on its own panel
+                        const saved = overlayState[bot.id] || {};
+                        const current = {};
+                        OVERLAY_IDS.forEach(oid => {
+                            const el = document.getElementById(oid);
+                            if (el) { current[oid] = el.checked; el.checked = saved[oid] || false; }
+                        });
+                        _drawOverlaysOnEngine(eng, bot);
+                        OVERLAY_IDS.forEach(oid => {
+                            const el = document.getElementById(oid);
+                            if (el) el.checked = current[oid];
+                        });
+                    }
                 }
             }
         });
@@ -479,16 +510,14 @@ function processBar(bot, bar, gran) {
     else bot.candles.push(bar);
     if (bot.candles.length > 1000) bot.candles.shift();
 
-    // Update split panel engine always
-    const splitEng = ChartManager.isSplitMode()
-        ? ChartManager.get(bot.id)
-        : null;
-    if (splitEng) splitEng.update(bar);
+    // Update whichever engine is active for this bot
+    const activeEng = _engineFor(bot.id);
+    if (activeEng) activeEng.update(bar);
 
-    // Also update main engine if this bot is focused in focus mode
+    // In focus mode also keep the split engine data current (for when returning to split)
     if (!ChartManager.isSplitMode() && bot.id === focusedBotId) {
-        const mEng = ChartManager.mainEngine();
-        if (mEng) mEng.update(bar);
+        const splitEng = ChartManager.get(bot.id);
+        if (splitEng && splitEng !== activeEng) splitEng.update(bar);
     }
 
     const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
@@ -529,6 +558,79 @@ function processBar(bot, bar, gran) {
 
     const now = Date.now();
     if (signal && (now - bot.lastFiredMs) > 30000) {
+
+        // ── REC 1: VWAP REVERSION — H4 bullish confirmation for BUY signals ──
+        // BUY signals had 33% WR vs SELL 80% WR. Only allow BUY if H4 trend is bullish.
+        if (bot.config.strategy === 'vwap_reversion' && signal.type === 'BUY') {
+            if (bot.h4Candles.length >= 21) {
+                const k     = 2 / 22;
+                let h4ema   = bot.h4Candles.slice(0,21).reduce((s,c)=>s+c.close,0) / 21;
+                for (let i = 21; i < bot.h4Candles.length; i++)
+                    h4ema = bot.h4Candles[i].close * k + h4ema * (1 - k);
+                const h4Last = bot.h4Candles[bot.h4Candles.length - 1];
+                if (h4Last.close < h4ema) {
+                    log(`VWAP BUY filtered — H4 trend bearish (price ${h4Last.close.toFixed(4)} < EMA21 ${h4ema.toFixed(4)})`, 'neutral');
+                    return;
+                }
+            }
+        }
+
+        // ── REC 2: RANGE BOUNDARY — 30-min cooldown after SL ──
+        // Three consecutive SLs in session from rapid re-entry after losses.
+        if (bot.config.strategy === 'range_boundary') {
+            const msSinceLastSL = now - bot.lastSLTimeMs;
+            const COOLDOWN_MS   = 30 * 60 * 1000; // 30 minutes
+            if (bot.lastSLTimeMs > 0 && msSinceLastSL < COOLDOWN_MS) {
+                const minsLeft = Math.ceil((COOLDOWN_MS - msSinceLastSL) / 60000);
+                log(`Range Boundary cooldown — ${minsLeft}m remaining after last SL`, 'neutral');
+                return;
+            }
+        }
+
+        // ── REC 3: H4 KISS — require 2 confirmation bars before entry ──
+        // All 3 losses entered on first touch of level. Wait for close beyond level + pullback.
+        if (bot.config.strategy === 'h4_kiss') {
+            if (bot.h4Candles.length >= 21) {
+                const k     = 2 / 22;
+                let h4ema   = bot.h4Candles.slice(0,21).reduce((s,c)=>s+c.close,0) / 21;
+                for (let i = 21; i < bot.h4Candles.length; i++)
+                    h4ema = bot.h4Candles[i].close * k + h4ema * (1 - k);
+
+                const candidate = bot.h4KissCandidate;
+                const isNearKiss = Math.abs(bar.close - h4ema) < atr * 0.8;
+
+                if (!candidate && isNearKiss) {
+                    // First touch — record candidate, don't fire yet
+                    bot.h4KissCandidate = { dir: signal.type, bar: bar.time };
+                    log(`H4 Kiss first touch @ ${bar.close.toFixed(4)} — waiting for confirmation bar`, 'neutral');
+                    return;
+                } else if (candidate) {
+                    // Second touch in same direction — confirmed, fire and clear
+                    if (candidate.dir !== signal.type) {
+                        // Direction changed — reset candidate
+                        bot.h4KissCandidate = null;
+                        return;
+                    }
+                    bot.h4KissCandidate = null; // clear after confirmed fire
+                    log(`H4 Kiss confirmed (2-bar) @ ${bar.close.toFixed(4)}`, 'info');
+                    // fall through to fire
+                } else {
+                    // Signal not near kiss level — don't fire
+                    return;
+                }
+            }
+        }
+
+        // ── REC 4: SYNTHETIC SCALP — 1-candle re-entry delay after SL ──
+        // Two near-identical entries 2 minutes apart. Enforce minimum 1 complete bar wait.
+        if (bot.config.strategy === 'synthetic_scalp') {
+            const barsSinceLastSL = bot.candles.length - bot.lastSLBarIdx;
+            if (bot.lastSLBarIdx > 0 && barsSinceLastSL < 2) {
+                log(`Synthetic scalp re-entry blocked — only ${barsSinceLastSL} bar(s) since last SL`, 'neutral');
+                return;
+            }
+        }
+
         bot.lastFiredMs = now;
         fireSignal(bot, signal, bar, atr, rsi, isTrending);
     }
@@ -541,8 +643,42 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const type  = signal.type  || signal;
     const label = signal.label || type;
 
-    log(`SIGNAL ${type} @ ${bar.close.toFixed(4)} — ${label}`, type === 'BUY' ? 'buy' : 'sell');
-    window.registerBotSignal(bot.id, type, bar.close.toFixed(4), label);
+    // ── CONFIDENCE SCORE ─────────────────────────────────────
+    const confidence = ConfidenceEngine.score({
+        type,
+        candles:      bot.candles,
+        h4Candles:    bot.h4Candles,
+        rsi,
+        atr,
+        overlayState: overlayState[bot.id] || {},
+    });
+
+    const confLabel = `${label} [${confidence.grade}${confidence.score}]`;
+    log(`SIGNAL ${type} @ ${bar.close.toFixed(4)} — ${confLabel}`, type === 'BUY' ? 'buy' : 'sell');
+
+    // Log top factors
+    if (confidence.factors.length) {
+        log(`Confluence: ${confidence.factors.slice(0, 3).join(' · ')}`, 'neutral');
+    }
+
+    window.registerBotSignal(bot.id, type, bar.close.toFixed(4), confLabel, confidence);
+
+    // ── LIVE CONFIDENCE PREVIEW in analytics ─────────────────
+    // Push to SessionState immediately so analytics page shows it without waiting for trade close
+    const liveConf = SessionState.get().liveConfidence || {};
+    liveConf[bot.id] = {
+        botId:    bot.id,
+        symbol:   bot.config.symbol,
+        strategy: bot.config.strategy,
+        type,
+        score:    confidence.score,
+        grade:    confidence.grade,
+        color:    confidence.color,
+        factors:  confidence.factors,
+        time:     Date.now(),
+        price:    bar.close,
+    };
+    SessionState.set({ liveConfidence: liveConf });
 
     if (!atr) return;
 
@@ -551,11 +687,10 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const sl = type === 'BUY' ? bar.close - atr * slMult : bar.close + atr * slMult;
     const tp = type === 'BUY' ? bar.close + atr * tpMult : bar.close - atr * tpMult;
 
-    bot.openSignal = { type, sl, tp, entry: bar.close };
+    bot.openSignal    = { type, sl, tp, entry: bar.close };
+    bot.lastConfidence = confidence;
 
-    const sigEngine = (!ChartManager.isSplitMode() && bot.id === focusedBotId)
-        ? ChartManager.mainEngine()
-        : ChartManager.get(bot.id);
+    const sigEngine = _engineFor(bot.id);
     if (sigEngine) {
         sigEngine.addMarker(bar.time, type, label);
         sigEngine.drawTradeLevels(sl, tp);
@@ -651,6 +786,8 @@ function checkOutcome(bot) {
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: bot.config.strategy,
         type, entry, sl, tp, outcome: hit, pnl: pnlAmt,
+        confidence: bot.lastConfidence || null,
+        overlays: Object.keys(overlayState[bot.id] || {}).filter(k => overlayState[bot.id][k]),
     });
 
     const state   = SessionState.get();
@@ -660,9 +797,7 @@ function checkOutcome(bot) {
     const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
     SessionState.set({ wins, losses, sessionPnL: pnl, winRate });
 
-    const outcomeEngine = (!ChartManager.isSplitMode() && bot.id === focusedBotId)
-        ? ChartManager.mainEngine()
-        : ChartManager.get(bot.id);
+    const outcomeEngine = _engineFor(bot.id);
     if (outcomeEngine) {
         outcomeEngine.clearMarkers();
         outcomeEngine.clearPriceLines();
@@ -671,6 +806,12 @@ function checkOutcome(bot) {
     bot.openSignal = null;
 
     // ── LOSS PROTECTION (3× SL rule) ─────────────────────────
+    // Record SL timestamp and candle index for cooldown/re-entry filters
+    if (hit === 'SL') {
+        bot.lastSLTimeMs = Date.now();
+        bot.lastSLBarIdx = bot.candles.length;
+    }
+
     if (hit === 'SL' && Settings.get('lossProtection')) {
         const recentTrades = (SessionState.get().trades || [])
             .filter(t => t.symbol === bot.config.symbol)
@@ -701,21 +842,48 @@ function checkOutcome(bot) {
 function redrawOverlays() {
     if (!focusedBotId || !bots[focusedBotId]) return;
     const bot = bots[focusedBotId];
-    // Use main engine in focus mode, split engine otherwise
-    const engine = ChartManager.isSplitMode()
-        ? ChartManager.get(focusedBotId)
-        : ChartManager.mainEngine();
+
+    const engine = _engineFor(focusedBotId);
     if (!engine) return;
+    _drawOverlaysOnEngine(engine, bot);
+}
+
+// Draws active overlays onto any engine (split panel or main)
+function _drawOverlaysOnEngine(engine, bot) {
     const series = engine.getCandleSeries();
-    OverlayManager.clearAll(series);
+    OverlayManager.clearAll(series, engine);  // engine is the stable key
     if (document.getElementById('show-asian')?.checked)  OverlayManager.drawAsianRange(series, bot.candles);
     if (document.getElementById('show-pdhpdl')?.checked) OverlayManager.drawPDHPDL(series, bot.h4Candles);
-    if (document.getElementById('show-fvg')?.checked)    OverlayManager.drawFVG(series, bot.candles);
+    if (document.getElementById('show-fvg')?.checked)    OverlayManager.drawFVG(series, bot.candles, engine);
     if (document.getElementById('show-h4')?.checked)     OverlayManager.drawH4Kiss(series, bot.h4Candles);
     if (document.getElementById('show-major')?.checked)  OverlayManager.drawMajorSR(series, bot.candles);
     if (document.getElementById('show-orb')?.checked)    OverlayManager.drawORBRange(series, bot.candles);
-    if (document.getElementById('show-ob')?.checked)     OverlayManager.drawOrderBlocks(series, bot.candles);
+    if (document.getElementById('show-ob')?.checked)     OverlayManager.drawOrderBlocks(series, bot.candles, engine);
     if (document.getElementById('show-bos')?.checked)    OverlayManager.drawBreakOfStructure(series, bot.candles);
+}
+
+// Redraws overlays on ALL active split panels using each bot's own state
+function redrawAllSplitOverlays() {
+    if (!ChartManager.isSplitMode()) return;
+    Object.values(bots).forEach(bot => {
+        if (!bot.isActive) return;
+        const eng = ChartManager.get(bot.id);
+        if (!eng) return;
+        // Use this bot's saved overlay state
+        const saved = overlayState[bot.id] || {};
+        // Temporarily apply this bot's overlay state to checkboxes, draw, restore
+        const current = {};
+        OVERLAY_IDS.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { current[id] = el.checked; el.checked = saved[id] || false; }
+        });
+        _drawOverlaysOnEngine(eng, bot);
+        // Restore focused bot's state
+        OVERLAY_IDS.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.checked = current[id];
+        });
+    });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -898,8 +1066,29 @@ window.setBotOnline = function(id) {
     if (dot) dot.className = 'status-dot status-online bot-status-dot';
 };
 
-window.registerBotSignal = function(id, type, price, label) {
-    log(`[Bot #${id}] Signal: ${type} @ ${price} (${label})`, type === 'BUY' ? 'buy' : 'sell');
+window.registerBotSignal = function(id, type, price, label, confidence) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (card && confidence) {
+        let badge = card.querySelector('.bot-confidence-badge');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'bot-confidence-badge';
+            badge.style.cssText = `
+                font-size:0.58rem;font-weight:700;letter-spacing:0.06em;
+                padding:3px 8px;border-radius:6px;margin-top:6px;
+                text-align:center;font-family:var(--font-mono);
+            `;
+            const wlRow = card.querySelector('.bot-card-stats');
+            if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
+        }
+        badge.textContent = `SIGNAL ${type} · ${confidence.grade} (${confidence.score}%)`;
+        badge.style.background = confidence.color + '22';
+        badge.style.color      = confidence.color;
+        badge.style.border     = `1px solid ${confidence.color}55`;
+        // Auto-clear after 60s
+        clearTimeout(badge._timer);
+        badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
+    }
 };
 
 window.registerBotWin = function(id, pnl) {

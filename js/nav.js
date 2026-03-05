@@ -19,6 +19,7 @@ function initNav() {
         'market.html':    'market',
         'analytics.html': 'analytics',
         'journal.html':   'history',
+        'backtest.html':  'backtest',
         'settings.html':  'settings',
     };
 
@@ -252,6 +253,10 @@ function injectSharedHTML() {
             <div class="nav-item" data-page="history">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
                 <span class="nav-tooltip">Journal</span>
+            </div>
+            <div class="nav-item" data-page="backtest">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"/><line x1="19" y1="3" x2="19" y2="21"/></svg>
+                <span class="nav-tooltip">Backtest</span>
             </div>
             <div class="nav-spacer"></div>
             <div class="nav-item" data-page="settings">

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS | Backtest</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/backtest.css">
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+<canvas id="wave-canvas"></canvas>
+
+<div id="app-shell">
+    <div id="nexus-nav"></div>
+    <div id="main-content">
+        <div id="nexus-header"></div>
+
+        <div id="workspace" style="padding:0;overflow:hidden;gap:0;height:100%;flex:1;">
+            <div id="bt-layout">
+
+                <!-- LEFT PANEL: config -->
+                <div id="bt-config-panel">
+                    <div class="bt-section-label">BACKTEST</div>
+
+                    <div class="bt-field-group">
+                        <label class="bt-label">SYMBOL</label>
+                        <select id="bt-symbol" class="bt-select">
+                            <optgroup label="⚡ Synthetic">
+                                <option value="R_100">Volatility 100</option>
+                                <option value="R_75">Volatility 75</option>
+                                <option value="R_50">Volatility 50</option>
+                                <option value="R_25">Volatility 25</option>
+                                <option value="R_10">Volatility 10</option>
+                                <option value="1HZ100V">V100 (1s)</option>
+                                <option value="1HZ75V">V75 (1s)</option>
+                                <option value="1HZ50V">V50 (1s)</option>
+                            </optgroup>
+                            <optgroup label="💱 Forex">
+                                <option value="frxEURUSD">EUR/USD</option>
+                                <option value="frxGBPUSD">GBP/USD</option>
+                                <option value="frxUSDJPY">USD/JPY</option>
+                                <option value="frxAUDUSD">AUD/USD</option>
+                                <option value="frxUSDCAD">USD/CAD</option>
+                                <option value="frxEURGBP">EUR/GBP</option>
+                            </optgroup>
+                            <optgroup label="₿ Crypto">
+                                <option value="cryBTCUSD">BTC/USD</option>
+                                <option value="cryETHUSD">ETH/USD</option>
+                            </optgroup>
+                            <optgroup label="🥇 Commodities">
+                                <option value="frxXAUUSD">Gold</option>
+                                <option value="frxXAGUSD">Silver</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div class="bt-field-group">
+                        <label class="bt-label">STRATEGY</label>
+                        <select id="bt-strategy" class="bt-select">
+                            <optgroup label="⚡ Synthetic">
+                                <option value="synthetic_scalp">BB+RSI Synthetic</option>
+                                <option value="ultra_scalp">Ultra Scalper</option>
+                                <option value="candle_speed">Candle Speed</option>
+                                <option value="range_boundary">Range Boundary</option>
+                                <option value="rsi_fade">RSI Fade</option>
+                            </optgroup>
+                            <optgroup label="💱 Forex">
+                                <option value="momentum">Momentum</option>
+                                <option value="h4_kiss">KISS H4</option>
+                                <option value="london_breakout">London Breakout</option>
+                                <option value="vwap_reversion">VWAP Reversion</option>
+                                <option value="swing">Swing</option>
+                                <option value="trend">Trend Follow</option>
+                                <option value="orb">ORB</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div class="bt-field-row">
+                        <div class="bt-field-group">
+                            <label class="bt-label">TIMEFRAME</label>
+                            <select id="bt-tf" class="bt-select">
+                                <option value="60">M1</option>
+                                <option value="300" selected>M5</option>
+                                <option value="900">M15</option>
+                                <option value="1800">M30</option>
+                                <option value="3600">H1</option>
+                                <option value="14400">H4</option>
+                            </select>
+                        </div>
+                        <div class="bt-field-group">
+                            <label class="bt-label">CANDLES</label>
+                            <select id="bt-count" class="bt-select">
+                                <option value="500">500</option>
+                                <option value="1000" selected>1 000</option>
+                                <option value="2000">2 000</option>
+                                <option value="3000">3 000 (2 chunks)</option>
+                                <option value="5000">5 000 (4 chunks)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bt-field-row">
+                        <div class="bt-field-group">
+                            <label class="bt-label">STAKE ($)</label>
+                            <input id="bt-stake" type="number" class="bt-input" value="10" min="1" step="1">
+                        </div>
+                        <div class="bt-field-group">
+                            <label class="bt-label">COMMISSION</label>
+                            <input id="bt-commission" type="number" class="bt-input" value="0" min="0" step="0.01" placeholder="0.00">
+                        </div>
+                    </div>
+
+                    <button id="bt-run-btn" class="bt-run-btn">
+                        <span id="bt-run-label">▶  RUN BACKTEST</span>
+                        <span id="bt-run-spinner" style="display:none;">⟳  FETCHING...</span>
+                    </button>
+
+                    <div id="bt-progress" style="display:none;">
+                        <div id="bt-progress-bar"><div id="bt-progress-fill"></div></div>
+                        <div id="bt-progress-label">Fetching candles...</div>
+                    </div>
+
+                    <!-- Results KPIs -->
+                    <div id="bt-results" style="display:none;">
+                        <div class="bt-divider"></div>
+                        <div class="bt-section-label">RESULTS</div>
+
+                        <div class="bt-kpi-grid">
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">NET P&L</div>
+                                <div id="bt-pnl" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">WIN RATE</div>
+                                <div id="bt-wr" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">TRADES</div>
+                                <div id="bt-trades" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">MAX DD</div>
+                                <div id="bt-dd" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">AVG R:R</div>
+                                <div id="bt-rr" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">PROFIT FACTOR</div>
+                                <div id="bt-pf" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">AVG WIN</div>
+                                <div id="bt-avg-win" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">AVG LOSS</div>
+                                <div id="bt-avg-loss" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">MAX CONSEC. LOSSES</div>
+                                <div id="bt-max-streak" class="bt-kpi-val">—</div>
+                            </div>
+                            <div class="bt-kpi">
+                                <div class="bt-kpi-label">EXPECTANCY</div>
+                                <div id="bt-expectancy" class="bt-kpi-val">—</div>
+                            </div>
+                        </div>
+
+                        <button id="bt-export-btn" class="bt-export-btn">⬇  EXPORT CSV</button>
+                    </div>
+                </div>
+
+                <!-- RIGHT PANEL: chart + equity + trade log -->
+                <div id="bt-main-panel">
+
+                    <!-- Chart -->
+                    <div id="bt-chart-wrap">
+                        <div id="bt-chart-header">
+                            <span id="bt-chart-title" style="font-size:0.7rem;font-weight:600;color:var(--text-dark);letter-spacing:0.04em;">SELECT A SYMBOL AND RUN</span>
+                            <div style="display:flex;gap:12px;align-items:center;">
+                                <span id="bt-chart-count" style="font-size:0.6rem;color:var(--text-muted);"></span>
+                                <label style="display:flex;align-items:center;gap:5px;font-size:0.6rem;color:var(--text-muted);cursor:pointer;">
+                                    <input type="checkbox" id="bt-show-signals" checked> signals
+                                </label>
+                            </div>
+                        </div>
+                        <div id="bt-chart"></div>
+                    </div>
+
+                    <!-- Equity curve -->
+                    <div id="bt-equity-wrap">
+                        <div class="bt-panel-label">EQUITY CURVE</div>
+                        <canvas id="bt-equity-canvas"></canvas>
+                    </div>
+
+                    <!-- Walk-Forward Analysis -->
+                    <div id="bt-wf-wrap">
+                        <div class="bt-panel-label">WALK-FORWARD ANALYSIS
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:8px;">first 50% in-sample · second 50% blind test</span>
+                        </div>
+                        <div id="bt-wf-section">
+                            <div style="color:var(--text-muted);font-size:0.62rem;padding:8px 0;">Run a backtest to see walk-forward results</div>
+                        </div>
+                    </div>
+
+                    <!-- Trade log -->
+                    <div id="bt-trade-log-wrap">
+                        <div class="bt-panel-label">TRADE LOG
+                            <span id="bt-log-count" style="font-size:0.55rem;color:var(--text-muted);font-weight:400;margin-left:8px;"></span>
+                        </div>
+                        <div id="bt-trade-log"></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script type="module">
+    import './js/nav.js';
+    import { Backtest } from './js/pages/backtest.js';
+    document.addEventListener('DOMContentLoaded', () => Backtest.init());
+</script>
+</body>
+</html>
