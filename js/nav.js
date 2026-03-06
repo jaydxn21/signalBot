@@ -20,6 +20,7 @@ function initNav() {
         'analytics.html': 'analytics',
         'journal.html':   'history',
         'backtest.html':  'backtest',
+        'strategy-builder.html': 'builder',
         'settings.html':  'settings',
     };
 
@@ -257,6 +258,10 @@ function injectSharedHTML() {
             <div class="nav-item" data-page="backtest">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"/><line x1="19" y1="3" x2="19" y2="21"/></svg>
                 <span class="nav-tooltip">Backtest</span>
+            </div>
+            <div class="nav-item" data-page="builder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><path d="M3 17h4m-2-2v4"/></svg>
+                <span class="nav-tooltip">Strategy Builder</span>
             </div>
             <div class="nav-spacer"></div>
             <div class="nav-item" data-page="settings">

@@ -390,3 +390,59 @@ body:has(#bt-layout) #workspace { padding:0; gap:0; }
 }
 #bt-empty-icon { font-size: 2.5rem; opacity: 0.2; }
 #bt-empty-text { font-size: 0.65rem; letter-spacing: 0.04em; text-align: center; line-height: 1.6; }
+
+/* ── TOOLTIPS on labels ──────────────────────────────────────── */
+[data-tip] {
+    position: relative;
+    cursor: help;
+}
+[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 0;
+    top: calc(100% + 6px);
+    background: #1e293b;
+    color: #e2e8f0;
+    font-size: 0.58rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    font-family: var(--font-mono);
+    padding: 6px 10px;
+    border-radius: 5px;
+    white-space: nowrap;
+    max-width: 260px;
+    white-space: normal;
+    line-height: 1.5;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 0.15s, transform 0.15s;
+    z-index: 9999;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+[data-tip]:hover::after {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ── OPEN IN BUILDER button on suggestion cards ──────────────── */
+.wf-sug-open-btn {
+    margin-left: auto;
+    background: rgba(37,99,235,0.08);
+    border: 1px solid rgba(37,99,235,0.25);
+    color: var(--accent);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 0.56rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.wf-sug-open-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}

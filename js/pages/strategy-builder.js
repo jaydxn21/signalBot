@@ -7,7 +7,7 @@
 // - Export as .js strategy file
 // - Save to localStorage for use in live bots + backtest page
 
-import { _fetchCandles, _simulate, _sleep, CHUNK_SIZE } from '../backtest-core.js';
+import { _fetchCandles, _simulate, _sleep, CHUNK_SIZE, _getBuiltinStrategy } from '../backtest-core.js';
 import { WalkForward, SuggestionEngine }                from '../walk-forward.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -234,10 +234,15 @@ export const StrategyBuilder = {
         _bindEvents();
         _renderRules();
         _renderPreview();
-        window.sbAddRule     = _addRule;
-        window.sbRemoveRule  = _removeRule;
-        window.sbToggleLogic = _toggleLogic;
-        window.sbRuleChanged = _onRuleChanged;
+        _renderTestHistory();   // load saved history on page open
+        window.sbAddRule            = _addRule;
+        window.sbRemoveRule         = _removeRule;
+        window.sbToggleLogic        = _toggleLogic;
+        window.sbRuleChanged        = _onRuleChanged;
+        window._renderHistoryExternal = _renderTestHistory;  // for clear button
+
+        // Check if we were deep-linked from backtest page with a suggestion
+        _checkIncomingPayload();
     },
 };
 
@@ -267,6 +272,121 @@ function _bindEvents() {
         document.getElementById(id)
             ?.addEventListener('change', () => { _readParams(); _renderPreview(); });
     });
+}
+
+// ─────────────────────────────────────────────────────────────
+// DEEP LINK FROM BACKTEST — auto-load strategy + apply suggestion
+// ─────────────────────────────────────────────────────────────
+function _checkIncomingPayload() {
+    const raw = sessionStorage.getItem('nexus_builder_payload');
+    if (!raw) return;
+    sessionStorage.removeItem('nexus_builder_payload');
+
+    let payload;
+    try { payload = JSON.parse(raw); } catch(e) { return; }
+
+    const { strategyId, suggestion } = payload;
+
+    // Load the strategy
+    if (strategyId) {
+        const select = document.getElementById('sb-base-strategy');
+        if (select) {
+            // Find matching option
+            const opt = Array.from(select.options).find(o => o.value === strategyId);
+            if (opt) { select.value = strategyId; _loadStrategy(); }
+        }
+    }
+
+    // Apply suggestion tweak after a short delay so the form is populated
+    if (suggestion) {
+        setTimeout(() => _applySuggestion(suggestion), 100);
+    }
+}
+
+function _applySuggestion(s) {
+    // Show a banner explaining what was applied
+    _showSuggestionBanner(s);
+
+    // Apply param tweaks if suggestion includes them
+    if (!s.param) return;
+    const p = s.param;
+
+    if (p.slMultiplier !== undefined) {
+        _set('sb-sl-mult', p.slMultiplier);
+        _state.slMult = p.slMultiplier;
+        _highlightField('sb-sl-mult');
+    }
+    if (p.tpMultiplier !== undefined) {
+        _set('sb-tp-mult', p.tpMultiplier);
+        _state.tpMult = p.tpMultiplier;
+        _highlightField('sb-tp-mult');
+    }
+    if (p.minBarsBetweenSignals !== undefined) {
+        _set('sb-min-bars', p.minBarsBetweenSignals);
+        _state.minBars = p.minBarsBetweenSignals;
+        _highlightField('sb-min-bars');
+    }
+    if (p.filter === "direction === 'BUY'") {
+        document.getElementById('sb-allow-sell').checked = false;
+        _state.allowSell = false;
+        _highlightField('sb-allow-sell');
+    }
+    if (p.filter === "direction === 'SELL'") {
+        document.getElementById('sb-allow-buy').checked = false;
+        _state.allowBuy = false;
+        _highlightField('sb-allow-buy');
+    }
+    if (p.cooldownAfterLosses !== undefined) {
+        // Add a visual note — full cooldown logic needs strategy-engine wiring
+        _showToast(`Cooldown rule noted — add manually to strategy-engine.js for ${_state.name}`);
+    }
+
+    _renderPreview();
+}
+
+function _showSuggestionBanner(s) {
+    // Remove any existing banner
+    document.getElementById('sb-suggestion-banner')?.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'sb-suggestion-banner';
+    banner.style.cssText = `
+        position: sticky; top: 0; z-index: 100;
+        background: linear-gradient(135deg, #1e40af, #2563eb);
+        color: white; padding: 12px 16px;
+        font-family: DM Mono, monospace; font-size: 0.62rem;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        display: flex; align-items: flex-start; gap: 10px;
+    `;
+    banner.innerHTML = `
+        <span style="font-size:1rem;flex-shrink:0;">${s.icon}</span>
+        <div style="flex:1;">
+            <div style="font-weight:700;letter-spacing:0.07em;margin-bottom:3px;">
+                SUGGESTION APPLIED FROM BACKTEST — ${s.type.replace(/_/g,' ').toUpperCase()}
+            </div>
+            <div style="opacity:0.85;line-height:1.5;">${s.observation}</div>
+            <div style="opacity:0.7;margin-top:4px;font-size:0.58rem;">
+                ${s.param ? 'Parameters highlighted in blue were auto-adjusted. Run backtest to verify improvement.' : 'Review the suggestion and adjust rules manually, then run backtest.'}
+            </div>
+        </div>
+        <button onclick="this.parentElement.remove()" style="background:none;border:none;color:white;opacity:0.6;cursor:pointer;font-size:1rem;flex-shrink:0;">✕</button>
+    `;
+
+    // Insert at top of right panel
+    const right = document.getElementById('sb-right');
+    if (right) right.insertBefore(banner, right.firstChild);
+}
+
+function _highlightField(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.transition = 'box-shadow 0.3s, border-color 0.3s';
+    el.style.borderColor = '#2563eb';
+    el.style.boxShadow   = '0 0 0 3px rgba(37,99,235,0.2)';
+    setTimeout(() => {
+        el.style.borderColor = '';
+        el.style.boxShadow   = '';
+    }, 3000);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -851,26 +971,155 @@ function _renderResults(result, wf) {
     _drawEquity(wf);
 
     // Suggestions
+    // Store suggestions for apply buttons
+    window._sbSugStore = {};
+    wf.suggestions.forEach(s => { window._sbSugStore[s.id] = s; });
+
     const sugEl = document.getElementById('sb-suggestions');
     if (!wf.suggestions.length) {
-        sugEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.62rem;padding:6px 0;">No issues detected.</div>';
+        sugEl.innerHTML = '<div class="sb-no-suggestions">✓ No issues detected — strategy looks clean.</div>';
     } else {
         sugEl.innerHTML = wf.suggestions.map(s => `
-        <div class="sb-suggestion" data-priority="${s.priority}">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                <span>${s.icon}</span>
-                <span style="font-size:0.6rem;font-weight:700;letter-spacing:0.07em;font-family:var(--font-mono);color:var(--text-dark);">${s.type.replace(/_/g,' ').toUpperCase()}</span>
-                <span class="sb-sug-badge ${s.priority}">${s.priority.toUpperCase()}</span>
+        <div class="sb-sug-card" data-priority="${s.priority}" data-id="${s.id}">
+
+            <div class="sb-sug-card-header">
+                <span class="sb-sug-card-icon">${s.icon}</span>
+                <div class="sb-sug-card-title">
+                    <span class="sb-sug-card-type">${s.type.replace(/_/g,' ').toUpperCase()}</span>
+                    <span class="sb-sug-card-badge ${s.priority}">${s.priority.toUpperCase()}</span>
+                </div>
+                ${s.priority !== 'positive' ? `
+                <button class="sb-sug-apply-btn" onclick="window._sbApplySuggestion('${s.id}', this)">
+                    ✦ APPLY
+                </button>` : ''}
             </div>
-            <div style="font-size:0.62rem;color:var(--text-body);margin-bottom:4px;line-height:1.5;">${s.observation}</div>
-            <div style="font-size:0.6rem;color:var(--text-muted);line-height:1.4;">
-                <strong style="color:var(--text-dark);font-family:var(--font-mono);font-size:0.52rem;">TWEAK:</strong> ${s.tweak}
+
+            <div class="sb-sug-observation">${s.observation}</div>
+
+            <div class="sb-sug-tweak-box">
+                <div class="sb-sug-tweak-label">TWEAK</div>
+                <div class="sb-sug-tweak-text">${s.tweak}</div>
             </div>
-            <div style="font-size:0.58rem;color:var(--text-muted);margin-top:3px;">
-                <strong style="color:var(--text-dark);font-family:var(--font-mono);font-size:0.52rem;">EXPECTED:</strong> ${s.expected_impact}
+
+            <div class="sb-sug-impact-row">
+                <span class="sb-sug-impact-label">EXPECTED IMPACT</span>
+                <span class="sb-sug-impact-text">${s.expected_impact}</span>
             </div>
+
         </div>`).join('');
     }
+
+    // Save this test run to history
+    _saveTestRun(wf);
+    _renderTestHistory();
+}
+
+// ── APPLY SUGGESTION ─────────────────────────────────────────
+window._sbApplySuggestion = function(id, btn) {
+    const s = window._sbSugStore?.[id];
+    if (!s) return;
+
+    _applySuggestion(s);
+
+    // Mark card as applied
+    const card = btn.closest('.sb-sug-card');
+    btn.textContent = '✓ APPLIED';
+    btn.disabled = true;
+    btn.style.background = 'rgba(16,185,129,0.12)';
+    btn.style.color = '#10b981';
+    btn.style.borderColor = 'rgba(16,185,129,0.3)';
+    card.style.opacity = '0.7';
+};
+
+// ─────────────────────────────────────────────────────────────
+// TEST HISTORY LOG
+// Persists to localStorage — every run saved with full context
+// ─────────────────────────────────────────────────────────────
+function _saveTestRun(wf) {
+    const symbol  = document.getElementById('sb-bt-symbol')?.value || '—';
+    const tf      = document.getElementById('sb-bt-tf')?.value     || '—';
+    const count   = document.getElementById('sb-bt-count')?.value  || '—';
+    const tfLabel = {'60':'M1','300':'M5','900':'M15','1800':'M30','3600':'H1'}[tf] || tf;
+
+    const run = {
+        id:          Date.now(),
+        timestamp:   new Date().toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }),
+        strategy:    _state.name,
+        symbol,
+        tf:          tfLabel,
+        candles:     count,
+        isWR:        wf.is.stats.winRate.toFixed(1),
+        ooWR:        wf.oos.stats.winRate.toFixed(1),
+        isPF:        wf.is.stats.profitFactor === Infinity ? '∞' : wf.is.stats.profitFactor.toFixed(2),
+        oosPF:       wf.oos.stats.profitFactor === Infinity ? '∞' : wf.oos.stats.profitFactor.toFixed(2),
+        netPnL:      wf.oos.stats.netPnL.toFixed(2),
+        maxDD:       wf.oos.stats.maxDD.toFixed(2),
+        trades:      wf.oos.stats.total,
+        confidence:  wf.confidence.score,
+        grade:       wf.confidence.grade,
+        gradeColor:  wf.confidence.color,
+        suggestions: wf.suggestions.map(s => s.type),
+        appliedSugs: [],
+    };
+
+    const history = JSON.parse(localStorage.getItem('nexus_test_history') || '[]');
+    history.unshift(run);  // newest first
+    localStorage.setItem('nexus_test_history', JSON.stringify(history.slice(0, 100)));
+}
+
+function _renderTestHistory() {
+    const el = document.getElementById('sb-test-history');
+    if (!el) return;
+
+    const history = JSON.parse(localStorage.getItem('nexus_test_history') || '[]');
+    const wrap    = document.getElementById('sb-history-wrap');
+
+    if (!history.length) {
+        el.innerHTML = '<div class="sb-history-empty">No test runs yet — results will appear here after each backtest.</div>';
+        return;
+    }
+
+    el.innerHTML = `
+    <table class="sb-history-table">
+        <thead><tr>
+            <th>TIME</th>
+            <th>STRATEGY</th>
+            <th>SYMBOL</th>
+            <th>TF</th>
+            <th>BARS</th>
+            <th>IS WR%</th>
+            <th>OOS WR%</th>
+            <th>OOS PF</th>
+            <th>NET P&L</th>
+            <th>MAX DD</th>
+            <th>TRADES</th>
+            <th>CONFIDENCE</th>
+            <th>SUGGESTIONS</th>
+        </tr></thead>
+        <tbody>
+        ${history.map(r => `
+            <tr>
+                <td style="color:var(--text-muted);white-space:nowrap">${r.timestamp}</td>
+                <td style="font-weight:600;color:var(--text-dark)">${r.strategy}</td>
+                <td>${r.symbol}</td>
+                <td>${r.tf}</td>
+                <td>${r.candles}</td>
+                <td style="color:${parseFloat(r.isWR)>=50?'#10b981':'#ef4444'};font-weight:700">${r.isWR}%</td>
+                <td style="color:${parseFloat(r.ooWR)>=50?'#10b981':'#ef4444'};font-weight:700">${r.ooWR}%</td>
+                <td style="color:${parseFloat(r.oosPF)>=1?'#10b981':'#ef4444'};font-weight:700">${r.oosPF}</td>
+                <td style="color:${parseFloat(r.netPnL)>=0?'#10b981':'#ef4444'};font-weight:700">${parseFloat(r.netPnL)>=0?'+':''}${r.netPnL}</td>
+                <td style="color:#ef4444">-${r.maxDD}</td>
+                <td>${r.trades}</td>
+                <td>
+                    <span style="font-weight:800;color:${r.gradeColor};font-family:var(--font-mono)">
+                        ${r.confidence} <span style="font-size:0.8em">${r.grade}</span>
+                    </span>
+                </td>
+                <td style="color:var(--text-muted);font-size:0.55rem">${r.suggestions.map(s=>s.replace(/_/g,' ')).join(', ') || '—'}</td>
+            </tr>
+        `).join('')}
+        </tbody>
+    </table>`;
 }
 
 function _kpiCard(label, val, color) {

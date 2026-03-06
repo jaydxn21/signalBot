@@ -25,8 +25,18 @@ let _splitLine   = null;
 let _markers     = [];
 let _trades      = [];
 let _wfResult    = null;
+let _wfSugStore  = {};   // id → suggestion object for Open in Builder
 let _socket      = null;
 let _running     = false;
+
+// Deep-link to strategy builder with a suggestion pre-applied
+window._openInBuilder = function(suggestionId) {
+    const strategyId = document.getElementById('bt-strategy')?.value || '';
+    const suggestion = _wfSugStore[suggestionId] || null;
+    const payload    = { strategyId, suggestion };
+    sessionStorage.setItem('nexus_builder_payload', JSON.stringify(payload));
+    window.location.href = 'strategy-builder.html';
+};
 
 export const Backtest = {
 
@@ -320,95 +330,93 @@ function _renderWalkForward(wf) {
         return;
     }
 
-    const { is, oos, confidence, suggestions } = wf;
-    const c  = confidence;
+    const { is, oos, confidence: c, suggestions } = wf;
 
-    // Confidence ring + score
-    const ringPct  = c.score / 100;
-    const ringDash = `${ringPct * 113}px ${113}px`; // circumference of r=18 circle
+    // Store suggestions by id so onclick can look them up safely
+    suggestions.forEach(s => { _wfSugStore[s.id] = s; });
 
     el.innerHTML = `
-    <div class="wf-grid">
 
-        <!-- Confidence score -->
+    <!-- ROW 1: Confidence badge + IS/OOS table side by side -->
+    <div class="wf-top-row">
+
         <div class="wf-confidence-card">
-            <div class="wf-conf-ring-wrap">
-                <svg width="60" height="60" viewBox="0 0 60 60">
-                    <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(100,116,139,0.15)" stroke-width="5"/>
-                    <circle cx="30" cy="30" r="24" fill="none" stroke="${c.color}" stroke-width="5"
-                        stroke-dasharray="${(c.score/100*150.8).toFixed(1)} 150.8"
-                        stroke-dashoffset="37.7"
-                        stroke-linecap="round"
-                        transform="rotate(-90 30 30)"/>
-                    <text x="30" y="26" text-anchor="middle" font-size="11" font-weight="800" fill="${c.color}" font-family="DM Mono">${c.score}</text>
-                    <text x="30" y="37" text-anchor="middle" font-size="8" font-weight="700" fill="${c.color}" font-family="DM Mono">${c.grade}</text>
-                </svg>
-            </div>
+            <svg width="72" height="72" viewBox="0 0 72 72">
+                <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(100,116,139,0.12)" stroke-width="6"/>
+                <circle cx="36" cy="36" r="30" fill="none" stroke="${c.color}" stroke-width="6"
+                    stroke-dasharray="${(c.score/100*188.5).toFixed(1)} 188.5"
+                    stroke-dashoffset="47.1"
+                    stroke-linecap="round"
+                    transform="rotate(-90 36 36)"/>
+                <text x="36" y="32" text-anchor="middle" font-size="15" font-weight="800" fill="${c.color}" font-family="DM Mono,monospace">${c.score}</text>
+                <text x="36" y="46" text-anchor="middle" font-size="10" font-weight="700" fill="${c.color}" font-family="DM Mono,monospace">${c.grade}</text>
+            </svg>
             <div class="wf-conf-label">WALK-FORWARD<br>CONFIDENCE</div>
             <div class="wf-verdict" style="color:${c.color}">${c.verdict}</div>
         </div>
 
-        <!-- IS vs OOS comparison table -->
         <div class="wf-compare-card">
             <table class="wf-table">
                 <thead><tr>
                     <th>METRIC</th>
-                    <th style="color:#2563eb">IN-SAMPLE</th>
-                    <th style="color:${oos.stats.netPnL>=0?'#10b981':'#ef4444'}">OUT-OF-SAMPLE</th>
+                    <th style="color:#2563eb">◀ IN-SAMPLE</th>
+                    <th style="color:${oos.stats.netPnL>=0?'#10b981':'#ef4444'}">OUT-OF-SAMPLE ▶</th>
                     <th>DELTA</th>
                 </tr></thead>
                 <tbody>
-                    ${_wfRow('Win Rate',     is.stats.winRate.toFixed(1)+'%',     oos.stats.winRate.toFixed(1)+'%',     (oos.stats.winRate-is.stats.winRate).toFixed(1)+'%')}
-                    ${_wfRow('Profit Factor',is.stats.profitFactor===Infinity?'∞':is.stats.profitFactor.toFixed(2), oos.stats.profitFactor===Infinity?'∞':oos.stats.profitFactor.toFixed(2), null)}
-                    ${_wfRow('Net P&L',      is.stats.netPnL.toFixed(4),          oos.stats.netPnL.toFixed(4),          null)}
-                    ${_wfRow('Max DD',       '-'+is.stats.maxDD.toFixed(4),        '-'+oos.stats.maxDD.toFixed(4),       null)}
-                    ${_wfRow('Avg R:R',      is.stats.avgRR.toFixed(2),            oos.stats.avgRR.toFixed(2),           null)}
-                    ${_wfRow('Trades',       String(is.stats.total),               String(oos.stats.total),              null)}
-                    ${_wfRow('Max Streak',   String(is.stats.maxStreak)+' SLs',    String(oos.stats.maxStreak)+' SLs',   null)}
+                    ${_wfRow('Win Rate',      is.stats.winRate.toFixed(1)+'%',    oos.stats.winRate.toFixed(1)+'%',    (oos.stats.winRate-is.stats.winRate).toFixed(1)+'%')}
+                    ${_wfRow('Profit Factor', is.stats.profitFactor===Infinity?'∞':is.stats.profitFactor.toFixed(2), oos.stats.profitFactor===Infinity?'∞':oos.stats.profitFactor.toFixed(2), null)}
+                    ${_wfRow('Net P&L',       '$'+is.stats.netPnL.toFixed(2),     '$'+oos.stats.netPnL.toFixed(2),    null)}
+                    ${_wfRow('Max Drawdown',  '-$'+is.stats.maxDD.toFixed(2),     '-$'+oos.stats.maxDD.toFixed(2),    null)}
+                    ${_wfRow('Avg R:R',       is.stats.avgRR.toFixed(2)+':1',     oos.stats.avgRR.toFixed(2)+':1',    null)}
+                    ${_wfRow('Total Trades',  String(is.stats.total),             String(oos.stats.total),            null)}
+                    ${_wfRow('Max Consec. SL',String(is.stats.maxStreak),         String(oos.stats.maxStreak),        null)}
+                    ${_wfRow('Expectancy',    is.stats.expectancy.toFixed(4),     oos.stats.expectancy.toFixed(4),    null)}
                 </tbody>
             </table>
         </div>
-
-        <!-- Score breakdown -->
-        <div class="wf-breakdown-card">
-            <div class="wf-sub-label">SCORE BREAKDOWN</div>
-            ${c.breakdown.map(b => `
-                <div class="wf-score-row">
-                    <div class="wf-score-label">${b.label}</div>
-                    <div class="wf-score-bar-wrap">
-                        <div class="wf-score-bar" style="width:${(b.pts/b.max*100).toFixed(0)}%;background:${b.pts/b.max>=0.7?'#10b981':b.pts/b.max>=0.4?'#f59e0b':'#ef4444'}"></div>
-                    </div>
-                    <div class="wf-score-pts">${b.pts}/${b.max}</div>
-                    <div class="wf-score-val">${b.value}</div>
-                </div>
-            `).join('')}
-        </div>
     </div>
 
-    <!-- Suggestions -->
+    <!-- ROW 2: Score breakdown — full width -->
+    <div class="wf-breakdown-card">
+        <div class="wf-sub-label">SCORE BREAKDOWN</div>
+        ${c.breakdown.map(b => `
+            <div class="wf-score-row">
+                <div class="wf-score-label">${b.label}</div>
+                <div class="wf-score-bar-wrap">
+                    <div class="wf-score-bar" style="width:${(b.pts/b.max*100).toFixed(0)}%;background:${b.pts/b.max>=0.7?'#10b981':b.pts/b.max>=0.4?'#f59e0b':'#ef4444'}"></div>
+                </div>
+                <div class="wf-score-pts">${b.pts} / ${b.max}</div>
+                <div class="wf-score-val">${b.value}</div>
+            </div>
+        `).join('')}
+    </div>
+
+    <!-- ROW 3: Suggestions — full width, each card on its own line -->
     <div class="wf-suggestions">
-        <div class="wf-sub-label" style="margin-bottom:10px;">
+        <div class="wf-sub-label">
             STRATEGY SUGGESTIONS
-            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:8px;">
-                rule-based analysis · AI-powered suggestions coming soon
+            <span style="font-size:0.52rem;color:var(--text-muted);font-weight:400;margin-left:8px;letter-spacing:0;">
+                rule-based · AI-powered coming soon
             </span>
         </div>
         ${suggestions.length === 0
-            ? '<div style="color:var(--text-muted);font-size:0.62rem;">No issues detected — strategy looks clean.</div>'
+            ? '<div style="color:var(--text-muted);font-size:0.65rem;padding:8px 0;">No issues detected — strategy looks clean.</div>'
             : suggestions.map(s => `
                 <div class="wf-suggestion" data-id="${s.id}" data-priority="${s.priority}">
                     <div class="wf-sug-header">
                         <span class="wf-sug-icon">${s.icon}</span>
                         <span class="wf-sug-type">${s.type.replace(/_/g,' ').toUpperCase()}</span>
                         <span class="wf-sug-priority ${s.priority}">${s.priority.toUpperCase()}</span>
+                        <button class="wf-sug-open-btn"
+                            title="Open this strategy in Strategy Builder with suggestion pre-applied"
+                            onclick="window._openInBuilder('${s.id}')">
+                            ⚙ Open in Builder
+                        </button>
                     </div>
                     <div class="wf-sug-observation">${s.observation}</div>
-                    <div class="wf-sug-tweak">
-                        <span class="wf-sug-tweak-label">TWEAK:</span> ${s.tweak}
-                    </div>
-                    <div class="wf-sug-impact">
-                        <span class="wf-sug-tweak-label">EXPECTED:</span> ${s.expected_impact}
-                    </div>
+                    <div class="wf-sug-tweak"><span class="wf-sug-tweak-label">TWEAK — </span>${s.tweak}</div>
+                    <div class="wf-sug-impact"><span class="wf-sug-tweak-label">EXPECTED — </span>${s.expected_impact}</div>
                 </div>
             `).join('')
         }

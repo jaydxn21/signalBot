@@ -27,7 +27,7 @@
 
                 <!-- Base strategy picker -->
                 <div class="sb-field-group">
-                    <label class="sb-label">BASE STRATEGY</label>
+                    <label class="sb-label" data-tip="Load an existing coded strategy to edit, or start from scratch">BASE STRATEGY</label>
                     <div style="display:flex;gap:6px;">
                         <select id="sb-base-strategy" class="sb-select" style="flex:1">
                             <option value="__new__">── New from scratch ──</option>
@@ -57,28 +57,28 @@
 
                 <!-- Strategy name -->
                 <div class="sb-field-group">
-                    <label class="sb-label">STRATEGY NAME</label>
+                    <label class="sb-label" data-tip="Name used when saving. Add _v2 to create a variant without overwriting the original">STRATEGY NAME</label>
                     <input id="sb-name" type="text" class="sb-input" placeholder="e.g. vwap_reversion_v2">
                 </div>
 
                 <!-- Parameters -->
                 <div class="sb-field-group">
-                    <label class="sb-label">PARAMETERS</label>
+                    <label class="sb-label" data-tip="Core trade management settings applied to every signal this strategy fires">PARAMETERS</label>
                     <div class="sb-params-grid">
                         <div>
-                            <div class="sb-param-label">SL MULTIPLIER (×ATR)</div>
+                            <div class="sb-param-label" data-tip="Stop loss = entry ± (ATR × this). Higher = wider stop, fewer premature exits">SL MULTIPLIER (×ATR)</div>
                             <input id="sb-sl-mult" type="number" class="sb-input" value="1.5" step="0.1" min="0.5" max="5">
                         </div>
                         <div>
-                            <div class="sb-param-label">TP MULTIPLIER (×ATR)</div>
+                            <div class="sb-param-label" data-tip="Take profit = entry ± (ATR × this). R:R ratio = TP mult ÷ SL mult">TP MULTIPLIER (×ATR)</div>
                             <input id="sb-tp-mult" type="number" class="sb-input" value="2.0" step="0.1" min="0.5" max="10">
                         </div>
                         <div>
-                            <div class="sb-param-label">WARMUP BARS</div>
+                            <div class="sb-param-label" data-tip="Bars to skip at start before firing signals — allows indicators to initialise properly">WARMUP BARS</div>
                             <input id="sb-warmup" type="number" class="sb-input" value="50" step="5" min="10">
                         </div>
                         <div>
-                            <div class="sb-param-label">MIN BARS BETWEEN</div>
+                            <div class="sb-param-label" data-tip="Minimum candles between signals — prevents overtrading on the same move">MIN BARS BETWEEN</div>
                             <input id="sb-min-bars" type="number" class="sb-input" value="2" step="1" min="1">
                         </div>
                     </div>
@@ -86,7 +86,7 @@
 
                 <!-- Direction filter -->
                 <div class="sb-field-group">
-                    <label class="sb-label">ALLOWED DIRECTIONS</label>
+                    <label class="sb-label" data-tip="Restrict to BUY only, SELL only, or both. Useful when analysis shows directional bias">ALLOWED DIRECTIONS</label>
                     <div style="display:flex;gap:8px;">
                         <label class="sb-check-label">
                             <input type="checkbox" id="sb-allow-buy" checked> BUY
@@ -100,7 +100,7 @@
                 <div class="sb-divider"></div>
 
                 <!-- BUY Rules -->
-                <div class="sb-section-label" style="color:#10b981;">BUY CONDITIONS
+                <div class="sb-section-label" data-tip="ALL conditions must pass (AND) or ANY one (OR) for a BUY signal to fire" style="color:#10b981;">BUY CONDITIONS
                     <span class="sb-logic-toggle" id="sb-buy-logic-label">ALL (AND)</span>
                     <button class="sb-logic-btn" id="sb-buy-logic-btn" onclick="window.sbToggleLogic('buy')">toggle AND/OR</button>
                 </div>
@@ -110,7 +110,7 @@
                 <div class="sb-divider"></div>
 
                 <!-- SELL Rules -->
-                <div class="sb-section-label" style="color:#ef4444;">SELL CONDITIONS
+                <div class="sb-section-label" data-tip="ALL conditions must pass (AND) or ANY one (OR) for a SELL signal to fire" style="color:#ef4444;">SELL CONDITIONS
                     <span class="sb-logic-toggle" id="sb-sell-logic-label">ALL (AND)</span>
                     <button class="sb-logic-btn" id="sb-sell-logic-btn" onclick="window.sbToggleLogic('sell')">toggle AND/OR</button>
                 </div>
@@ -121,7 +121,7 @@
 
                 <!-- Session filter -->
                 <div class="sb-field-group">
-                    <label class="sb-label">SESSION FILTER (EST)</label>
+                    <label class="sb-label" data-tip="Only fire signals during these hours (Jamaica EST). Keeps strategy out of low-volatility periods">SESSION FILTER (EST)</label>
                     <div style="display:flex;gap:6px;align-items:center;">
                         <input id="sb-session-from" type="number" class="sb-input" value="0"  min="0" max="23" style="width:60px"> h
                         <span style="color:var(--text-muted);font-size:0.7rem;">to</span>
@@ -218,6 +218,18 @@
                             <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:6px;">rule-based · AI-powered coming soon</span>
                         </div>
                         <div id="sb-suggestions"></div>
+                    </div>
+
+                    <!-- Test History Log -->
+                    <div id="sb-history-wrap">
+                        <div class="sb-panel-label">
+                            TEST HISTORY
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:6px;">auto-saved · every backtest run</span>
+                            <button onclick="localStorage.removeItem('nexus_test_history');window._renderHistoryExternal()" class="sb-history-clear-btn">CLEAR</button>
+                        </div>
+                        <div id="sb-test-history">
+                            <div class="sb-history-empty">No test runs yet — results will appear here after each backtest.</div>
+                        </div>
                     </div>
 
                 </div>

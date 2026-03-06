@@ -104,6 +104,14 @@ body::before {
     overflow: visible;
 }
 
+/* ── NAV WRAPPER ─────────────────────────────────────────────── */
+#nexus-nav {
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    flex-shrink: 0;
+}
+
 /* ── NAV RAIL ───────────────────────────────────────────────── */
 #nav-rail {
     z-index: 50;
@@ -119,8 +127,12 @@ body::before {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 14px 0 12px;
-    gap: 4px;
+    padding: 10px 0 10px;
+    gap: 2px;
+    /* ensure all icons always fit */
+    min-height: 0;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .nav-logo {
@@ -131,8 +143,8 @@ body::before {
     text-transform: uppercase;
     writing-mode: vertical-rl;
     transform: rotate(180deg);
-    margin-bottom: 14px;
-    padding-bottom: 14px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border-subtle);
     width: 100%;
     text-align: center;
@@ -140,8 +152,8 @@ body::before {
 }
 
 .nav-item {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 36px;
     border-radius: var(--r-md);
     display: flex;
     align-items: center;
@@ -191,7 +203,7 @@ body::before {
 }
 
 .nav-item:hover .nav-tooltip { opacity: 1; }
-.nav-spacer { flex: 1; }
+.nav-spacer { flex: 1; min-height: 8px; max-height: 40px; }
 
 /* ── MAIN CONTENT ───────────────────────────────────────────── */
 #main-content {
