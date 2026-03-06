@@ -265,6 +265,9 @@ function _bindEvents() {
     document.getElementById('sb-export-code-btn')
         .addEventListener('click', _exportCode);
 
+    document.getElementById('sb-save-server-btn')
+        ?.addEventListener('click', _saveToServer);
+
     // Live preview update on any param change
     ['sb-name','sb-sl-mult','sb-tp-mult','sb-warmup','sb-min-bars',
      'sb-session-from','sb-session-to','sb-session-enabled',
@@ -759,6 +762,39 @@ function _loadSavedStrategies() {
 // ─────────────────────────────────────────────────────────────
 // EXPORT CODE
 // ─────────────────────────────────────────────────────────────
+// Save directly to server disk (requires server-save-strategy.js on the Node server)
+async function _saveToServer() {
+    _readParams();
+    const code = _generateCode(_state, false);
+    const filename = _state.name.endsWith('.js') ? _state.name : _state.name + '.js';
+    const btn = document.getElementById('sb-save-server-btn');
+    const orig = btn.textContent;
+    btn.textContent = '⟳ SAVING...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/save-strategy', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ filename, code }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            btn.textContent = '✓ SAVED';
+            btn.style.color = '#10b981';
+            btn.style.borderColor = '#10b981';
+            _showToast(`✓ ${filename} saved to js/strategies/`);
+            setTimeout(() => { btn.textContent = orig; btn.style.color=''; btn.style.borderColor=''; btn.disabled=false; }, 3000);
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    } catch(e) {
+        btn.textContent = '✗ FAILED';
+        btn.style.color = '#ef4444';
+        _showToast(`✗ ${e.message} — is server-save-strategy.js installed?`);
+        setTimeout(() => { btn.textContent = orig; btn.style.color=''; btn.disabled=false; }, 3000);
+    }
+}
+
 function _exportCode() {
     _readParams();
     const code = _generateCode(_state, false);

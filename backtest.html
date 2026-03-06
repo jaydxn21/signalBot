@@ -57,6 +57,12 @@
                         </select>
                     </div>
 
+                    <!-- Mode toggle -->
+                    <div class="bt-mode-toggle">
+                        <button class="bt-mode-btn active" id="bt-mode-single" onclick="window.btSetMode('single')">SINGLE</button>
+                        <button class="bt-mode-btn" id="bt-mode-compare" onclick="window.btSetMode('compare')">COMPARE</button>
+                    </div>
+
                     <div class="bt-field-group">
                         <label class="bt-label">STRATEGY</label>
                         <select id="bt-strategy" class="bt-select">
@@ -77,6 +83,47 @@
                                 <option value="orb">ORB</option>
                             </optgroup>
                         </select>
+                    </div>
+
+                    <!-- Compare mode: extra strategy slots (hidden by default) -->
+                    <div id="bt-compare-slots" style="display:none;">
+                        <div class="bt-compare-slot" id="bt-slot-2">
+                            <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
+                            <select class="bt-select bt-compare-strategy" data-slot="2">
+                                <optgroup label="⚡ Synthetic">
+                                    <option value="synthetic_scalp">BB+RSI Synthetic</option>
+                                    <option value="ultra_scalp">Ultra Scalper</option>
+                                    <option value="range_boundary">Range Boundary</option>
+                                    <option value="rsi_fade">RSI Fade</option>
+                                </optgroup>
+                                <optgroup label="💱 Forex">
+                                    <option value="momentum">Momentum</option>
+                                    <option value="h4_kiss">KISS H4</option>
+                                    <option value="vwap_reversion">VWAP Reversion</option>
+                                    <option value="swing">Swing</option>
+                                    <option value="trend" selected>Trend Follow</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="bt-compare-slot" id="bt-slot-3">
+                            <div class="bt-compare-slot-label" style="background:#f59e0b">C</div>
+                            <select class="bt-select bt-compare-strategy" data-slot="3">
+                                <option value="">— none —</option>
+                                <optgroup label="⚡ Synthetic">
+                                    <option value="synthetic_scalp">BB+RSI Synthetic</option>
+                                    <option value="ultra_scalp">Ultra Scalper</option>
+                                    <option value="range_boundary">Range Boundary</option>
+                                    <option value="rsi_fade">RSI Fade</option>
+                                </optgroup>
+                                <optgroup label="💱 Forex">
+                                    <option value="momentum">Momentum</option>
+                                    <option value="h4_kiss">KISS H4</option>
+                                    <option value="vwap_reversion">VWAP Reversion</option>
+                                    <option value="swing">Swing</option>
+                                    <option value="trend">Trend Follow</option>
+                                </optgroup>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="bt-field-row">
@@ -118,6 +165,12 @@
                         <span id="bt-run-label">▶  RUN BACKTEST</span>
                         <span id="bt-run-spinner" style="display:none;">⟳  FETCHING...</span>
                     </button>
+                    <div id="bt-extra-btns" style="display:none;margin-top:6px;gap:6px;display:none;flex-direction:column;">
+                    </div>
+                    <div class="bt-shortcut-hint">Enter / Space — run &nbsp;·&nbsp; C — toggle compare &nbsp;·&nbsp; O — optimizer &nbsp;·&nbsp; Esc — close panels</div>
+                    <button id="bt-optimizer-btn" class="bt-ghost-btn" style="margin-top:6px;"
+                        data-tip="Grid search SL/TP ranges to find best parameter combination"
+                        onclick="window.btToggleOptimizer()">⚙ PARAMETER OPTIMIZER</button>
 
                     <div id="bt-progress" style="display:none;">
                         <div id="bt-progress-bar"><div id="bt-progress-fill"></div></div>
@@ -207,6 +260,52 @@
                         <div id="bt-wf-section">
                             <div style="color:var(--text-muted);font-size:0.62rem;padding:8px 0;">Run a backtest to see walk-forward results</div>
                         </div>
+                    </div>
+
+                    <!-- Strategy Comparison Results (hidden until compare mode run) -->
+                    <div id="bt-compare-wrap" style="display:none;">
+                        <div class="bt-panel-label" style="padding:14px 20px 0;">
+                            STRATEGY COMPARISON
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:8px;">same candles · same conditions</span>
+                        </div>
+                        <div id="bt-compare-results"></div>
+                    </div>
+
+                    <!-- Parameter Optimizer Panel (hidden until triggered) -->
+                    <div id="bt-optimizer-wrap" style="display:none;">
+                        <div class="bt-panel-label" style="padding:14px 20px 0;display:flex;align-items:center;gap:10px;">
+                            PARAMETER OPTIMIZER
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;">grid search · OOS confidence ranked</span>
+                            <button onclick="window.btRunOptimizer()" class="bt-opt-run-btn" id="bt-opt-run-btn">▶ RUN GRID SEARCH</button>
+                            <div id="bt-opt-progress" style="display:none;font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono);"></div>
+                        </div>
+                        <div class="bt-opt-config">
+                            <div class="bt-opt-field">
+                                <div class="bt-opt-label" data-tip="Stop loss multiplier range to test">SL MULT RANGE</div>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <input id="bt-opt-sl-min" type="number" class="bt-input" value="0.8" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">to</span>
+                                    <input id="bt-opt-sl-max" type="number" class="bt-input" value="2.0" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">step</span>
+                                    <input id="bt-opt-sl-step" type="number" class="bt-input" value="0.2" step="0.1" style="width:55px">
+                                </div>
+                            </div>
+                            <div class="bt-opt-field">
+                                <div class="bt-opt-label" data-tip="Take profit multiplier range to test">TP MULT RANGE</div>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <input id="bt-opt-tp-min" type="number" class="bt-input" value="1.0" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">to</span>
+                                    <input id="bt-opt-tp-max" type="number" class="bt-input" value="3.0" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">step</span>
+                                    <input id="bt-opt-tp-step" type="number" class="bt-input" value="0.5" step="0.1" style="width:55px">
+                                </div>
+                            </div>
+                            <div class="bt-opt-field" style="align-self:flex-end;">
+                                <div class="bt-opt-label" data-tip="Maximum combinations to test (more = slower but more thorough)">MAX COMBOS</div>
+                                <input id="bt-opt-max" type="number" class="bt-input" value="30" min="5" max="100" style="width:70px">
+                            </div>
+                        </div>
+                        <div id="bt-optimizer-results"></div>
                     </div>
 
                     <!-- Trade log -->

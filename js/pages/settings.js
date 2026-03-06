@@ -3,7 +3,7 @@
 // Persists all settings to localStorage so they survive page reloads.
 // Other modules read settings via Settings.get(key).
 
-import { SessionState } from '../nav.js';
+import { SessionState } from '../session-state.js';
 
 // ─────────────────────────────────────────────────────────────
 // DEFAULTS — what every setting starts as on first load
@@ -65,6 +65,7 @@ export const Settings = {
         _wireForm();
         _wireActions();
         _updateSessionInfo();
+        MT5Bridge.init();
     },
 };
 
@@ -294,4 +295,262 @@ function _showStatus(id, msg, isWarn) {
     el.style.color = isWarn ? 'var(--accent3)' : 'var(--accent2)';
     el.style.opacity = '1';
     setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// MT5 BRIDGE STATUS PANEL
+// Polls /api/signal and /api/signals/history to show live state
+// ═════════════════════════════════════════════════════════════
+const MT5Bridge = {
+
+    _pollInterval: null,
+    _signalsToday: 0,
+    _logEntries: [],
+
+    init() {
+        // Load saved config into fields
+        const cfg = this._loadConfig();
+        _set('mt5-host-input',    cfg.host    || '');
+        _set('mt5-port-input',    cfg.port    || 3000);
+        _set('mt5-lot-input',     cfg.lotSize || 0.10);
+        _set('mt5-max-age-input', cfg.maxAge  || 30);
+
+        // Auto-detect local IP hint
+        this._detectIP();
+
+        // Wire config save on change
+        ['mt5-host-input','mt5-port-input','mt5-lot-input','mt5-max-age-input'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => this._saveConfig());
+        });
+
+        // Load saved log
+        this._logEntries = JSON.parse(localStorage.getItem('nexus_mt5_log') || '[]');
+        this._renderLog();
+
+        // Clear log button
+        window.mt5ClearLog = () => {
+            this._logEntries = [];
+            localStorage.removeItem('nexus_mt5_log');
+            this._renderLog();
+        };
+
+        // Start polling server for EA connection status + signal history
+        this._poll();
+        this._pollInterval = setInterval(() => this._poll(), 3000);
+
+        // Count today's signals from history
+        this._countToday();
+    },
+
+    _loadConfig() {
+        try { return JSON.parse(localStorage.getItem('nexus_mt5_config') || '{}'); }
+        catch { return {}; }
+    },
+
+    _saveConfig() {
+        const cfg = {
+            host:    document.getElementById('mt5-host-input')?.value || '',
+            port:    document.getElementById('mt5-port-input')?.value || 3000,
+            lotSize: document.getElementById('mt5-lot-input')?.value  || 0.10,
+            maxAge:  document.getElementById('mt5-max-age-input')?.value || 30,
+        };
+        localStorage.setItem('nexus_mt5_config', JSON.stringify(cfg));
+        Settings.set({ mt5Config: cfg });
+    },
+
+    async _poll() {
+        try {
+            // Check if server is reachable and get latest signal
+            const res  = await fetch('/api/signal');
+            const data = await res.json();
+
+            // Check signal history to count clients and last signal
+            const histRes  = await fetch('/api/signals/history');
+            const histData = await histRes.json();
+
+            const clientCount = data._clientCount ?? (data.action && data.action !== 'none' ? 1 : 0);
+            const isConnected = Array.isArray(histData) && histData.length > 0 ||
+                                data.action !== 'none';
+
+            // Update status badge
+            const badge = document.getElementById('mt5-bridge-status-badge');
+            const eaStat = document.getElementById('mt5-ea-status');
+
+            // We can't directly know EA client count from current server
+            // But we can tell if the server is alive and if signals are flowing
+            this._setServerOnline(true);
+
+            if (data.action && data.action !== 'none') {
+                this._updateLastSignal(data);
+            }
+
+            // Update signal history from server
+            if (Array.isArray(histData) && histData.length > 0) {
+                this._syncServerHistory(histData);
+            }
+
+            // Update today count
+            this._countToday();
+
+        } catch(e) {
+            this._setServerOnline(false);
+        }
+    },
+
+    _setServerOnline(online) {
+        const badge  = document.getElementById('mt5-bridge-status-badge');
+        const eaStat = document.getElementById('mt5-ea-status');
+        const step1  = document.getElementById('mt5-step-1');
+
+        // Check SessionState for EA connection
+        let eaConnected = false;
+        try {
+            const state = JSON.parse(localStorage.getItem('nexus_session') || '{}');
+            eaConnected = state.mt5Connected === true;
+        } catch {}
+
+        if (!online) {
+            badge.className  = 'mt5-badge mt5-badge-offline';
+            badge.textContent = '● DISCONNECTED';
+            eaStat.className  = 'mt5-stat-val mt5-offline';
+            eaStat.textContent = 'Server unreachable';
+            return;
+        }
+
+        if (eaConnected) {
+            badge.className   = 'mt5-badge mt5-badge-online';
+            badge.textContent  = '● CONNECTED';
+            eaStat.className   = 'mt5-stat-val mt5-online';
+            eaStat.textContent = 'EA connected — receiving signals';
+            this._markStep(3, true);
+            this._markStep(4, true);
+            this._markStep(5, true);
+        } else {
+            badge.className   = 'mt5-badge mt5-badge-waiting';
+            badge.textContent  = '◌ WAITING FOR EA';
+            eaStat.className   = 'mt5-stat-val mt5-waiting';
+            eaStat.textContent = 'Server online — waiting for EA to connect';
+        }
+
+        // Auto-push status
+        const autoPushEl = document.getElementById('mt5-auto-push-status');
+        if (autoPushEl) {
+            try {
+                // Check terminal page checkbox state via localStorage
+                const term = JSON.parse(localStorage.getItem('nexus_terminal_prefs') || '{}');
+                autoPushEl.textContent = term.autoPush ? 'ENABLED' : 'DISABLED';
+                autoPushEl.style.color = term.autoPush ? '#10b981' : '#94a3b8';
+            } catch { autoPushEl.textContent = '—'; }
+        }
+    },
+
+    _updateLastSignal(data) {
+        const sigEl  = document.getElementById('mt5-last-signal');
+        const timeEl = document.getElementById('mt5-last-time');
+        if (sigEl && data.action && data.action !== 'none') {
+            sigEl.textContent = `${data.action.toUpperCase()} ${data.symbol || ''} @ ${data.price || ''}`;
+            sigEl.style.color = data.action === 'buy' ? '#10b981' : '#ef4444';
+        }
+        if (timeEl && data.receivedAt) {
+            const d = new Date(data.receivedAt);
+            timeEl.textContent = d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        }
+    },
+
+    _syncServerHistory(history) {
+        // Add any new server-side signals to local log
+        const existing = new Set(this._logEntries.map(e => e.timestamp));
+        let added = false;
+        history.forEach(sig => {
+            if (sig.timestamp && !existing.has(sig.timestamp)) {
+                this._logEntries.unshift({
+                    timestamp:  sig.timestamp,
+                    action:     sig.action,
+                    symbol:     sig.symbol,
+                    price:      sig.price,
+                    sl:         sig.sl,
+                    tp:         sig.tp,
+                    label:      sig.label,
+                    receivedAt: sig.receivedAt,
+                });
+                added = true;
+            }
+        });
+        if (added) {
+            this._logEntries = this._logEntries.slice(0, 100);
+            localStorage.setItem('nexus_mt5_log', JSON.stringify(this._logEntries));
+            this._renderLog();
+        }
+    },
+
+    _countToday() {
+        const today = new Date().toDateString();
+        const count = this._logEntries.filter(e => {
+            if (!e.receivedAt) return false;
+            return new Date(e.receivedAt).toDateString() === today;
+        }).length;
+        const el = document.getElementById('mt5-signals-today');
+        if (el) el.textContent = count;
+    },
+
+    _renderLog() {
+        const el = document.getElementById('mt5-signal-log');
+        if (!el) return;
+        if (!this._logEntries.length) {
+            el.innerHTML = '<div class="mt5-log-empty">No signals sent yet — enable MT5 Auto-Push on a bot and wait for a signal.</div>';
+            return;
+        }
+        el.innerHTML = this._logEntries.map(e => {
+            const isBuy = e.action === 'buy';
+            const time  = e.receivedAt
+                ? new Date(e.receivedAt).toLocaleTimeString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+                : '—';
+            return `
+            <div class="mt5-log-row">
+                <span class="mt5-log-dir ${isBuy ? 'mt5-log-buy' : 'mt5-log-sell'}">${e.action?.toUpperCase()}</span>
+                <span class="mt5-log-symbol">${e.symbol || '—'}</span>
+                <span class="mt5-log-price">@ ${e.price || '—'}</span>
+                <span class="mt5-log-sl">SL ${e.sl ? parseFloat(e.sl).toFixed(4) : '—'}</span>
+                <span class="mt5-log-tp">TP ${e.tp ? parseFloat(e.tp).toFixed(4) : '—'}</span>
+                <span class="mt5-log-label">${e.label || ''}</span>
+                <span class="mt5-log-time">${time}</span>
+            </div>`;
+        }).join('');
+    },
+
+    _markStep(num, done) {
+        const step = document.getElementById(`mt5-step-${num}`);
+        if (!step) return;
+        const check = step.querySelector('.mt5-step-check');
+        if (check) {
+            check.textContent = done ? '✓' : '○';
+            check.style.color = done ? '#10b981' : '#94a3b8';
+        }
+        step.style.opacity = done ? '1' : '0.5';
+    },
+
+    async _detectIP() {
+        // Show server URL as the host hint
+        const display = document.getElementById('mt5-ip-display');
+        const input   = document.getElementById('mt5-host-input');
+        const saved   = this._loadConfig().host;
+
+        if (saved && display) { display.textContent = saved; return; }
+
+        // Try to get from window.location
+        const host = window.location.hostname;
+        if (host && host !== 'localhost' && host !== '127.0.0.1') {
+            if (display) display.textContent = host;
+            if (input && !input.value) input.value = host;
+        } else {
+            if (display) display.textContent = window.location.hostname + ':3000';
+        }
+    },
+};
+
+// Helper for setting input values
+function _set(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
 }

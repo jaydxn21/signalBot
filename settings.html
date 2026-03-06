@@ -6,113 +6,8 @@
     <title>NEXUS | Settings</title>
     <link rel="icon" href="favicon.ico">
     <link rel="stylesheet" href="css/styles.css">
-    <style>
-        .settings-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            align-content: start;
-        }
-        .settings-card {
-            background: var(--surface-white);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-light);
-            border-radius: var(--r-md);
-            box-shadow: var(--shadow-sm);
-            padding: 18px 20px;
-            position: relative;
-        }
-        .settings-card h3 {
-            font-size: 0.72rem;
-            font-weight: 600;
-            color: var(--text-dark);
-            margin: 0 0 14px 0;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-        .settings-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 9px 0;
-            border-bottom: 1px solid var(--border-subtle);
-            font-size: 0.71rem;
-            color: var(--text-body);
-            gap: 12px;
-        }
-        .settings-row:last-child { border-bottom: none; }
-        .settings-row span, .settings-row label { flex: 1; cursor: pointer; }
-        .settings-row input[type="text"],
-        .settings-row input[type="password"],
-        .settings-row input[type="number"],
-        .settings-row select {
-            flex-shrink: 0;
-            width: 140px;
-            padding: 6px 10px;
-            font-size: 0.7rem;
-            background: rgba(15,23,42,0.04);
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--r-sm);
-            color: var(--text-dark);
-            font-family: var(--font-mono);
-        }
-        .settings-row input[type="number"] { width: 90px; }
-        .settings-row select { width: 110px; }
-        .saved-indicator {
-            position: absolute;
-            top: 18px;
-            right: 20px;
-            font-family: var(--font-mono);
-            font-size: 0.6rem;
-            letter-spacing: 0.06em;
-            color: var(--accent2);
-            opacity: 0;
-            transition: opacity 0.4s;
-        }
-        .session-info-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 6px;
-            margin-bottom: 14px;
-        }
-        .session-info-item {
-            background: rgba(15,23,42,0.04);
-            border-radius: var(--r-sm);
-            padding: 8px 10px;
-            text-align: center;
-        }
-        /* Toggle switch */
-        .toggle {
-            position: relative;
-            display: inline-block;
-            width: 36px;
-            height: 20px;
-            flex-shrink: 0;
-        }
-        .toggle input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            inset: 0;
-            background: rgba(15,23,42,0.15);
-            border-radius: 20px;
-            transition: 0.2s;
-        }
-        .toggle-slider:before {
-            content: '';
-            position: absolute;
-            width: 14px;
-            height: 14px;
-            left: 3px;
-            bottom: 3px;
-            background: white;
-            border-radius: 50%;
-            transition: 0.2s;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-        }
-        .toggle input:checked + .toggle-slider { background: var(--accent); }
-        .toggle input:checked + .toggle-slider:before { transform: translateX(16px); }
-    </style>
+    <link rel="stylesheet" href="css/settings.css">
+    
 </head>
 <body>
 
@@ -138,15 +33,109 @@
                         <input type="password" id="set-api-token" placeholder="Paste token here">
                     </div>
                     <div class="settings-row">
-                        <span>MT5 Server URL</span>
-                        <input type="text" id="set-mt5-url" placeholder="localhost:8080">
-                    </div>
-                    <div class="settings-row">
                         <span>Auto-reconnect on drop</span>
                         <label class="toggle">
                             <input type="checkbox" id="set-auto-reconnect">
                             <span class="toggle-slider"></span>
                         </label>
+                    </div>
+                </div>
+
+                <!-- ── MT5 BRIDGE ───────────────── full width -->
+                <div class="settings-card mt5-bridge-card" style="grid-column: span 2;">
+                    <h3>MT5 Bridge
+                        <span id="mt5-bridge-status-badge" class="mt5-badge mt5-badge-offline">● DISCONNECTED</span>
+                    </h3>
+
+                    <!-- Status row -->
+                    <div class="mt5-status-grid">
+                        <div class="mt5-stat">
+                            <div class="mt5-stat-label">EA STATUS</div>
+                            <div id="mt5-ea-status" class="mt5-stat-val mt5-offline">Waiting for connection</div>
+                        </div>
+                        <div class="mt5-stat">
+                            <div class="mt5-stat-label">CONNECTED CLIENTS</div>
+                            <div id="mt5-client-count" class="mt5-stat-val">—</div>
+                        </div>
+                        <div class="mt5-stat">
+                            <div class="mt5-stat-label">LAST SIGNAL SENT</div>
+                            <div id="mt5-last-signal" class="mt5-stat-val">—</div>
+                        </div>
+                        <div class="mt5-stat">
+                            <div class="mt5-stat-label">LAST SIGNAL TIME</div>
+                            <div id="mt5-last-time" class="mt5-stat-val">—</div>
+                        </div>
+                        <div class="mt5-stat">
+                            <div class="mt5-stat-label">SIGNALS TODAY</div>
+                            <div id="mt5-signals-today" class="mt5-stat-val">0</div>
+                        </div>
+                        <div class="mt5-stat">
+                            <div class="mt5-stat-label">AUTO-PUSH</div>
+                            <div id="mt5-auto-push-status" class="mt5-stat-val">—</div>
+                        </div>
+                    </div>
+
+                    <!-- Config -->
+                    <div class="mt5-config-row">
+                        <div class="mt5-config-field">
+                            <label class="mt5-config-label" data-tip="Your Mac's local IP — find it with: ipconfig getifaddr en0">EA HOST (your Mac IP)</label>
+                            <input type="text" id="mt5-host-input" class="mt5-config-input" placeholder="192.168.x.x">
+                        </div>
+                        <div class="mt5-config-field">
+                            <label class="mt5-config-label" data-tip="Must match WSPort in your EA settings">EA PORT</label>
+                            <input type="number" id="mt5-port-input" class="mt5-config-input" value="3000">
+                        </div>
+                        <div class="mt5-config-field">
+                            <label class="mt5-config-label" data-tip="Signal older than this will be ignored by the EA">MAX SIGNAL AGE (sec)</label>
+                            <input type="number" id="mt5-max-age-input" class="mt5-config-input" value="30">
+                        </div>
+                        <div class="mt5-config-field">
+                            <label class="mt5-config-label" data-tip="Default lot size sent with every signal">LOT SIZE</label>
+                            <input type="number" id="mt5-lot-input" class="mt5-config-input" value="0.10" step="0.01">
+                        </div>
+                    </div>
+
+                    <!-- EA Setup instructions -->
+                    <div class="mt5-setup-box">
+                        <div class="mt5-setup-title">⚡ EA SETUP CHECKLIST</div>
+                        <div class="mt5-setup-steps">
+                            <div class="mt5-step" id="mt5-step-1">
+                                <span class="mt5-step-num">1</span>
+                                <span>Open MT5 → attach <strong>KISS_Push_EA</strong> to any chart</span>
+                                <span class="mt5-step-check">○</span>
+                            </div>
+                            <div class="mt5-step" id="mt5-step-2">
+                                <span class="mt5-step-num">2</span>
+                                <span>Set <strong>WSHost</strong> = <code id="mt5-ip-display">—</code> and <strong>WSPort</strong> = 3000</span>
+                                <span class="mt5-step-check">○</span>
+                            </div>
+                            <div class="mt5-step" id="mt5-step-3">
+                                <span class="mt5-step-num">3</span>
+                                <span>Enable <strong>Auto Trading</strong> in MT5 toolbar</span>
+                                <span class="mt5-step-check">○</span>
+                            </div>
+                            <div class="mt5-step" id="mt5-step-4">
+                                <span class="mt5-step-num">4</span>
+                                <span>Check <strong>MT5 Auto-Push</strong> on any bot in the Terminal</span>
+                                <span class="mt5-step-check">○</span>
+                            </div>
+                            <div class="mt5-step" id="mt5-step-5">
+                                <span class="mt5-step-num">5</span>
+                                <span>EA connects → <strong>MT5 BRIDGE</strong> turns green in the header</span>
+                                <span class="mt5-step-check">○</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Signal history -->
+                    <div class="mt5-signal-history">
+                        <div class="mt5-history-header">
+                            <span class="mt5-config-label">SIGNAL LOG</span>
+                            <button onclick="window.mt5ClearLog()" class="mt5-clear-btn">CLEAR</button>
+                        </div>
+                        <div id="mt5-signal-log">
+                            <div class="mt5-log-empty">No signals sent yet — enable MT5 Auto-Push on a bot and wait for a signal.</div>
+                        </div>
                     </div>
                 </div>
 

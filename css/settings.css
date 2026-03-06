@@ -1,0 +1,345 @@
+/* ═══════════════════════════════════════════════════════════════
+   settings.css — All styles for the Settings page
+   Covers: layout, cards, rows, inputs, toggles, session data,
+           saved indicator, and the full MT5 Bridge panel
+═══════════════════════════════════════════════════════════════ */
+
+/* ── LAYOUT ──────────────────────────────────────────────────── */
+.settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-content: start;
+    padding: 2px;
+    overflow-y: auto;
+}
+
+.settings-card {
+    background: var(--surface-white);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-light);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-sm);
+    padding: 18px 20px;
+    position: relative;
+}
+
+.settings-card h3 {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin: 0 0 14px 0;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* ── ROWS ────────────────────────────────────────────────────── */
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.71rem;
+    color: var(--text-body);
+    gap: 12px;
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row span       { flex: 1; }
+.settings-row label      { flex-shrink: 0; cursor: pointer; }
+
+/* ── INPUTS ──────────────────────────────────────────────────── */
+.settings-row input[type="text"],
+.settings-row input[type="password"],
+.settings-row input[type="number"],
+.settings-row select {
+    flex-shrink: 0;
+    width: 140px;
+    padding: 6px 10px;
+    font-size: 0.7rem;
+    background: rgba(15,23,42,0.04);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    color: var(--text-dark);
+    font-family: var(--font-mono);
+    outline: none;
+    transition: border-color 0.15s;
+}
+.settings-row input[type="text"]:focus,
+.settings-row input[type="password"]:focus,
+.settings-row input[type="number"]:focus,
+.settings-row select:focus {
+    border-color: var(--accent);
+    background: white;
+}
+.settings-row input[type="number"] { width: 90px; }
+.settings-row select               { width: 110px; }
+
+/* ── TOGGLE SWITCH ───────────────────────────────────────────── */
+.toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: rgba(15,23,42,0.15);
+    border-radius: 20px;
+    transition: background 0.2s;
+}
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle input:checked + .toggle-slider             { background: var(--accent); }
+.toggle input:checked + .toggle-slider::before     { transform: translateX(16px); }
+
+/* ── SAVED INDICATOR ─────────────────────────────────────────── */
+.saved-indicator {
+    position: absolute;
+    top: 18px;
+    right: 20px;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    color: var(--accent2);
+    opacity: 0;
+    transition: opacity 0.4s;
+}
+
+/* ── SESSION INFO GRID ───────────────────────────────────────── */
+.session-info-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 14px;
+}
+.session-info-item {
+    background: rgba(15,23,42,0.04);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MT5 BRIDGE STATUS PANEL
+═══════════════════════════════════════════════════════════════ */
+
+.mt5-bridge-card { grid-column: span 2; }
+
+/* Status badge */
+.mt5-badge {
+    font-size: 0.52rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-family: var(--font-mono);
+}
+.mt5-badge-online  { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.mt5-badge-offline { background: rgba(239,68,68,0.1);   color: #ef4444; border: 1px solid rgba(239,68,68,0.2); }
+.mt5-badge-waiting { background: rgba(245,158,11,0.1);  color: #f59e0b; border: 1px solid rgba(245,158,11,0.2); }
+
+/* 6-column status grid */
+.mt5-status-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.mt5-stat {
+    background: var(--surface-dark);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    padding: 10px 12px;
+}
+.mt5-stat-label {
+    font-size: 0.5rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-bottom: 5px;
+}
+.mt5-stat-val {
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    font-family: var(--font-mono);
+    line-height: 1.4;
+    word-break: break-all;
+}
+.mt5-online  { color: #10b981 !important; }
+.mt5-offline { color: #ef4444 !important; }
+.mt5-waiting { color: #f59e0b !important; }
+
+/* Config row */
+.mt5-config-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+.mt5-config-field { display: flex; flex-direction: column; gap: 6px; }
+.mt5-config-label {
+    font-size: 0.52rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    cursor: help;
+}
+.mt5-config-input {
+    background: #f8fafc;
+    border: 1px solid var(--border-light);
+    border-radius: var(--r-sm);
+    padding: 7px 10px;
+    font-size: 0.68rem;
+    font-family: var(--font-mono);
+    color: var(--text-dark);
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+    box-sizing: border-box;
+}
+.mt5-config-input:focus { border-color: var(--accent); background: white; }
+
+/* EA setup checklist */
+.mt5-setup-box {
+    background: #f8fafc;
+    border: 1px solid var(--border-light);
+    border-radius: var(--r-sm);
+    padding: 14px 16px;
+    margin-bottom: 18px;
+}
+.mt5-setup-title {
+    font-size: 0.54rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-bottom: 12px;
+}
+.mt5-setup-steps { display: flex; flex-direction: column; gap: 8px; }
+.mt5-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.64rem;
+    color: var(--text-body);
+    line-height: 1.5;
+    opacity: 0.6;
+    transition: opacity 0.3s;
+}
+.mt5-step-num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--border-light);
+    color: var(--text-muted);
+    font-size: 0.55rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.mt5-step code {
+    background: rgba(37,99,235,0.08);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+}
+.mt5-step-check {
+    margin-left: auto;
+    font-weight: 700;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+}
+
+/* Signal log */
+.mt5-signal-history {
+    border: 1px solid var(--border-light);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+}
+.mt5-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-light);
+}
+.mt5-clear-btn {
+    background: none;
+    border: 1px solid var(--border-light);
+    color: var(--text-muted);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.52rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.mt5-clear-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+.mt5-log-empty {
+    padding: 20px;
+    text-align: center;
+    font-size: 0.63rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+.mt5-log-row {
+    display: grid;
+    grid-template-columns: 52px 160px 110px 100px 100px 1fr 110px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    align-items: center;
+    transition: background 0.1s;
+}
+.mt5-log-row:last-child { border-bottom: none; }
+.mt5-log-row:hover      { background: rgba(37,99,235,0.03); }
+
+.mt5-log-dir    { font-weight: 800; }
+.mt5-log-buy    { color: #10b981; }
+.mt5-log-sell   { color: #ef4444; }
+.mt5-log-symbol { font-weight: 600; color: var(--text-dark); }
+.mt5-log-price  { color: var(--text-body); }
+.mt5-log-sl     { color: #ef4444; font-size: 0.58rem; }
+.mt5-log-tp     { color: #10b981; font-size: 0.58rem; }
+.mt5-log-label  { color: var(--text-muted); font-size: 0.58rem; }
+.mt5-log-time   { color: var(--text-muted); font-size: 0.58rem; text-align: right; }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .settings-grid     { grid-template-columns: 1fr; }
+    .mt5-bridge-card   { grid-column: span 1; }
+    .mt5-status-grid   { grid-template-columns: repeat(3, 1fr); }
+    .mt5-config-row    { grid-template-columns: 1fr 1fr; }
+    .mt5-log-row       { grid-template-columns: 52px 1fr 90px 80px 80px; }
+    .mt5-log-label,
+    .mt5-log-time      { display: none; }
+}

@@ -69,9 +69,14 @@ function pushToMT5(payload) {
 // ─── Main HTTP Server ──────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
-    let pathname    = parsedUrl.pathname;
+    let pathname    = parsedUrl.pathname.replace(/\/+$/, '') || '/'; // strip trailing slashes
 
     if (pathname === '/' || pathname === '') pathname = '/index.html';
+
+    // Debug — remove after confirming routes work
+    if (pathname.startsWith('/api/')) {
+        console.log(`[API] ${req.method} ${pathname}`);
+    }
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204, {
@@ -154,6 +159,57 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // ── /api/save-strategy ───────────────────────────────────────────────────
+    // Called by Strategy Builder "Save to Server" button.
+    // Writes the generated .js file directly to js/strategies/ on disk.
+    // VS Code picks up the change immediately — no drag and drop needed.
+    if (pathname === '/api/save-strategy' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const { filename, code } = JSON.parse(body);
+                if (!filename || !code) throw new Error('filename and code required');
+                const safeName = path.basename(filename).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+                if (!safeName.endsWith('.js')) throw new Error('Only .js files allowed');
+                const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
+                if (!fs.existsSync(strategiesDir)) fs.mkdirSync(strategiesDir, { recursive: true });
+                const filePath = path.join(strategiesDir, safeName);
+                if (fs.existsSync(filePath)) {
+                    fs.copyFileSync(filePath, filePath.replace('.js', `_backup_${Date.now()}.js`));
+                }
+                fs.writeFileSync(filePath, code, 'utf8');
+                console.log(`[StrategyBuilder] Saved: js/strategies/${safeName}`);
+                res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ success: true, filename: safeName }));
+            } catch(err) {
+                res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+        return;
+    }
+
+    // ── /api/strategies ──────────────────────────────────────────────────────
+    // Lists all .js files in js/strategies/ — used to populate custom
+    // strategy dropdowns in the Strategy Builder and Backtest pages.
+    if (pathname === '/api/strategies' && req.method === 'GET') {
+        try {
+            const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
+            const files = fs.existsSync(strategiesDir)
+                ? fs.readdirSync(strategiesDir)
+                    .filter(f => f.endsWith('.js') && !f.includes('_backup_'))
+                    .map(f => ({ filename: f, name: f.replace('.js', '') }))
+                : [];
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ strategies: files }));
+        } catch(err) {
+            res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+    }
+
     // ── Static Files ─────────────────────────────────────────────────────────
     const filePath = path.join(ROOT_DIR, pathname);
     fs.readFile(filePath, (err, content) => {
@@ -208,10 +264,13 @@ server.on('upgrade', (req, socket, head) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
+    // ── VERSION MARKER — if you see this, the patched server is running ──
     console.log(`\n🚀 Signal Bot running`);
-    console.log(`   UI           → http://127.0.0.1:${PORT}`);
-    console.log(`   MT5 poll     → http://127.0.0.1:${PORT}/api/signal`);
-    console.log(`   MT5 WS push  → ws://127.0.0.1:${PORT}/mt5`);
-    console.log(`   Training     → ${path.join(ROOT_DIR, 'training_data/')}`);
+    console.log(`   UI              → http://127.0.0.1:${PORT}`);
+    console.log(`   MT5 poll        → http://127.0.0.1:${PORT}/api/signal`);
+    console.log(`   MT5 WS push     → ws://127.0.0.1:${PORT}/mt5`);
+    console.log(`   Save strategy   → POST http://127.0.0.1:${PORT}/api/save-strategy`);
+    console.log(`   List strategies → GET  http://127.0.0.1:${PORT}/api/strategies`);
+    console.log(`   Training        → ${path.join(ROOT_DIR, 'training_data/')}`);
     console.log(`   Press Ctrl+C to stop\n`);
 });

@@ -137,9 +137,15 @@
                     <button id="sb-save-btn" class="sb-btn-primary" style="flex:1">💾  SAVE STRATEGY</button>
                     <button id="sb-test-btn" class="sb-btn-secondary" style="flex:1">▶  QUICK BACKTEST</button>
                 </div>
-                <button id="sb-export-code-btn" class="sb-btn-ghost" style="width:100%;margin-top:6px;">
-                    &lt;/&gt;  EXPORT AS .JS FILE
-                </button>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+                    <button id="sb-export-code-btn" class="sb-btn-ghost">
+                        &lt;/&gt; EXPORT .JS
+                    </button>
+                    <button id="sb-save-server-btn" class="sb-btn-ghost"
+                        data-tip="Saves directly to js/strategies/ on your server. Requires server-save-strategy.js installed.">
+                        ⬆ SAVE TO SERVER
+                    </button>
+                </div>
 
             </div>
 
