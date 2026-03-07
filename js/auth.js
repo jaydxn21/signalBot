@@ -1,0 +1,125 @@
+// js/auth.js
+// Client-side auth helper.
+// All pages import this and call Auth.guard() at the top to ensure the user
+// is logged in (or in guest mode) before the page runs.
+//
+// Usage in any page:
+//   import { Auth } from './js/auth.js';
+//   Auth.guard();   // redirects to login.html if not authenticated
+
+export const Auth = {
+    // ── Read stored session ───────────────────────────────────────────────
+    get() {
+        try {
+            const raw = localStorage.getItem('nexus_auth');
+            if (!raw) return null;
+            const auth = JSON.parse(raw);
+            if (!auth.exp || Date.now() > auth.exp) {
+                localStorage.removeItem('nexus_auth');
+                return null;
+            }
+            return auth;
+        } catch { return null; }
+    },
+
+    // ── Redirect to login if not authenticated ────────────────────────────
+    guard() {
+        if (!this.get()) window.location.replace('login.html');
+    },
+
+    // ── Current user info ─────────────────────────────────────────────────
+    user() {
+        const auth = this.get();
+        return auth ? { userId: auth.userId, username: auth.username, guest: !!auth.guest } : null;
+    },
+
+    isGuest() {
+        return !!this.get()?.guest;
+    },
+
+    token() {
+        return this.get()?.token || null;
+    },
+
+    // ── Auth headers for API calls ────────────────────────────────────────
+    headers() {
+        const t = this.token();
+        return t ? { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+    },
+
+    // ── Logout ────────────────────────────────────────────────────────────
+    logout() {
+        localStorage.removeItem('nexus_auth');
+        window.location.replace('login.html');
+    },
+
+    // ── Cloud sync: push trades to server ────────────────────────────────
+    async syncTrades(trades) {
+        if (this.isGuest() || !trades?.length) return;
+        try {
+            await fetch('/api/user/trades', {
+                method: 'POST',
+                headers: this.headers(),
+                body: JSON.stringify({ trades }),
+            });
+        } catch(_) {} // silent — local storage is the source of truth
+    },
+
+    // ── Cloud sync: fetch trades from server ──────────────────────────────
+    async fetchTrades() {
+        if (this.isGuest()) return null;
+        try {
+            const r = await fetch('/api/user/trades', { headers: this.headers() });
+            if (!r.ok) return null;
+            const d = await r.json();
+            return d.trades || null;
+        } catch { return null; }
+    },
+
+    // ── Cloud sync: push settings ─────────────────────────────────────────
+    async syncSettings(settings) {
+        if (this.isGuest()) return;
+        try {
+            await fetch('/api/user/settings', {
+                method: 'POST',
+                headers: this.headers(),
+                body: JSON.stringify({ settings }),
+            });
+        } catch(_) {}
+    },
+
+    // ── Cloud sync: fetch settings ────────────────────────────────────────
+    async fetchSettings() {
+        if (this.isGuest()) return null;
+        try {
+            const r = await fetch('/api/user/settings', { headers: this.headers() });
+            if (!r.ok) return null;
+            const d = await r.json();
+            return d.settings || null;
+        } catch { return null; }
+    },
+
+    // ── Cloud sync: save strategy ─────────────────────────────────────────
+    async saveStrategy(name, strategy) {
+        if (this.isGuest()) return false;
+        try {
+            const r = await fetch('/api/user/strategies', {
+                method: 'POST',
+                headers: this.headers(),
+                body: JSON.stringify({ name, strategy }),
+            });
+            return r.ok;
+        } catch { return false; }
+    },
+
+    // ── Cloud sync: fetch strategies ──────────────────────────────────────
+    async fetchStrategies() {
+        if (this.isGuest()) return null;
+        try {
+            const r = await fetch('/api/user/strategies', { headers: this.headers() });
+            if (!r.ok) return null;
+            const d = await r.json();
+            return d.strategies || null;
+        } catch { return null; }
+    },
+};

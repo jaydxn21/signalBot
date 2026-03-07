@@ -14,6 +14,7 @@ import { Analytics }         from './js/pages/analytics.js';
 import { Settings }          from './js/pages/settings.js';
 import { ChartManager, initChartManager } from './js/chart-manager.js';
 import { ConfidenceEngine }          from './js/confidence.js';
+import { Auth }              from './js/auth.js';
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
@@ -134,6 +135,46 @@ class BotState {
 // ─────────────────────────────────────────────────────────────
 let api          = null;
 let symbolMap    = {};
+
+// ─────────────────────────────────────────────────────────────
+// PUSH NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────
+const Notify = {
+    _allowed: false,
+
+    async request() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'granted') { this._allowed = true; return; }
+        if (Notification.permission !== 'denied') {
+            const perm = await Notification.requestPermission();
+            this._allowed = perm === 'granted';
+        }
+    },
+
+    signal(type, symbol, price, label, confidence) {
+        if (!this._allowed || document.hasFocus()) return;
+        const icon  = type === 'BUY' ? '🟢' : '🔴';
+        const title = `${icon} ${type} — ${symbol}`;
+        const body  = `${label}  ·  @ ${parseFloat(price).toFixed(4)}  ·  ${confidence?.grade || '?'}${confidence?.score || ''}`;
+        try {
+            const n = new Notification(title, { body, icon: '/favicon.ico', tag: `nexus-signal-${Date.now()}` });
+            n.onclick = () => { window.focus(); n.close(); };
+            setTimeout(() => n.close(), 8000);
+        } catch(e) {}
+    },
+
+    outcome(type, outcome, symbol, pnl) {
+        if (!this._allowed || document.hasFocus()) return;
+        const icon  = outcome === 'TP' ? '✅' : '❌';
+        const title = `${icon} ${outcome} — ${symbol}`;
+        const body  = `${type} closed  ·  P&L: ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`;
+        try {
+            const n = new Notification(title, { body, icon: '/favicon.ico', tag: `nexus-outcome-${Date.now()}` });
+            n.onclick = () => { window.focus(); n.close(); };
+            setTimeout(() => n.close(), 6000);
+        } catch(e) {}
+    },
+};
 let focusedBotId = null;
 let authorised   = false;
 
@@ -231,6 +272,22 @@ async function init() {
 
     Analytics.init();
 
+    // ── Restore persisted session P&L display ──────────────────
+    const restoredState = SessionState.get();
+    const pnlEl = document.getElementById('session-pnl');
+    if (pnlEl && restoredState.sessionPnL !== 0) {
+        const pnl = restoredState.sessionPnL;
+        pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
+        pnlEl.style.color = pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
+    }
+    const winsEl   = document.getElementById('stat-wins');
+    const lossesEl = document.getElementById('stat-losses');
+    const wrEl     = document.getElementById('stat-winrate');
+    if (winsEl)   winsEl.textContent   = restoredState.wins   || 0;
+    if (lossesEl) lossesEl.textContent = restoredState.losses || 0;
+    if (wrEl)     wrEl.textContent     = restoredState.winRate ? `${restoredState.winRate}%` : '0%';
+    // ─────────────────────────────────────────────────────────
+
     document.getElementById('clear-logs')?.addEventListener('click', () => {
         const logs    = document.getElementById('logs');
         const countEl = document.getElementById('log-count');
@@ -252,7 +309,7 @@ async function init() {
         api.connect(t);
     };
 
-    document.getElementById('btn-logout').onclick  = logout;
+    document.getElementById('btn-logout').onclick  = logout; // nav.js also wires this; signal-bot keeps Deriv disconnect
     document.getElementById('btn-add-bot').onclick = () => _createBotCard(Date.now(), null);
 
     // Overlay panel — wire checkboxes and collapse toggle
@@ -260,6 +317,55 @@ async function init() {
 
     // Restore any bots that were running before navigation
     _restoreBotCards();
+
+    // ── DEPLOY FROM STRATEGY BUILDER ──────────────────────────
+    const deployRaw = sessionStorage.getItem('nexus_deploy_bot');
+    if (deployRaw) {
+        sessionStorage.removeItem('nexus_deploy_bot');
+        try {
+            const payload = JSON.parse(deployRaw);
+            const id = Date.now();
+            _createBotCard(id, payload);
+            log(`Strategy "${payload.name || payload.strategy}" deployed from Builder — configure and start.`, 'info');
+            // Flash the new card so the user notices it
+            setTimeout(() => {
+                const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+                if (card) {
+                    card.style.transition = 'box-shadow 0.3s';
+                    card.style.boxShadow = '0 0 0 2px #8b5cf6';
+                    setTimeout(() => { card.style.boxShadow = ''; }, 2000);
+                }
+            }, 300);
+        } catch(e) { console.warn('[Deploy] Failed to parse payload', e); }
+    }
+
+    // ── QUICK SYMBOL FROM MARKET PAGE ─────────────────────────
+    const quickSym = sessionStorage.getItem('nexus_quick_sym');
+    if (quickSym) {
+        sessionStorage.removeItem('nexus_quick_sym');
+        setTimeout(() => {
+            // Prefer a stopped card; if none, create one
+            const targetCard = document.querySelector('.bot-card.stopped') ||
+                               document.querySelector('.bot-card');
+
+            if (!targetCard) {
+                const id = Date.now();
+                _createBotCard(id, { strategy: 'momentum', symbol: quickSym, tf: 300 });
+                log(`New bot created from Market with symbol ${quickSym}`, 'info');
+                return; // savedConfig already sets symbol during card creation
+            }
+
+            const symSelect = targetCard.querySelector('.bot-symbol-select');
+            if (symSelect) {
+                symSelect.value = quickSym;
+                symSelect.dispatchEvent(new Event('change'));
+                log(`Symbol pre-selected from Market: ${quickSym}`, 'info');
+                targetCard.style.transition = 'box-shadow 0.3s';
+                targetCard.style.boxShadow = '0 0 0 2px #06b6d4';
+                setTimeout(() => { targetCard.style.boxShadow = ''; }, 2000);
+            }
+        }, 400);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -385,6 +491,7 @@ function _engineFor(botId) {
 }
 
 function subscribeBot(bot) {
+    Notify.request();
     api.subscribe(bot.config.symbol, bot.config.tf);
     api.subscribe(bot.config.symbol, 14400);
     log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + H4`, 'info');
@@ -662,6 +769,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     }
 
     window.registerBotSignal(bot.id, type, bar.close.toFixed(4), confLabel, confidence);
+    Notify.signal(type, bot.config.symbol, bar.close, label, confidence);
 
     // ── LIVE CONFIDENCE PREVIEW in analytics ─────────────────
     // Push to SessionState immediately so analytics page shows it without waiting for trade close
@@ -768,6 +876,7 @@ function checkOutcome(bot) {
 
     if (hit === 'TP') {
         log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
+        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
         window.registerBotWin(bot.id, pnlAmt);
         UIManager.registerWin(pnlAmt);
         DataLogger.logOutcome('TP', entry, sl, tp, closed.time);
@@ -775,6 +884,7 @@ function checkOutcome(bot) {
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
     } else {
         log(`✗ SL hit  -${pnlAmt.toFixed(4)}`, 'sell');
+        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
         window.registerBotLoss(bot.id, pnlAmt);
         UIManager.registerLoss(pnlAmt);
         DataLogger.logOutcome('SL', entry, sl, tp, closed.time);
@@ -940,6 +1050,10 @@ function logout() {
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph) ph.style.display = 'flex';
     log('Logged out', 'warn');
+
+    // Sync trades to server before logging out of NEXUS auth
+    const trades = SessionState.get().trades;
+    Auth.syncTrades(trades).finally(() => Auth.logout());
 }
 
 // ─────────────────────────────────────────────────────────────

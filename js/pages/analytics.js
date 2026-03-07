@@ -12,6 +12,9 @@ export const Analytics = {
 
     init() {
         _render();
+        _renderMT5();
+        _pollMT5();
+        setInterval(_pollMT5, 5000);
         setInterval(_render, 5000);
         // Daily P&L reset at Jamaica midnight
         _scheduleMidnightReset();

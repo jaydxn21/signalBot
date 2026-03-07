@@ -1042,3 +1042,168 @@ input[type="checkbox"] {
 }
 
     .mt5-config-row  { grid-template-columns: 1fr 1fr; }
+
+
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE  (≤768px)
+   Read-only status view — bots, last signal, P&L
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+    /* Hide wave background on mobile — performance */
+    #wave-canvas { display: none; }
+
+    /* App shell stacks vertically */
+    #app-shell {
+        flex-direction: column;
+        padding: 6px;
+        gap: 6px;
+        height: auto;
+        min-height: 100vh;
+    }
+
+    /* Nav becomes a horizontal bottom bar */
+    #nexus-nav { display: none; }
+    #mobile-nav {
+        display: flex !important;
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        background: var(--surface-nav);
+        backdrop-filter: blur(24px);
+        border-top: 1px solid var(--border-light);
+        z-index: 100;
+        padding: 8px 0 env(safe-area-inset-bottom);
+        justify-content: space-around;
+    }
+    .mobile-nav-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        padding: 4px 12px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: 0.5rem;
+        font-family: var(--font-mono);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        transition: color 0.15s;
+        text-decoration: none;
+    }
+    .mobile-nav-btn svg { width: 20px; height: 20px; stroke-width: 1.6; }
+    .mobile-nav-btn.active { color: var(--accent); }
+
+    /* Header compact */
+    #nexus-header { padding: 0 0 6px; }
+    .header-inner {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .nexus-brand { font-size: 0.9rem; }
+    .header-clock { font-size: 0.65rem; }
+
+    /* Main content full width */
+    #main-content {
+        width: 100%;
+        padding-bottom: 70px; /* space for mobile nav */
+    }
+
+    /* Workspace full width, no gap */
+    #workspace {
+        padding: 0 !important;
+        gap: 6px !important;
+        flex-direction: column;
+    }
+
+    /* Bot cards stack */
+    #bot-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px;
+    }
+
+    /* Bot card compact */
+    .bot-card {
+        padding: 12px 14px;
+    }
+    .bot-card-header { gap: 8px; }
+    .bot-stats-row   { gap: 8px; flex-wrap: wrap; }
+
+    /* Hide chart area on mobile terminal — too small */
+    #chart-section { display: none; }
+
+    /* Analytics grid single column */
+    .analytics-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .analytics-card.span-2 { grid-column: span 1 !important; }
+
+    /* Settings single column */
+    .settings-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .mt5-bridge-card   { grid-column: span 1 !important; }
+    .mt5-status-grid   { grid-template-columns: repeat(2, 1fr) !important; }
+    .mt5-config-row    { grid-template-columns: 1fr !important; }
+
+    /* Backtest layout stacks */
+    #bt-layout {
+        flex-direction: column !important;
+    }
+    #bt-config-panel {
+        width: 100% !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border-light);
+    }
+
+    /* Strategy builder stacks */
+    #sb-layout {
+        flex-direction: column !important;
+    }
+    #sb-left-panel {
+        width: 100% !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border-light);
+    }
+
+    /* Tooltips on mobile — show below tap targets */
+    [data-tip]::after { display: none; }
+
+    /* Mobile status card — quick glance view */
+    #mobile-status-bar {
+        display: flex !important;
+        gap: 8px;
+        padding: 8px;
+        background: var(--surface-white);
+        border: 1px solid var(--border-light);
+        border-radius: var(--r-md);
+        margin-bottom: 8px;
+        overflow-x: auto;
+    }
+    .mobile-stat {
+        flex-shrink: 0;
+        text-align: center;
+        min-width: 64px;
+    }
+    .mobile-stat-label {
+        font-size: 0.48rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+        margin-bottom: 3px;
+    }
+    .mobile-stat-val {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        font-family: var(--font-mono);
+    }
+}
+
+/* Hide mobile-only elements on desktop */
+#mobile-nav        { display: none; }
+#mobile-status-bar { display: none; }

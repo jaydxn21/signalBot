@@ -146,6 +146,9 @@
                         ⬆ SAVE TO SERVER
                     </button>
                 </div>
+                <button id="sb-deploy-btn" class="sb-btn-primary" style="width:100%;margin-top:6px;background:linear-gradient(135deg,#6366f1,#8b5cf6);">
+                    ▶ DEPLOY TO TERMINAL
+                </button>
 
             </div>
 
@@ -220,9 +223,15 @@
 
                     <!-- Suggestions -->
                     <div id="sb-suggestions-wrap">
-                        <div class="sb-panel-label">SUGGESTIONS
-                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:6px;">rule-based · AI-powered coming soon</span>
+                        <div class="sb-panel-label" style="display:flex;align-items:center;">
+                            SUGGESTIONS
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;margin-left:6px;">rule-based</span>
+                            <button id="sb-ai-btn" onclick="window.sbRunAI()" class="sb-ai-btn" style="margin-left:auto;">
+                                ✦ ASK AI
+                            </button>
+                            <div id="sb-ai-status" style="font-size:0.55rem;color:var(--text-muted);margin-left:10px;font-family:var(--font-mono);display:none;">Thinking...</div>
                         </div>
+                        <div id="sb-ai-result" style="display:none;"></div>
                         <div id="sb-suggestions"></div>
                     </div>
 
@@ -253,8 +262,8 @@
     </div>
 </div>
 
+<script type="module" src="js/nav.js"></script>
 <script type="module">
-    import './js/nav.js';
     import { StrategyBuilder } from './js/pages/strategy-builder.js';
     document.addEventListener('DOMContentLoaded', () => StrategyBuilder.init());
 </script>

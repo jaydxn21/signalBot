@@ -5,6 +5,12 @@
 
 export { SessionState } from './session-state.js';
 import { SessionState } from './session-state.js';
+import { Auth }         from './auth.js';
+
+// Guard — redirect to login if not authenticated (guest mode passes through)
+if (window.location.pathname.indexOf('login.html') === -1) {
+    Auth.guard();
+}
 
 // ─────────────────────────────────────────────────────────────
 // NAV RAIL — highlights current page
@@ -308,4 +314,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initNav();
     initClock();
     initWaves();
+
+    // Show username in header & wire logout to Auth
+    const user    = Auth.user();
+    const logoutBtn = document.getElementById('btn-logout');
+    if (logoutBtn) {
+        if (user) logoutBtn.textContent = `${user.username} ×`;
+        logoutBtn.onclick = () => Auth.logout();
+    }
 });

@@ -166,6 +166,32 @@
                     </div>
                 </div>
 
+                <!-- ── NOTIFICATIONS ──────────────────────── -->
+                <div class="settings-card">
+                    <h3>Notifications</h3>
+                    <div class="settings-row">
+                        <span>Signal fired (tab backgrounded)</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="set-notif-signal" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-row">
+                        <span>TP / SL hit</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="set-notif-outcome" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-row" style="border-bottom:none;">
+                        <span>Permission status</span>
+                        <span id="notif-permission-status" class="mono" style="font-size:0.65rem;color:var(--text-muted);">—</span>
+                    </div>
+                    <button onclick="window.nexusRequestNotify()" class="btn-pro" style="margin-top:10px;padding:7px 14px;font-size:0.63rem;width:100%;">
+                        🔔 Enable Browser Notifications
+                    </button>
+                </div>
+
                 <!-- ── DATA & LOGGING ──────────────────────── -->
                 <div class="settings-card">
                     <h3>Data &amp; Logging</h3>
@@ -265,8 +291,8 @@
     </div>
 </div>
 
+<script type="module" src="js/nav.js"></script>
 <script type="module">
-    import './js/nav.js';
     import { Settings } from './js/pages/settings.js';
     document.addEventListener('DOMContentLoaded', () => Settings.init());
 </script>

@@ -11,9 +11,69 @@ const __dirname  = path.dirname(__filename);
 const PORT     = 3000;
 const ROOT_DIR = __dirname;
 
+// ─── Auth ─────────────────────────────────────────────────────────────────
+const AUTH_SECRET = process.env.NEXUS_SECRET || 'nexus_dev_secret_change_in_prod';
+const DB_PATH     = path.join(__dirname, 'data', 'users.json');
+
+function _ensureDB() {
+    const dir = path.join(__dirname, 'data');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ users: {} }, null, 2));
+}
+
+function _readDB() {
+    _ensureDB();
+    try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); } catch { return { users: {} }; }
+}
+
+function _writeDB(db) {
+    _ensureDB();
+    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+}
+
+function _hashPassword(password) {
+    return crypto.createHmac('sha256', AUTH_SECRET).update(password).digest('hex');
+}
+
+function _makeToken(userId) {
+    const payload = Buffer.from(JSON.stringify({ userId, exp: Date.now() + 7 * 24 * 3600 * 1000 })).toString('base64');
+    const sig     = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
+    return `${payload}.${sig}`;
+}
+
+function _verifyToken(token) {
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 2) return null;
+    const [payload, sig] = parts;
+    const expected = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
+    if (sig !== expected) return null;
+    try {
+        const data = JSON.parse(Buffer.from(payload, 'base64').toString());
+        if (Date.now() > data.exp) return null;
+        return data;
+    } catch { return null; }
+}
+
+function _authMiddleware(req) {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    return _verifyToken(token);
+}
+
+function _json(res, status, body) {
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(body));
+}
+
+
+
 let latestSignal  = null;
 let signalHistory = [];
 const mt5Clients  = [];
+
+// MT5 real trade results — posted back by the EA when trades close
+let mt5TradeResults = [];
 
 // ─── CSV helpers ───────────────────────────────────────────────────────────
 const CSV_HEADERS = [
@@ -130,6 +190,38 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // ── /api/trade-result ───────────────────────────────────────────────────────
+    // Posted by MT5 EA when a trade closes — stores result for NEXUS to display
+    if (pathname === '/api/trade-result' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const result = JSON.parse(body);
+                result.receivedAt = new Date().toISOString();
+                mt5TradeResults.unshift(result);
+                if (mt5TradeResults.length > 200) mt5TradeResults.pop();
+                console.log(`[MT5] Trade closed → ${result.outcome} ${result.symbol} P&L: ${result.pnl}`);
+                // Push update to any connected browser clients
+                pushToMT5({ type: 'trade_result', ...result });
+                res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ status: 'ok' }));
+            } catch(err) {
+                res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ error: 'Invalid JSON' }));
+            }
+        });
+        return;
+    }
+
+    // ── /api/trade-results ──────────────────────────────────────────────────────
+    // GET all stored MT5 trade results
+    if (pathname === '/api/trade-results' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(mt5TradeResults));
+        return;
+    }
+
     // ── /api/log ─────────────────────────────────────────────────────────────
     if (pathname === '/api/log' && req.method === 'POST') {
         let body = '';
@@ -169,20 +261,33 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const { filename, code } = JSON.parse(body);
+
+                // Validate — only .js files, no path traversal
                 if (!filename || !code) throw new Error('filename and code required');
                 const safeName = path.basename(filename).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
                 if (!safeName.endsWith('.js')) throw new Error('Only .js files allowed');
+
                 const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
-                if (!fs.existsSync(strategiesDir)) fs.mkdirSync(strategiesDir, { recursive: true });
-                const filePath = path.join(strategiesDir, safeName);
-                if (fs.existsSync(filePath)) {
-                    fs.copyFileSync(filePath, filePath.replace('.js', `_backup_${Date.now()}.js`));
+                if (!fs.existsSync(strategiesDir)) {
+                    fs.mkdirSync(strategiesDir, { recursive: true });
                 }
+
+                const filePath = path.join(strategiesDir, safeName);
+
+                // Backup existing file with timestamp before overwriting
+                if (fs.existsSync(filePath)) {
+                    const backupPath = filePath.replace('.js', `_backup_${Date.now()}.js`);
+                    fs.copyFileSync(filePath, backupPath);
+                    console.log(`[StrategyBuilder] Backed up existing file → ${path.basename(backupPath)}`);
+                }
+
                 fs.writeFileSync(filePath, code, 'utf8');
                 console.log(`[StrategyBuilder] Saved: js/strategies/${safeName}`);
+
                 res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-                res.end(JSON.stringify({ success: true, filename: safeName }));
+                res.end(JSON.stringify({ success: true, filename: safeName, path: filePath }));
             } catch(err) {
+                console.error('[StrategyBuilder] Save error:', err.message);
                 res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
                 res.end(JSON.stringify({ error: err.message }));
             }
@@ -199,7 +304,12 @@ const server = http.createServer((req, res) => {
             const files = fs.existsSync(strategiesDir)
                 ? fs.readdirSync(strategiesDir)
                     .filter(f => f.endsWith('.js') && !f.includes('_backup_'))
-                    .map(f => ({ filename: f, name: f.replace('.js', '') }))
+                    .map(f => ({
+                        filename: f,
+                        name:     f.replace('.js', ''),
+                        modified: fs.statSync(path.join(strategiesDir, f)).mtime,
+                    }))
+                    .sort((a, b) => new Date(b.modified) - new Date(a.modified))
                 : [];
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify({ strategies: files }));
@@ -208,6 +318,167 @@ const server = http.createServer((req, res) => {
             res.end(JSON.stringify({ error: err.message }));
         }
         return;
+    }
+
+    // ── /api/auth/register ────────────────────────────────────────────────────
+    if (pathname === '/api/auth/register' && req.method === 'POST') {
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            try {
+                const { username, password } = JSON.parse(body);
+                if (!username || !password || username.length < 3 || password.length < 6)
+                    return _json(res, 400, { error: 'Username ≥3 chars, password ≥6 chars required' });
+
+                const db = _readDB();
+                const id = username.toLowerCase().trim();
+                if (db.users[id]) return _json(res, 409, { error: 'Username already taken' });
+
+                db.users[id] = {
+                    id, username,
+                    passwordHash: _hashPassword(password),
+                    createdAt: Date.now(),
+                    settings: {},
+                    strategies: {},
+                };
+                _writeDB(db);
+                const token = _makeToken(id);
+                _json(res, 201, { token, userId: id, username });
+            } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+        });
+        return;
+    }
+
+    // ── /api/auth/login ───────────────────────────────────────────────────────
+    if (pathname === '/api/auth/login' && req.method === 'POST') {
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            try {
+                const { username, password } = JSON.parse(body);
+                const db  = _readDB();
+                const id  = (username || '').toLowerCase().trim();
+                const user = db.users[id];
+                if (!user || user.passwordHash !== _hashPassword(password))
+                    return _json(res, 401, { error: 'Invalid username or password' });
+
+                const token = _makeToken(id);
+                _json(res, 200, { token, userId: id, username: user.username });
+            } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+        });
+        return;
+    }
+
+    // ── /api/user/profile ─────────────────────────────────────────────────────
+    if (pathname === '/api/user/profile' && req.method === 'GET') {
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+        const db   = _readDB();
+        const user = db.users[auth.userId];
+        if (!user) return _json(res, 404, { error: 'User not found' });
+        _json(res, 200, { userId: user.id, username: user.username, createdAt: user.createdAt });
+        return;
+    }
+
+    // ── /api/user/settings ────────────────────────────────────────────────────
+    if (pathname === '/api/user/settings') {
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+
+        if (req.method === 'GET') {
+            const db = _readDB();
+            _json(res, 200, { settings: db.users[auth.userId]?.settings || {} });
+            return;
+        }
+        if (req.method === 'POST') {
+            let body = '';
+            req.on('data', c => body += c);
+            req.on('end', () => {
+                try {
+                    const { settings } = JSON.parse(body);
+                    const db = _readDB();
+                    if (db.users[auth.userId]) {
+                        db.users[auth.userId].settings = settings;
+                        _writeDB(db);
+                        _json(res, 200, { ok: true });
+                    } else { _json(res, 404, { error: 'User not found' }); }
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+            });
+            return;
+        }
+    }
+
+    // ── /api/user/strategies ──────────────────────────────────────────────────
+    if (pathname === '/api/user/strategies') {
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+
+        if (req.method === 'GET') {
+            const db = _readDB();
+            _json(res, 200, { strategies: db.users[auth.userId]?.strategies || {} });
+            return;
+        }
+        if (req.method === 'POST') {
+            let body = '';
+            req.on('data', c => body += c);
+            req.on('end', () => {
+                try {
+                    const { name, strategy } = JSON.parse(body);
+                    if (!name) return _json(res, 400, { error: 'name required' });
+                    const db = _readDB();
+                    if (db.users[auth.userId]) {
+                        db.users[auth.userId].strategies[name] = { ...strategy, updatedAt: Date.now() };
+                        _writeDB(db);
+                        _json(res, 200, { ok: true });
+                    } else { _json(res, 404, { error: 'User not found' }); }
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+            });
+            return;
+        }
+        if (req.method === 'DELETE') {
+            const name = new url.URL(req.url, 'http://localhost').searchParams.get('name');
+            if (!name) return _json(res, 400, { error: 'name required' });
+            const db = _readDB();
+            if (db.users[auth.userId]) {
+                delete db.users[auth.userId].strategies[name];
+                _writeDB(db);
+                _json(res, 200, { ok: true });
+            } else { _json(res, 404, { error: 'User not found' }); }
+            return;
+        }
+    }
+
+    // ── /api/user/trades ──────────────────────────────────────────────────────
+    if (pathname === '/api/user/trades') {
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+
+        if (req.method === 'GET') {
+            const db = _readDB();
+            _json(res, 200, { trades: db.users[auth.userId]?.trades || [] });
+            return;
+        }
+        if (req.method === 'POST') {
+            let body = '';
+            req.on('data', c => body += c);
+            req.on('end', () => {
+                try {
+                    const { trades } = JSON.parse(body);
+                    const db = _readDB();
+                    if (db.users[auth.userId]) {
+                        // Merge — keep newest 500
+                        const existing = db.users[auth.userId].trades || [];
+                        const merged   = [...trades, ...existing]
+                            .filter((t, i, arr) => arr.findIndex(x => x.time === t.time && x.symbol === t.symbol) === i)
+                            .slice(0, 500);
+                        db.users[auth.userId].trades = merged;
+                        _writeDB(db);
+                        _json(res, 200, { ok: true, count: merged.length });
+                    } else { _json(res, 404, { error: 'User not found' }); }
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+            });
+            return;
+        }
     }
 
     // ── Static Files ─────────────────────────────────────────────────────────
@@ -267,9 +538,12 @@ server.listen(PORT, '0.0.0.0', () => {
     // ── VERSION MARKER — if you see this, the patched server is running ──
     console.log(`\n🚀 Signal Bot running`);
     console.log(`   UI              → http://127.0.0.1:${PORT}`);
+    console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/login`);
+    console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/register`);
     console.log(`   MT5 poll        → http://127.0.0.1:${PORT}/api/signal`);
     console.log(`   MT5 WS push     → ws://127.0.0.1:${PORT}/mt5`);
     console.log(`   Save strategy   → POST http://127.0.0.1:${PORT}/api/save-strategy`);
+    console.log(`   MT5 result      → POST http://127.0.0.1:${PORT}/api/trade-result`);
     console.log(`   List strategies → GET  http://127.0.0.1:${PORT}/api/strategies`);
     console.log(`   Training        → ${path.join(ROOT_DIR, 'training_data/')}`);
     console.log(`   Press Ctrl+C to stop\n`);

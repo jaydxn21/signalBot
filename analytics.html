@@ -51,6 +51,35 @@
                     <div id="an-pnl-bars" class="mini-bars" style="height:60px;margin-top:14px;"></div>
                 </div>
 
+                <!-- MT5 Real P&L vs Simulated -->
+                <div class="analytics-card dark span-2" id="an-mt5-card">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                        <div class="stat-label" style="margin:0;">MT5 REAL TRADES</div>
+                        <span id="an-mt5-badge" class="analytics-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">WAITING FOR EA</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
+                        <div>
+                            <div class="stat-label">REAL P&L</div>
+                            <div id="an-mt5-pnl" class="analytics-big-num" style="font-size:1.4rem;">$0.00</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">REAL WIN RATE</div>
+                            <div id="an-mt5-wr" class="analytics-big-num" style="font-size:1.4rem;">—</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">MT5 TRADES</div>
+                            <div id="an-mt5-trades" class="analytics-big-num" style="font-size:1.4rem;">0</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">SIM vs REAL DRIFT</div>
+                            <div id="an-mt5-drift" class="analytics-big-num" style="font-size:1.4rem;">—</div>
+                        </div>
+                    </div>
+                    <div id="an-mt5-trade-log" style="max-height:160px;overflow-y:auto;">
+                        <div style="font-size:0.62rem;color:var(--text-muted);text-align:center;padding:16px;font-style:italic;">No MT5 trade results yet — EA will post results here when trades close.</div>
+                    </div>
+                </div>
+
                 <!-- Max Drawdown -->
                 <div class="analytics-card">
                     <div class="stat-label">Max Drawdown</div>

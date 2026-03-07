@@ -3,6 +3,7 @@ import { _fetchCandles, _simulate, _calcATR, _calcRSI,
          _tfLabel, _sleep, CHUNK_SIZE, CHUNK_DELAY, WS_URL,
          _getBuiltinStrategy }                                     from '../backtest-core.js';
 import { WalkForward, SuggestionEngine }                           from '../walk-forward.js';
+import { SessionState }                                            from '../session-state.js';
 
 // StrategyEngine lives on the server — use built-in standalone
 // versions for browser backtest, or server engine if available.
@@ -324,6 +325,9 @@ export const Backtest = {
             .addEventListener('change', _toggleMarkers);
         document.getElementById('bt-export-btn')
             ?.addEventListener('click', _exportCSV);
+
+        document.getElementById('bt-journal-btn')
+            ?.addEventListener('click', _exportToJournal);
 
         _initChart();
         _renderEmpty();
@@ -805,6 +809,40 @@ function _exportCSV() {
     a.click();
 }
 
+function _exportToJournal() {
+    if (!_trades.length) {
+        _showToast('⚠ Run a backtest first.');
+        return;
+    }
+
+    const symbol   = document.getElementById('bt-symbol')?.value   || 'Unknown';
+    const strategy = document.getElementById('bt-strategy')?.value || 'backtest';
+    const closed   = _trades.filter(t => t.outcome === 'TP' || t.outcome === 'SL');
+
+    if (!closed.length) {
+        _showToast('⚠ No closed trades to export.');
+        return;
+    }
+
+    // Map backtest trade shape → SessionState trade shape
+    closed.forEach(t => {
+        SessionState.pushTrade({
+            time:     t.time * 1000,  // backtest uses unix seconds, journal uses ms
+            symbol,
+            strategy,
+            type:     t.type,
+            entry:    t.entry,
+            exit:     t.exit,
+            sl:       t.sl,
+            tp:       t.tp,
+            outcome:  t.outcome,
+            pnl:      Math.abs(t.pnl ?? 0),
+            source:   'backtest',     // tag so journal can show BT badge
+        });
+    });
+
+    _showToast(`📖 ${closed.length} trades sent to Journal`);
+}
 
 function _setRunning(running) {
     const btn     = document.getElementById('bt-run-btn');
@@ -878,3 +916,13 @@ document.addEventListener('keydown', e => {
     if (e.key === 'c' || e.key === 'C') window.btSetMode?.(_btMode === 'single' ? 'compare' : 'single');
     if (e.key === 'o' || e.key === 'O') window.btToggleOptimizer?.();
 });
+
+function _showToast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = `position:fixed;bottom:24px;right:24px;background:#1e293b;color:white;
+        padding:10px 18px;border-radius:8px;font-size:0.65rem;font-family:'DM Mono',monospace;
+        z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.3);`;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+}

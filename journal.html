@@ -8,57 +8,135 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+
 <canvas id="wave-canvas"></canvas>
+
 <div id="app-shell">
     <div id="nexus-nav"></div>
+
     <div id="main-content">
         <div id="nexus-header"></div>
-        <div id="journal-page" style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden;">
 
-            <!-- Summary + export -->
+        <div id="journal-page" style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden;padding:0;">
+
+            <!-- Summary + Export -->
             <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:8px;flex-shrink:0;">
-                <div class="stat-item"><div class="stat-label">Total Trades</div><div id="jnl-total" class="stat-value">0</div></div>
-                <div class="stat-item"><div class="stat-label">Wins</div><div id="jnl-wins" class="stat-value" style="color:var(--accent2);">0</div></div>
-                <div class="stat-item"><div class="stat-label">Losses</div><div id="jnl-losses" class="stat-value" style="color:var(--accent3);">0</div></div>
-                <div class="stat-item"><div class="stat-label">Win Rate</div><div id="jnl-winrate" class="stat-value">—</div></div>
-                <div class="stat-item"><div class="stat-label">Total P&L</div><div id="jnl-total-pnl" class="stat-value mono">0.00</div></div>
-                <div style="display:flex;align-items:center;">
-                    <button id="btn-export-csv" class="btn-pro" style="white-space:nowrap;padding:8px 14px;font-size:0.63rem;">↓ Export CSV</button>
+                <div class="stat-item">
+                    <div class="stat-label">Total Trades</div>
+                    <div id="jnl-total" class="stat-value">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Wins</div>
+                    <div id="jnl-wins" class="stat-value" style="color:var(--accent2);">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Losses</div>
+                    <div id="jnl-losses" class="stat-value" style="color:var(--accent3);">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Win Rate</div>
+                    <div id="jnl-winrate" class="stat-value">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Total P&amp;L</div>
+                    <div id="jnl-total-pnl" class="stat-value mono">0.00</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <button id="btn-export-csv" class="btn-pro" style="white-space:nowrap;padding:8px 14px;font-size:0.63rem;">
+                        ↓ Export CSV
+                    </button>
+                    <button id="btn-clear-journal" class="btn-pro btn-outline" style="white-space:nowrap;padding:8px 10px;font-size:0.63rem;" title="Clear all trades from this session">
+                        ✕
+                    </button>
                 </div>
             </div>
 
-            <!-- Filters -->
-            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-white);backdrop-filter:blur(20px);border:1px solid var(--border-light);border-radius:var(--r-md);box-shadow:var(--shadow-sm);padding:10px 14px;">
+            <!-- Filter row -->
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;
+                        background:var(--surface-white);backdrop-filter:blur(20px);
+                        border:1px solid var(--border-light);border-radius:var(--r-md);
+                        box-shadow:var(--shadow-sm);padding:10px 14px;">
                 <span class="stat-label" style="white-space:nowrap;">Filter by</span>
-                <select id="filter-symbol" style="flex:1;max-width:160px;"><option value="all">All Symbols</option></select>
-                <select id="filter-strategy" style="flex:1;max-width:160px;"><option value="all">All Strategies</option></select>
+
+                <select id="filter-symbol" style="flex:1;max-width:160px;">
+                    <option value="all">All Symbols</option>
+                </select>
+
+                <select id="filter-strategy" style="flex:1;max-width:160px;">
+                    <option value="all">All Strategies</option>
+                </select>
+
                 <select id="filter-outcome" style="flex:1;max-width:130px;">
                     <option value="all">All Outcomes</option>
                     <option value="TP">TP Only</option>
                     <option value="SL">SL Only</option>
                 </select>
-                <button id="filter-clear" class="btn-pro btn-outline" style="padding:7px 12px;font-size:0.62rem;">Clear</button>
-                <span id="journal-count" class="mono" style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;">0 trades</span>
+
+                <button id="filter-clear" class="btn-pro btn-outline" style="padding:7px 12px;font-size:0.62rem;white-space:nowrap;">
+                    Clear
+                </button>
+
+                <span id="journal-count" class="mono" style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;margin-left:4px;">
+                    0 trades
+                </span>
             </div>
 
-            <!-- Table -->
+            <!-- Trade table -->
             <div class="trade-table-wrap" style="flex:1;overflow-y:auto;">
                 <table class="trade-table">
                     <thead>
-                        <tr><th>Time</th><th>Symbol</th><th>Strategy</th><th>Direction</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Result</th><th>P&L</th></tr>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Strategy</th>
+                            <th>Direction</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>SL</th>
+                            <th>TP</th>
+                            <th>Result</th>
+                            <th>P&amp;L</th>
+                        </tr>
                     </thead>
                     <tbody id="trade-history-body">
-                        <tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted);font-size:0.72rem;letter-spacing:0.06em;">NO TRADES YET — START A BOT ON THE TERMINAL</td></tr>
+                        <tr>
+                            <td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted);font-size:0.72rem;letter-spacing:0.06em;">
+                                NO TRADES YET — START A BOT ON THE TERMINAL
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
-        </div>
+
+        </div><!-- /journal-page -->
     </div>
 </div>
+
+<!-- Mobile nav -->
+<nav id="mobile-nav" style="display:none;">
+    <a href="index.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <span>Terminal</span>
+    </a>
+    <a href="market.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+        <span>Market</span>
+    </a>
+    <a href="analytics.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <span>Analytics</span>
+    </a>
+    <a href="settings.html" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+    </a>
+</nav>
+
 <script type="module" src="js/nav.js"></script>
 <script type="module">
     import { Journal } from './js/pages/journal.js';
     document.addEventListener('DOMContentLoaded', () => Journal.init());
 </script>
+
 </body>
 </html>

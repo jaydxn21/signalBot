@@ -224,9 +224,15 @@ const EMPTY_STRATEGY = {
 // ─────────────────────────────────────────────────────────────
 let _state = JSON.parse(JSON.stringify(EMPTY_STRATEGY));
 let _ruleIdCounter = 0;
+let _lastWF = null;  // stored after each backtest run — used by AI button
 
 // ─────────────────────────────────────────────────────────────
 // PUBLIC
+// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// AI-POWERED SUGGESTIONS  (Anthropic API)
+// Sends walk-forward results + strategy config to Claude,
+// gets back advanced pattern analysis beyond rule-based checks
 // ─────────────────────────────────────────────────────────────
 export const StrategyBuilder = {
     init() {
@@ -244,6 +250,148 @@ export const StrategyBuilder = {
         // Check if we were deep-linked from backtest page with a suggestion
         _checkIncomingPayload();
     },
+};
+
+// ─────────────────────────────────────────────────────────────
+// AI-POWERED SUGGESTIONS  (Anthropic API)
+// ─────────────────────────────────────────────────────────────
+window.sbRunAI = async function() {
+    const btn      = document.getElementById('sb-ai-btn');
+    const statusEl = document.getElementById('sb-ai-status');
+    const resultEl = document.getElementById('sb-ai-result');
+
+    if (!_lastWF) {
+        alert('Run a backtest first — AI needs walk-forward results to analyse.');
+        return;
+    }
+
+    btn.disabled       = true;
+    btn.textContent    = '⟳ Thinking...';
+    statusEl.style.display = '';
+    resultEl.style.display = 'none';
+
+    try {
+        // Build compact context for Claude
+        const wf  = _lastWF;
+        const cfg = { ..._state };
+        delete cfg.rules; // keep rules separate
+
+        const prompt = `You are an expert quantitative trading strategy analyst.
+
+I have just run a walk-forward backtest on a trading strategy. Analyse the results and provide 3-5 specific, actionable suggestions to improve it.
+
+## Strategy Config
+Name: ${cfg.name}
+SL Multiplier: ${cfg.slMult}× ATR
+TP Multiplier: ${cfg.tpMult}× ATR  
+Warmup Bars: ${cfg.warmup}
+Min Bars Between Signals: ${cfg.minBars}
+Allowed Directions: ${cfg.allowBuy ? 'BUY' : ''}${cfg.allowBuy && cfg.allowSell ? ' + ' : ''}${cfg.allowSell ? 'SELL' : ''}
+Session Filter: ${cfg.sessionEnabled ? cfg.sessionFrom + ' - ' + cfg.sessionTo : 'Disabled'}
+
+## Buy Conditions (${cfg.buyLogic})
+${(cfg.buyRules||[]).map(r => `- ${r.indicator} ${r.condition} ${r.value}`).join('\n') || 'None'}
+
+## Sell Conditions (${cfg.sellLogic})
+${(cfg.sellRules||[]).map(r => `- ${r.indicator} ${r.condition} ${r.value}`).join('\n') || 'None'}
+
+## Walk-Forward Results
+In-Sample (first 50%):
+- Win Rate: ${wf.is.stats.winRate.toFixed(1)}%
+- Profit Factor: ${wf.is.stats.profitFactor === Infinity ? '∞' : wf.is.stats.profitFactor.toFixed(2)}
+- Net P&L: ${wf.is.stats.netPnL.toFixed(2)}
+- Total Trades: ${wf.is.stats.total}
+- Max Drawdown: ${wf.is.stats.maxDD.toFixed(2)}
+
+Out-of-Sample (second 50%):
+- Win Rate: ${wf.oos.stats.winRate.toFixed(1)}%
+- Profit Factor: ${wf.oos.stats.profitFactor === Infinity ? '∞' : wf.oos.stats.profitFactor.toFixed(2)}
+- Net P&L: ${wf.oos.stats.netPnL.toFixed(2)}
+- Total Trades: ${wf.oos.stats.total}
+- Max Drawdown: ${wf.oos.stats.maxDD.toFixed(2)}
+
+Confidence Score: ${wf.confidence.score}/100 (Grade ${wf.confidence.grade})
+
+Rule-based flags already detected: ${(wf.suggestions||[]).map(s=>s.type).join(', ') || 'none'}
+
+## Instructions
+Respond ONLY with a JSON array of suggestion objects. No preamble, no markdown, no explanation outside the JSON.
+Each object must have exactly these fields:
+{
+  "type": "SHORT_SNAKE_CASE_NAME",
+  "priority": "high|medium|low|positive",
+  "icon": "single emoji",
+  "observation": "1-2 sentences describing what the data shows",
+  "tweak": "specific actionable change to make",
+  "expected_impact": "what improvement to expect",
+  "params": { optional: slMultiplier, tpMultiplier, minBars as numbers if applicable }
+}`;
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model:      'claude-sonnet-4-20250514',
+                max_tokens: 1500,
+                messages:   [{ role: 'user', content: prompt }],
+            }),
+        });
+
+        const data = await response.json();
+        const raw  = data.content?.[0]?.text || '[]';
+        
+        // Strip any accidental markdown fences
+        const clean = raw.replace(/```json|```/g, '').trim();
+        const aiSugs = JSON.parse(clean);
+
+        // Give each AI suggestion a unique id
+        aiSugs.forEach((s, i) => { s.id = `ai_${Date.now()}_${i}`; });
+
+        // Store in suggestion store for apply buttons
+        if (!window._sbSugStore) window._sbSugStore = {};
+        aiSugs.forEach(s => { window._sbSugStore[s.id] = s; });
+
+        // Render in AI result box
+        resultEl.style.display = '';
+        resultEl.innerHTML = `
+            <div class="sb-ai-banner">
+                <span class="sb-ai-banner-label">✦ AI ANALYSIS</span>
+                <span style="font-size:0.55rem;color:var(--text-muted);margin-left:8px;">claude-sonnet · ${aiSugs.length} suggestions</span>
+            </div>
+            ${aiSugs.map(s => `
+            <div class="sb-sug-card" data-priority="${s.priority}" data-id="${s.id}">
+                <div class="sb-sug-card-header">
+                    <span class="sb-sug-card-icon">${s.icon}</span>
+                    <div class="sb-sug-card-title">
+                        <span class="sb-sug-card-type">${s.type.replace(/_/g,' ').toUpperCase()}</span>
+                        <span class="sb-sug-card-badge ${s.priority}">${s.priority.toUpperCase()}</span>
+                        <span style="font-size:0.48rem;background:rgba(139,92,246,0.1);color:#8b5cf6;border:1px solid rgba(139,92,246,0.2);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-weight:700;">AI</span>
+                    </div>
+                    ${s.priority !== 'positive' ? `
+                    <button class="sb-sug-apply-btn" onclick="window._sbApplySuggestion('${s.id}', this)">
+                        ✦ APPLY
+                    </button>` : ''}
+                </div>
+                <div class="sb-sug-observation">${s.observation}</div>
+                <div class="sb-sug-tweak-box">
+                    <div class="sb-sug-tweak-label">TWEAK</div>
+                    <div class="sb-sug-tweak-text">${s.tweak}</div>
+                </div>
+                <div class="sb-sug-impact-row">
+                    <span class="sb-sug-impact-label">EXPECTED IMPACT</span>
+                    <span class="sb-sug-impact-text">${s.expected_impact}</span>
+                </div>
+            </div>`).join('')}
+        `;
+
+    } catch(err) {
+        resultEl.style.display = '';
+        resultEl.innerHTML = `<div style="padding:12px;font-size:0.63rem;color:#ef4444;font-family:var(--font-mono);">✗ AI error: ${err.message}</div>`;
+    }
+
+    btn.disabled    = false;
+    btn.textContent = '✦ ASK AI';
+    statusEl.style.display = 'none';
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -267,6 +415,9 @@ function _bindEvents() {
 
     document.getElementById('sb-save-server-btn')
         ?.addEventListener('click', _saveToServer);
+
+    document.getElementById('sb-deploy-btn')
+        ?.addEventListener('click', _deployToTerminal);
 
     // Live preview update on any param change
     ['sb-name','sb-sl-mult','sb-tp-mult','sb-warmup','sb-min-bars',
@@ -1007,6 +1158,9 @@ function _renderResults(result, wf) {
     _drawEquity(wf);
 
     // Suggestions
+    // Store WF result for AI analysis
+    _lastWF = wf;
+
     // Store suggestions for apply buttons
     window._sbSugStore = {};
     wf.suggestions.forEach(s => { window._sbSugStore[s.id] = s; });
@@ -1208,8 +1362,39 @@ function _drawEquity(wf) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// HELPERS
+// DEPLOY TO TERMINAL
 // ─────────────────────────────────────────────────────────────
+function _deployToTerminal() {
+    _readParams(); // ensure _state is current
+    if (!_state.name) {
+        _showToast('⚠ Set a strategy name first.');
+        return;
+    }
+
+    // Read symbol + TF from the backtest config panel (those are the real selectors)
+    const symbol   = document.getElementById('sb-bt-symbol')?.value;
+    const tf       = parseInt(document.getElementById('sb-bt-tf')?.value || '300');
+    const strategy = document.getElementById('sb-base-strategy')?.value;
+
+    if (!symbol || !strategy || strategy === '__new__') {
+        _showToast('⚠ Select a Base Strategy and Symbol in the backtest panel first.');
+        return;
+    }
+
+    const deployPayload = {
+        strategy,
+        symbol,
+        tf,
+        name: _state.name,
+        _deployed: true,
+    };
+
+    sessionStorage.setItem('nexus_deploy_bot', JSON.stringify(deployPayload));
+    _showToast(`🚀 Deploying "${cfg.name}" — redirecting to Terminal…`);
+    setTimeout(() => { window.location.href = 'index.html'; }, 1200);
+}
+
+
 function _set(id, val) {
     const el = document.getElementById(id);
     if (el) el.value = val;

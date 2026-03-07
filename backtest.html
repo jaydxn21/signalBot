@@ -226,6 +226,7 @@
                         </div>
 
                         <button id="bt-export-btn" class="bt-export-btn">⬇  EXPORT CSV</button>
+                        <button id="bt-journal-btn" class="bt-export-btn" style="margin-top:6px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(139,92,246,0.15));border-color:rgba(139,92,246,0.35);color:#a78bfa;">📖  SEND TO JOURNAL</button>
                     </div>
                 </div>
 
@@ -323,8 +324,8 @@
     </div>
 </div>
 
+<script type="module" src="js/nav.js"></script>
 <script type="module">
-    import './js/nav.js';
     import { Backtest } from './js/pages/backtest.js';
     document.addEventListener('DOMContentLoaded', () => Backtest.init());
 </script>

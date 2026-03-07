@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS | Sign In</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        body { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+
+        #login-card {
+            background: var(--surface-white);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--border-light);
+            border-radius: var(--r-lg);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+            width: 360px;
+            padding: 36px 32px 28px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .login-logo {
+            font-size: 1.4rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 4px;
+        }
+        .login-tagline {
+            font-size: 0.62rem;
+            color: var(--text-muted);
+            letter-spacing: 0.06em;
+            margin-bottom: 28px;
+        }
+
+        .login-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .login-tab {
+            flex: 1;
+            padding: 8px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.15s;
+        }
+        .login-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .login-field { margin-bottom: 14px; }
+        .login-label {
+            display: block;
+            font-size: 0.58rem;
+            font-weight: 600;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+        }
+        .login-input {
+            width: 100%;
+            padding: 9px 12px;
+            background: var(--surface-card);
+            border: 1px solid var(--border-light);
+            border-radius: var(--r-sm);
+            color: var(--text-primary);
+            font-size: 0.78rem;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: border-color 0.15s;
+        }
+        .login-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 11px;
+            margin-top: 6px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff;
+            border: none;
+            border-radius: var(--r-sm);
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        .login-btn:hover { opacity: 0.9; }
+        .login-btn:disabled { opacity: 0.5; cursor: default; }
+
+        #login-error {
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: rgba(239,68,68,0.1);
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: var(--r-sm);
+            font-size: 0.63rem;
+            color: var(--accent3);
+            display: none;
+        }
+
+        .login-guest {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 0.60rem;
+            color: var(--text-muted);
+        }
+        .login-guest a {
+            color: var(--accent);
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .login-guest a:hover { text-decoration: underline; }
+
+        .login-footer {
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border-light);
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            text-align: center;
+            letter-spacing: 0.04em;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="wave-canvas"></canvas>
+
+<div id="login-card">
+    <div class="login-logo">NEXUS</div>
+    <div class="login-tagline">ALGORITHMIC TRADING TERMINAL</div>
+
+    <div class="login-tabs">
+        <button class="login-tab active" id="tab-login" onclick="switchTab('login')">Sign In</button>
+        <button class="login-tab" id="tab-register" onclick="switchTab('register')">Register</button>
+    </div>
+
+    <!-- Sign In form -->
+    <div id="form-login">
+        <div class="login-field">
+            <label class="login-label" for="login-username">Username</label>
+            <input id="login-username" type="text" class="login-input" placeholder="your username" autocomplete="username">
+        </div>
+        <div class="login-field">
+            <label class="login-label" for="login-password">Password</label>
+            <input id="login-password" type="password" class="login-input" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="login-btn" id="btn-login" onclick="doLogin()">Sign In</button>
+    </div>
+
+    <!-- Register form -->
+    <div id="form-register" style="display:none;">
+        <div class="login-field">
+            <label class="login-label" for="reg-username">Username</label>
+            <input id="reg-username" type="text" class="login-input" placeholder="choose a username (≥3 chars)" autocomplete="username">
+        </div>
+        <div class="login-field">
+            <label class="login-label" for="reg-password">Password</label>
+            <input id="reg-password" type="password" class="login-input" placeholder="choose a password (≥6 chars)" autocomplete="new-password">
+        </div>
+        <div class="login-field">
+            <label class="login-label" for="reg-confirm">Confirm Password</label>
+            <input id="reg-confirm" type="password" class="login-input" placeholder="repeat password" autocomplete="new-password">
+        </div>
+        <button class="login-btn" id="btn-register" onclick="doRegister()">Create Account</button>
+    </div>
+
+    <div id="login-error"></div>
+
+    <div class="login-guest">
+        Running locally? <a onclick="guestMode()">Continue as guest</a>
+    </div>
+
+    <div class="login-footer">
+        Your credentials are stored locally on this server only.<br>
+        Never share your Deriv API token.
+    </div>
+</div>
+
+<script type="module" src="js/nav.js"></script>
+<script>
+    // Check if already logged in
+    const existing = localStorage.getItem('nexus_auth');
+    if (existing) {
+        try {
+            const auth = JSON.parse(existing);
+            if (auth.token && auth.exp > Date.now()) {
+                window.location.href = 'index.html';
+            }
+        } catch(_) {}
+    }
+
+    function switchTab(tab) {
+        document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+        document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+        document.getElementById('form-login').style.display    = tab === 'login'    ? '' : 'none';
+        document.getElementById('form-register').style.display = tab === 'register' ? '' : 'none';
+        clearError();
+    }
+
+    function showError(msg) {
+        const el = document.getElementById('login-error');
+        el.textContent = msg;
+        el.style.display = '';
+    }
+
+    function clearError() {
+        document.getElementById('login-error').style.display = 'none';
+    }
+
+    function _saveAuth(data) {
+        localStorage.setItem('nexus_auth', JSON.stringify({
+            token:    data.token,
+            userId:   data.userId,
+            username: data.username,
+            exp:      Date.now() + 7 * 24 * 3600 * 1000,
+        }));
+    }
+
+    async function doLogin() {
+        const username = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+        if (!username || !password) return showError('Enter username and password.');
+
+        const btn = document.getElementById('btn-login');
+        btn.disabled = true;
+        btn.textContent = 'Signing in…';
+        clearError();
+
+        try {
+            const r = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            const data = await r.json();
+            if (!r.ok) { showError(data.error || 'Login failed.'); return; }
+            _saveAuth(data);
+            window.location.href = 'index.html';
+        } catch(e) {
+            showError('Server unreachable — try guest mode.');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+    }
+
+    async function doRegister() {
+        const username = document.getElementById('reg-username').value.trim();
+        const password = document.getElementById('reg-password').value;
+        const confirm  = document.getElementById('reg-confirm').value;
+        if (!username || !password) return showError('Fill in all fields.');
+        if (password !== confirm)   return showError('Passwords do not match.');
+        if (password.length < 6)    return showError('Password must be at least 6 characters.');
+
+        const btn = document.getElementById('btn-register');
+        btn.disabled = true;
+        btn.textContent = 'Creating…';
+        clearError();
+
+        try {
+            const r = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            const data = await r.json();
+            if (!r.ok) { showError(data.error || 'Registration failed.'); return; }
+            _saveAuth(data);
+            window.location.href = 'index.html';
+        } catch(e) {
+            showError('Server unreachable — try guest mode.');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Create Account';
+        }
+    }
+
+    function guestMode() {
+        localStorage.setItem('nexus_auth', JSON.stringify({
+            token: null, userId: 'guest', username: 'Guest', exp: Date.now() + 365 * 24 * 3600 * 1000, guest: true
+        }));
+        window.location.href = 'index.html';
+    }
+
+    // Enter key support
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const loginVisible = document.getElementById('form-login').style.display !== 'none';
+        if (loginVisible) doLogin();
+        else doRegister();
+    });
+</script>
+
+</body>
+</html>

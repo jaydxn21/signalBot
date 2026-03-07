@@ -651,3 +651,41 @@ body:has(#sb-layout) #workspace { padding:0;gap:0; }
 #sb-suggestion-banner {
     border-radius: var(--r-sm) var(--r-sm) 0 0;
 }
+
+/* ── AI SUGGESTIONS BUTTON ───────────────────────────────────── */
+.sb-ai-btn {
+    background: linear-gradient(135deg, rgba(139,92,246,0.1), rgba(37,99,235,0.1));
+    border: 1px solid rgba(139,92,246,0.3);
+    color: #8b5cf6;
+    border-radius: 5px;
+    padding: 5px 13px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    letter-spacing: 0.07em;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.sb-ai-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(37,99,235,0.2));
+    border-color: #8b5cf6;
+}
+.sb-ai-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.sb-ai-banner {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, rgba(139,92,246,0.06), rgba(37,99,235,0.06));
+    border: 1px solid rgba(139,92,246,0.15);
+    border-radius: var(--r-sm);
+    margin-bottom: 10px;
+}
+.sb-ai-banner-label {
+    font-size: 0.56rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #8b5cf6;
+    font-family: var(--font-mono);
+}

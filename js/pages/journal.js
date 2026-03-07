@@ -3,7 +3,7 @@
 // Reads trade history from SessionState (written by signal-bot.js).
 // Handles: render table, filter by symbol/strategy/outcome, CSV export.
 
-import { SessionState } from '../nav.js';
+import { SessionState } from '../session-state.js';
 
 // ─────────────────────────────────────────────────────────────
 // STATE
@@ -23,6 +23,7 @@ export const Journal = {
         _buildFilters();
         _wireFilters();
         _wireExport();
+        _wireClear();
         _render();
 
         // Re-render every 5 seconds to pick up new trades from the terminal
@@ -120,7 +121,7 @@ function _render() {
         <tr>
             <td><span style="color:var(--text-muted)">${date}</span> ${time}</td>
             <td class="mono">${t.symbol || '—'}</td>
-            <td style="color:var(--text-sub)">${_stratLabel(t.strategy)}</td>
+            <td style="color:var(--text-sub)">${_stratLabel(t.strategy)}${t.source === 'backtest' ? ' <span style="font-size:0.50rem;background:rgba(139,92,246,0.2);color:#a78bfa;padding:1px 5px;border-radius:3px;font-weight:600;vertical-align:middle;">BT</span>' : ''}</td>
             <td><span class="trade-badge trade-${(t.type||'').toLowerCase()}">${t.type || '—'}</span></td>
             <td class="mono">${_fmt(t.entry)}</td>
             <td class="mono">${_fmt(t.exit || null)}</td>
@@ -162,6 +163,17 @@ function _renderSummary(trades) {
 
     const wrEl = document.getElementById('jnl-winrate');
     if (wrEl) wrEl.style.color = wr >= 50 ? 'var(--accent2)' : 'var(--accent3)';
+}
+
+// ─────────────────────────────────────────────────────────────
+// CLEAR SESSION
+// ─────────────────────────────────────────────────────────────
+function _wireClear() {
+    document.getElementById('btn-clear-journal')?.addEventListener('click', () => {
+        if (!confirm('Clear all trades from this session? This cannot be undone.')) return;
+        SessionState.set({ trades: [], wins: 0, losses: 0, sessionPnL: 0, winRate: 0 });
+        _render();
+    });
 }
 
 // ─────────────────────────────────────────────────────────────
