@@ -12,13 +12,16 @@ const DEFAULTS = {
     // Connection
     apiToken:        '',
     mt5Url:          '',
+    mt5RiskPerLot:   3.0,   // $ lost per 1.0 lot when SL hit — calibrate from live results
     autoReconnect:   true,
 
     // Risk
     maxDailyLoss:    500,
     maxBots:         3,
-    lossProtection:  true,
-    sessionFilter:   false,
+    lossProtection:       true,
+    sessionFilter:        false,
+    vortexNewsBlackout:   true,
+    vortexFomcBlackout:   false,
 
     // Data
     logTraining:     true,
@@ -66,6 +69,7 @@ export const Settings = {
         _wireActions();
         _updateSessionInfo();
         MT5Bridge.init();
+        _initNotifications();
     },
 };
 
@@ -101,8 +105,10 @@ function _populateForm() {
     // Risk
     _setInput('set-max-loss',        s.maxDailyLoss);
     _setInput('set-max-bots',        s.maxBots);
-    _setCheck('set-loss-protection', s.lossProtection);
-    _setCheck('set-session-filter',  s.sessionFilter);
+    _setCheck('set-loss-protection',  s.lossProtection);
+    _setCheck('set-session-filter',   s.sessionFilter);
+    _setCheck('set-vortex-news',       s.vortexNewsBlackout);
+    _setCheck('set-vortex-fomc',       s.vortexFomcBlackout);
 
     // Data
     _setCheck('set-log-training',    s.logTraining);
@@ -133,8 +139,10 @@ function _wireForm() {
 
     const checkMap = {
         'set-auto-reconnect':  'autoReconnect',
-        'set-loss-protection': 'lossProtection',
-        'set-session-filter':  'sessionFilter',
+        'set-loss-protection':  'lossProtection',
+        'set-session-filter':   'sessionFilter',
+        'set-vortex-news':      'vortexNewsBlackout',
+        'set-vortex-fomc':      'vortexFomcBlackout',
         'set-log-training':    'logTraining',
         'set-export-on-stop':  'exportOnStop',
         'set-wave-bg':         'waveBackground',
@@ -311,16 +319,17 @@ const MT5Bridge = {
     init() {
         // Load saved config into fields
         const cfg = this._loadConfig();
-        _set('mt5-host-input',    cfg.host    || '');
-        _set('mt5-port-input',    cfg.port    || 3000);
-        _set('mt5-lot-input',     cfg.lotSize || 0.10);
-        _set('mt5-max-age-input', cfg.maxAge  || 30);
+        _set('mt5-host-input',         cfg.host       || '');
+        _set('mt5-port-input',         cfg.port       || 3000);
+        _set('mt5-lot-input',          cfg.lotSize    || 0.10);
+        _set('mt5-max-age-input',      cfg.maxAge     || 30);
+        _set('mt5-risk-per-lot-input', cfg.riskPerLot || 3.00);
 
         // Auto-detect local IP hint
         this._detectIP();
 
         // Wire config save on change
-        ['mt5-host-input','mt5-port-input','mt5-lot-input','mt5-max-age-input'].forEach(id => {
+        ['mt5-host-input','mt5-port-input','mt5-lot-input','mt5-max-age-input','mt5-risk-per-lot-input'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => this._saveConfig());
         });
 
@@ -350,13 +359,14 @@ const MT5Bridge = {
 
     _saveConfig() {
         const cfg = {
-            host:    document.getElementById('mt5-host-input')?.value || '',
-            port:    document.getElementById('mt5-port-input')?.value || 3000,
-            lotSize: document.getElementById('mt5-lot-input')?.value  || 0.10,
-            maxAge:  document.getElementById('mt5-max-age-input')?.value || 30,
+            host:       document.getElementById('mt5-host-input')?.value       || '',
+            port:       document.getElementById('mt5-port-input')?.value        || 3000,
+            lotSize:    document.getElementById('mt5-lot-input')?.value         || 0.10,
+            maxAge:     document.getElementById('mt5-max-age-input')?.value     || 30,
+            riskPerLot: parseFloat(document.getElementById('mt5-risk-per-lot-input')?.value) || 3.00,
         };
         localStorage.setItem('nexus_mt5_config', JSON.stringify(cfg));
-        Settings.set({ mt5Config: cfg });
+        Settings.set({ mt5Config: cfg, mt5RiskPerLot: cfg.riskPerLot });
     },
 
     async _poll() {
@@ -549,8 +559,31 @@ const MT5Bridge = {
     },
 };
 
-// Helper for setting input values
-function _set(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.value = val;
+// ─────────────────────────────────────────────────────────────
+// NOTIFICATIONS PANEL
+// ─────────────────────────────────────────────────────────────
+function _initNotifications() {
+    const statusEl = document.getElementById('notif-permission-status');
+    if (statusEl && 'Notification' in window) {
+        const p = Notification.permission;
+        statusEl.textContent  = p.toUpperCase();
+        statusEl.style.color  = p === 'granted' ? '#10b981' : p === 'denied' ? '#ef4444' : '#f59e0b';
+    }
+
+    window.nexusRequestNotify = async () => {
+        if (!('Notification' in window)) { alert('This browser does not support notifications.'); return; }
+        const perm = await Notification.requestPermission();
+        if (statusEl) {
+            statusEl.textContent = perm.toUpperCase();
+            statusEl.style.color = perm === 'granted' ? '#10b981' : perm === 'denied' ? '#ef4444' : '#f59e0b';
+        }
+        if (perm === 'granted') {
+            new Notification('✅ NEXUS Notifications Active', {
+                body: 'You will now receive alerts for signals and trade outcomes.',
+                icon: '/favicon.ico',
+            });
+        } else if (perm === 'denied') {
+            alert('Notifications blocked. Enable them in your browser settings → Site permissions.');
+        }
+    };
 }

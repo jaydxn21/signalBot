@@ -1,7 +1,6 @@
 export const DataLogger = {
     _buffer: [],
 
-    // Generate filename based on symbol e.g. training_frxXAUUSD.csv
     _getFilename(symbol) {
         const safe = symbol.replace(/[^a-zA-Z0-9]/g, '_');
         return `training_${safe}.csv`;
@@ -32,7 +31,7 @@ export const DataLogger = {
             sl:           null,
             tp:           null,
             hold_candles: null,
-            _filename:    this._getFilename(symbol) // tells server which file to write to
+            _filename:    this._getFilename(symbol)
         };
 
         this._buffer.push(record);
@@ -41,23 +40,22 @@ export const DataLogger = {
     },
 
     logOutcome(outcome, entry, sl, tp, barTime) {
-    const record = this._buffer[this._buffer.length - 1];
-    if (!record || record.outcome !== null) return;
+        const record = this._buffer[this._buffer.length - 1];
+        if (!record || record.outcome !== null) return;
 
-    const pnl = outcome === 'TP'
-        ? (record.type === 'BUY' ? tp - entry : entry - tp)
-        : (record.type === 'BUY' ? sl - entry : entry - sl);
+        const pnl = outcome === 'TP'
+            ? (record.type === 'BUY' ? tp - entry : entry - tp)
+            : (record.type === 'BUY' ? sl - entry : entry - sl);
 
-    record.outcome      = outcome;
-    record.pnl          = parseFloat(pnl.toFixed(5));
-    record.sl           = parseFloat(sl.toFixed(5));
-    record.tp           = parseFloat(tp.toFixed(5));
-    // Use absolute value — candle times are unix seconds, difference should always be positive
-    record.hold_candles = barTime ? Math.abs(barTime - record.unix) : null;
+        record.outcome      = outcome;
+        record.pnl          = parseFloat(pnl.toFixed(5));
+        record.sl           = parseFloat(sl.toFixed(5));
+        record.tp           = parseFloat(tp.toFixed(5));
+        record.hold_candles = barTime ? Math.abs(barTime - record.unix) : null;
 
-    console.log(`[DataLogger] Outcome → ${record.symbol} ${record.type} ${outcome} P&L: ${record.pnl} held: ${record.hold_candles}s`);
-    this._flushToServer(record);
-},
+        console.log(`[DataLogger] Outcome → ${record.symbol} ${record.type} ${outcome} P&L: ${record.pnl} held: ${record.hold_candles}s`);
+        this._flushToServer(record);
+    },
 
     async _flushToServer(record) {
         try {

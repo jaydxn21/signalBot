@@ -7,11 +7,12 @@ export class DerivAPI {
         this.socket         = null;
         this._pingInterval  = null;
         this._reconnectTimer = null;
-        this._reconnectDelay = 2000;   // starts at 2s, doubles each attempt
-        this._maxDelay       = 30000;  // caps at 30s
+        this._reconnectDelay = 2000;
+        this._maxDelay       = 30000;
         this._token          = null;
-        this._manualClose    = false;  // true when user deliberately disconnects
+        this._manualClose    = false;
         this.symbolMap       = {};
+        this._subscriptions  = {}; // key: `${symbol}_${granularity}` → subscription_id
     }
 
     connect(token) {
@@ -31,7 +32,8 @@ export class DerivAPI {
         );
 
         this.socket.onopen = () => {
-            this._reconnectDelay = 2000; // reset backoff on successful connect
+            this._reconnectDelay = 2000;
+            this._subscriptions  = {}; // clear stale sub IDs — new socket = clean slate
             this.socket.send(JSON.stringify({ authorize: this._token }));
             this.startKeepAlive();
             UIManager.log('WebSocket opened — authorizing...', 'info');
@@ -40,6 +42,11 @@ export class DerivAPI {
         this.socket.onmessage = (msg) => {
             try {
                 const data = JSON.parse(msg.data);
+                // Track subscription IDs so we can forget them before re-subscribing
+                if (data.subscription?.id && data.echo_req?.ticks_history) {
+                    const key = `${data.echo_req.ticks_history}_${data.echo_req.granularity || 0}`;
+                    this._subscriptions[key] = data.subscription.id;
+                }
                 this.onMessage(data);
             } catch(e) {
                 console.error('Failed to parse message:', e);
@@ -89,6 +96,15 @@ export class DerivAPI {
     }
 
     subscribe(symbol, granularity) {
+        // Forget any existing subscription for this symbol+TF before re-subscribing.
+        // Prevents "already subscribed" errors on bot restart.
+        const key    = `${symbol}_${granularity}`;
+        const subId  = this._subscriptions[key];
+        if (subId) {
+            this._send({ forget: subId });
+            delete this._subscriptions[key];
+        }
+
         this._send({
             ticks_history:     symbol,
             subscribe:         1,
@@ -98,6 +114,22 @@ export class DerivAPI {
             end:               'latest',
             adjust_start_time: 1
         });
+    }
+
+    // Forget a specific symbol+granularity subscription (call when stopping a bot)
+    forgetSymbol(symbol, granularity) {
+        const key   = `${symbol}_${granularity}`;
+        const subId = this._subscriptions[key];
+        if (subId) {
+            this._send({ forget: subId });
+            delete this._subscriptions[key];
+        }
+    }
+
+    // Forget all active subscriptions (call on full disconnect/logout)
+    forgetAll() {
+        this._send({ forget_all: 'candles' });
+        this._subscriptions = {};
     }
 
     // Safe send — queues if socket not ready

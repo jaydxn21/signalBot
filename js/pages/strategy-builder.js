@@ -206,6 +206,60 @@ const EXISTING_STRATEGIES = {
         sellLogic: 'AND',
         note: 'EMA8/20 crossover with trend confirmation. Classic momentum entry.',
     },
+
+    phantom: {
+        name:        'phantom',
+        displayName: 'PHANTOM (Multi-TF Scalper)',
+        slMult:      1.0,
+        tpMult:      1.5,
+        warmup:      22,
+        minBars:     2,
+        allowBuy:    true,
+        allowSell:   true,
+        sessionFrom: 0,
+        sessionTo:   23,
+        sessionEnabled: false,
+        buyRules: [
+            { indicator: 'ema8',  condition: 'gt',            value: 'ema21',    value2: null },
+            { indicator: 'price', condition: 'price_above',   value: 'ema8',     value2: null },
+            { indicator: 'rsi',   condition: 'lt',            value: '45',       value2: null },
+        ],
+        sellRules: [
+            { indicator: 'ema8',  condition: 'lt',            value: 'ema21',    value2: null },
+            { indicator: 'price', condition: 'price_below',   value: 'ema8',     value2: null },
+            { indicator: 'rsi',   condition: 'gt',            value: '55',       value2: null },
+        ],
+        buyLogic:  'OR',
+        sellLogic: 'OR',
+        note: 'Multi-TF confluence scalper. Fires when 2+ signals agree on M1/M5/M15. Daily target + session loss limit.',
+    },
+
+    nova: {
+        name:        'nova',
+        displayName: 'NOVA (Crash & Boom)',
+        slMult:      1.0,
+        tpMult:      1.5,
+        warmup:      22,
+        minBars:     2,
+        allowBuy:    true,
+        allowSell:   true,
+        sessionFrom: 0,
+        sessionTo:   23,
+        sessionEnabled: false,
+        buyRules: [
+            { indicator: 'ema8',  condition: 'gt',            value: 'ema21',    value2: null },
+            { indicator: 'rsi',   condition: 'lt',            value: '48',       value2: null },
+            { indicator: 'price', condition: 'price_above',   value: 'bb_lower', value2: null },
+        ],
+        sellRules: [
+            { indicator: 'ema8',  condition: 'lt',            value: 'ema21',    value2: null },
+            { indicator: 'rsi',   condition: 'gt',            value: '52',       value2: null },
+            { indicator: 'price', condition: 'price_below',   value: 'bb_upper', value2: null },
+        ],
+        buyLogic:  'OR',
+        sellLogic: 'OR',
+        note: 'Crash 1000 = BUY bias (fade the dip). Boom 1000 = SELL bias (fade the spike). Spike-aware — skips spike candles. Use only on Crash/Boom symbols.',
+    },
 };
 
 // Default empty strategy
@@ -327,7 +381,7 @@ Each object must have exactly these fields:
   "params": { optional: slMultiplier, tpMultiplier, minBars as numbers if applicable }
 }`;
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        const response = await fetch('/api/ai', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -990,8 +1044,8 @@ async function _runBacktest() {
 
         // Build a runtime strategy from the current state
         const dynStrategy = _buildRuntimeStrategy(_state);
-        const result      = _simulate(candles, h4Candles, dynStrategy, stake, 0);
-        const wf          = WalkForward.run(candles, h4Candles, dynStrategy, stake, 0);
+        const result      = _simulate(candles, h4Candles, dynStrategy, stake, 0, symbol);
+        const wf          = WalkForward.run(candles, h4Candles, dynStrategy, stake, 0, symbol);
 
         prog.style.display = 'none';
         _renderResults(result, wf);
@@ -1390,8 +1444,9 @@ function _deployToTerminal() {
     };
 
     sessionStorage.setItem('nexus_deploy_bot', JSON.stringify(deployPayload));
-    _showToast(`🚀 Deploying "${cfg.name}" — redirecting to Terminal…`);
-    setTimeout(() => { window.location.href = 'index.html'; }, 1200);
+    // Navigate immediately — index.html detects the sessionStorage key
+    // and shows a loading overlay before any JS runs
+    window.location.href = 'index.html';
 }
 
 

@@ -1,28 +1,38 @@
-export class Storage {
-    static KEYS = {
-        TOKEN: 'deriv_token',
-        SETTINGS: 'bot_settings'
-    };
+// storage.js — Deriv token + misc local persistence helpers
 
-    static saveSettings(settings) {
-        localStorage.setItem(Storage.KEYS.SETTINGS, JSON.stringify(settings));
-    }
+const TOKEN_KEY = 'deriv_token';
 
-    static loadSettings() {
-        const defaultSettings = { symbol: 'cryBTCUSD', timeframe: '900', strategy: 'h4_kiss' };
-        const settings = localStorage.getItem(Storage.KEYS.SETTINGS);
-        return settings ? JSON.parse(settings) : defaultSettings;
-    }
+export const Storage = {
+    getToken() {
+        return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || null;
+    },
 
-    static saveToken(token) {
-        localStorage.setItem(Storage.KEYS.TOKEN, token);
-    }
+    saveToken(token, remember = true) {
+        if (remember) {
+            localStorage.setItem(TOKEN_KEY, token);
+        } else {
+            sessionStorage.setItem(TOKEN_KEY, token);
+        }
+    },
 
-    static getToken() {
-        return localStorage.getItem(Storage.KEYS.TOKEN);
-    }
+    clearToken() {
+        localStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(TOKEN_KEY);
+    },
 
-    static clearToken() {
-        localStorage.removeItem(Storage.KEYS.TOKEN);
+    // Generic helpers
+    get(key, fallback = null) {
+        try {
+            const raw = localStorage.getItem(key);
+            return raw !== null ? JSON.parse(raw) : fallback;
+        } catch { return fallback; }
+    },
+
+    set(key, value) {
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+    },
+
+    remove(key) {
+        localStorage.removeItem(key);
     }
-}
+};

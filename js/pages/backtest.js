@@ -1,17 +1,13 @@
 // js/pages/backtest.js
-import { _fetchCandles, _simulate, _calcATR, _calcRSI,
-         _tfLabel, _sleep, CHUNK_SIZE, CHUNK_DELAY, WS_URL,
+import { _fetchCandles, _simulate, _simulatePhantomMultiTF, _simulateVortex,
+         _walkForward, _calcStats, _detectOverfit,
+         _calcATR, _calcRSI, _tfLabel, _sleep, CHUNK_SIZE, CHUNK_DELAY, WS_URL,
          _getBuiltinStrategy }                                     from '../backtest-core.js';
-import { WalkForward, SuggestionEngine }                           from '../walk-forward.js';
 import { SessionState }                                            from '../session-state.js';
+import { PhantomStrategy }                                         from '../strategies/phantom.js';
+import { VortexStrategy }                                          from '../strategies/vortex.js';
 
-// StrategyEngine lives on the server — use built-in standalone
-// versions for browser backtest, or server engine if available.
 function _makeStrategy(strategyId) {
-    if (window.StrategyEngine) {
-        const eng = new window.StrategyEngine();
-        return { analyze: (id, c, h4, rs, atr, sym, rsi) => eng.analyze(strategyId, c, h4, rs, atr, sym, rsi) };
-    }
     return _getBuiltinStrategy(strategyId);
 }
 
@@ -20,29 +16,114 @@ const H4_GRAN = 14400;
 // ─────────────────────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────────────────────
-let _chart       = null;
+let _chart        = null;
 let _candleSeries = null;
-let _splitLine   = null;
-let _markers     = [];
-let _trades      = [];
-let _wfResult    = null;
-let _wfSugStore  = {};   // id → suggestion object for Open in Builder
-let _socket      = null;
-let _btMode      = 'single';    // 'single' | 'compare'
-let _cachedCandles   = null;    // reused for compare/optimizer
-let _cachedH4Candles = null;
-let _running     = false;
+let _markers      = [];
+let _trades       = [];
+let _wfResult     = null;
+let _btMode       = 'single';
+let _cachedCandles    = null;
+let _cachedH4Candles  = null;
+let _running      = false;
 
-// Deep-link to strategy builder with a suggestion pre-applied
-window._openInBuilder = function(suggestionId) {
+window.btClearDates = function() {
+    const f = document.getElementById('bt-date-from');
+    const t = document.getElementById('bt-date-to');
+    if (f) f.value = '';
+    if (t) t.value = '';
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// DYNAMIC CANDLE COUNT OPTIONS
+// Calculates bar counts needed to reach each calendar milestone
+// from today, so labels stay accurate regardless of when run.
+// ─────────────────────────────────────────────────────────────
+function _barsForDays(calendarDays, tfSeconds) {
+    // Forex trades ~16hrs/day, 5 days/week
+    // Synthetics trade 24/7 — use 24hrs
+    const isSynthetic = ['R_100','R_75','R_50','R_25','R_10',
+        '1HZ100V','1HZ75V','1HZ50V','CRASH1000','BOOM1000',
+        'CRASH500','BOOM500','stpRNG'].includes(
+            document.getElementById('bt-symbol')?.value || '');
+    const tradingHrsPerDay = isSynthetic ? 24 : 16;
+    const barsPerDay = (tradingHrsPerDay * 3600) / tfSeconds;
+    return Math.round(calendarDays * barsPerDay);
+}
+
+window.btBuildCandleOptions = function() {
+    const sel = document.getElementById('bt-count');
+    if (!sel) return;
+    const tf = parseInt(document.getElementById('bt-tf')?.value || '300');
+
+    const now   = new Date();
+    const label = (daysBack) => {
+        const d = new Date(now - daysBack * 86400000);
+        return d.toLocaleString('default', { month: 'short', year: '2-digit' });
+    };
+
+    // Fixed small options always present
+    const fixed = [
+        { bars: 500,  label: '500' },
+        { bars: 1000, label: '1 000', defaultSel: true },
+    ];
+
+    // Month milestones: 1 month ago → 12 months ago
+    // Skip months where bar count would be same as previous (very fast TFs)
+    const months = [];
+    const seen = new Set();
+    for (let m = 1; m <= 12; m++) {
+        const days  = Math.round(m * 30.44);
+        const bars  = _barsForDays(days, tf);
+        const bucket = Math.round(bars / 500) * 500; // round to nearest 500
+        if (seen.has(bucket)) continue;
+        seen.add(bucket);
+        const slow = bars > 15000 ? ' ⚠ slow' : '';
+        months.push({ bars: bucket, label: `${bucket.toLocaleString()}  (${label(days)})${slow}` });
+    }
+
+    const all = [...fixed, ...months];
+
+    // Preserve current selection if possible
+    const current = parseInt(sel.value) || 1000;
+    sel.innerHTML = '';
+    all.forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt.bars;
+        o.textContent = opt.label;
+        if (opt.bars === current || opt.defaultSel && current === 1000) o.selected = true;
+        sel.appendChild(o);
+    });
+
+    // If nothing selected, pick default
+    if (!sel.value) sel.value = all.find(o => o.defaultSel)?.bars || 1000;
+};
+
+window._openInBuilder = function() {
     const strategyId = document.getElementById('bt-strategy')?.value || '';
-    const suggestion = _wfSugStore[suggestionId] || null;
-    const payload    = { strategyId, suggestion };
-    sessionStorage.setItem('nexus_builder_payload', JSON.stringify(payload));
+    sessionStorage.setItem('nexus_builder_payload', JSON.stringify({ strategyId }));
     window.location.href = 'strategy-builder.html';
 };
 
 // ─────────────────────────────────────────────────────────────
+// STRATEGY CHANGE HANDLER
+// ─────────────────────────────────────────────────────────────
+window.btStrategyChanged = function(strategy) {
+    document.querySelectorAll('.bt-strategy-notice').forEach(n => n.remove());
+    const notices = {
+        phantom: { color: '#a78bfa', icon: '\u{1F47B}', text: 'PHANTOM multi-TF — fetches M1+M5+M15. Takes longer.' },
+        vortex:  { color: '#06b6d4', icon: '\u{1F300}', text: 'VORTEX — works on any symbol. Reads volatility state.' },
+        nova:    { color: '#f59e0b', icon: '\u{1F4A5}', text: 'NOVA — Crash & Boom only. Use CRASH1000 or BOOM1000.' },
+    };
+    const n = notices[strategy];
+    if (!n) return;
+    const el = document.createElement('div');
+    el.className = 'bt-strategy-notice';
+    el.style.cssText = `margin-top:8px;padding:7px 10px;background:${n.color}18;border:1px solid ${n.color}40;border-radius:6px;font-size:0.62rem;color:${n.color};line-height:1.5;`;
+    el.textContent = n.icon + ' ' + n.text;
+    document.getElementById('bt-strategy')?.closest('.bt-field-group')?.appendChild(el);
+};
+
 // MODE SWITCHING
 // ─────────────────────────────────────────────────────────────
 window.btSetMode = function(mode) {
@@ -71,8 +152,9 @@ async function _runComparison(candles, h4Candles, stake, comm) {
 
     const results = stratIds.map((id, i) => {
         const obj    = _makeStrategy(id);
-        const result = _simulate(candles, h4Candles, obj, stake, comm);
-        const wf     = WalkForward.run(candles, h4Candles, obj, stake, comm);
+        const sym    = document.getElementById('bt-symbol')?.value || '';
+        const result = _simulate(candles, h4Candles, obj, stake, comm, sym);
+        const wf     = _walkForward(candles, h4Candles, obj, stake, comm, sym);
         const s      = wf.oos.stats;
         return {
             id, label: LABELS[i], color: COLORS[i],
@@ -80,9 +162,9 @@ async function _runComparison(candles, h4Candles, stake, comm) {
             winRate: s.winRate, pf: s.profitFactor,
             netPnL: s.netPnL, maxDD: s.maxDD,
             trades: s.total, rr: s.avgRR,
-            confidence: wf.confidence.score,
-            grade: wf.confidence.grade,
-            gradeColor: wf.confidence.color,
+            confidence: wf.overfit.score,
+            grade: wf.overfit.grade,
+            gradeColor: wf.overfit.color,
             isWR: wf.is.stats.winRate,
         };
     });
@@ -244,12 +326,12 @@ window.btRunOptimizer = async function() {
             }
         };
 
-        const wf = WalkForward.run(_cachedCandles, _cachedH4Candles, modified, stake, comm);
+        const wf = _walkForward(_cachedCandles, _cachedH4Candles, modified, stake, comm, document.getElementById('bt-symbol')?.value || '');
         results.push({
             sl, tp,
-            confidence: wf.confidence.score,
-            grade:      wf.confidence.grade,
-            gradeColor: wf.confidence.color,
+            confidence: wf.overfit.score,
+            grade:      wf.overfit.grade,
+            gradeColor: wf.overfit.color,
             oosWR:      wf.oos.stats.winRate,
             oosPF:      wf.oos.stats.profitFactor,
             oosNetPnL:  wf.oos.stats.netPnL,
@@ -319,6 +401,7 @@ function _renderOptimizerResults(results, strategy) {
 export const Backtest = {
 
     init() {
+        // btStrategyChanged exposed below after function def
         document.getElementById('bt-run-btn')
             .addEventListener('click', _run);
         document.getElementById('bt-show-signals')
@@ -328,6 +411,12 @@ export const Backtest = {
 
         document.getElementById('bt-journal-btn')
             ?.addEventListener('click', _exportToJournal);
+
+        document.getElementById('bt-tf')
+            ?.addEventListener('change', window.btBuildCandleOptions);
+        document.getElementById('bt-symbol')
+            ?.addEventListener('change', window.btBuildCandleOptions);
+        window.btBuildCandleOptions();
 
         _initChart();
         _renderEmpty();
@@ -383,71 +472,186 @@ async function _run() {
     if (_running) return;
     _running = true;
 
-    const symbol   = document.getElementById('bt-symbol').value;
-    const strategy = document.getElementById('bt-strategy').value;
-    const tf       = parseInt(document.getElementById('bt-tf').value);
-    const count    = parseInt(document.getElementById('bt-count').value);
-    const stake    = parseFloat(document.getElementById('bt-stake').value) || 10;
-    const comm     = parseFloat(document.getElementById('bt-commission').value) || 0;
+    const symbol      = document.getElementById('bt-symbol').value;
+    const strategy    = document.getElementById('bt-strategy').value;
+    const tf          = parseInt(document.getElementById('bt-tf').value);
+    const count       = parseInt(document.getElementById('bt-count').value);
+    const stake       = parseFloat(document.getElementById('bt-stake').value) || 1;
+    const comm        = parseFloat(document.getElementById('bt-commission').value) || 0;
+    const dateFrom    = document.getElementById('bt-date-from')?.value  || '';
+    const dateTo      = document.getElementById('bt-date-to')?.value    || '';
+    const newsBlackout= document.getElementById('bt-news-toggle')?.checked ?? true;
+    const fomcBlackout= document.getElementById('bt-fomc-toggle')?.checked ?? false;
 
     _setRunning(true);
     _setProgress(5, 'Connecting to Deriv...');
     document.getElementById('bt-chart-title').textContent =
-        `${symbol.replace('frx','').replace('cry','')}  ·  ${_tfLabel(tf)}  ·  ${strategy.replace(/_/g,' ').toUpperCase()}`;
+        `${symbol.replace('frx','').replace('cry','')}  ·  ${_tfLabel(tf)}  ·  ${strategy.toUpperCase()}`;
 
     try {
-        const chunks  = Math.ceil(count / CHUNK_SIZE);
-        const chunkStr = chunks > 1 ? ` in ${chunks} chunks` : '';
-        _setProgress(10, `Fetching ${count} candles${chunkStr}...`);
-
+        _setProgress(10, `Fetching ${count} candles...`);
         const candles = await _fetchCandles(symbol, tf, count, (done, total) => {
-            const pct = 10 + Math.round((done / total) * 35);
-            _setProgress(pct, `Fetching candles... ${done}/${total}`);
+            _setProgress(10 + Math.round((done/total)*35), `Fetching candles ${done}/${total}...`);
         });
 
-        _setProgress(48, `Fetching H4 candles...`);
-        const h4Count   = Math.min(1000, Math.ceil(count * tf / H4_GRAN) + 100);
-        const h4Candles = await _fetchCandles(symbol, H4_GRAN, h4Count, (done, total) => {
-            const pct = 48 + Math.round((done / total) * 12);
-            _setProgress(pct, `Fetching H4... ${done}/${total}`);
-        });
+        // ── DATE RANGE FILTER ────────────────────────────────
+        // Applied post-fetch — candles are still pulled by count up to now,
+        // then sliced to the requested window. HTF candles filtered separately.
+        let filteredCandles = candles;
+        if (dateFrom || dateTo) {
+            // Force UTC — without Z suffix, browsers may parse as local midnight
+            const fromTs = dateFrom ? new Date(dateFrom + 'T00:00:00Z').getTime() / 1000 : 0;
+            const toTs   = dateTo   ? new Date(dateTo   + 'T23:59:59Z').getTime() / 1000 : Infinity;
+            filteredCandles = candles.filter(c => c.time >= fromTs && c.time <= toTs);
+            if (filteredCandles.length < 35) {
+                throw new Error(`Date range too narrow — only ${filteredCandles.length} candles in window. Widen range or increase candle count.`);
+            }
+            _setProgress(53, `Date filter: ${filteredCandles.length} of ${candles.length} candles in range`);
+            await _sleep(20);
+        }
 
-        _setProgress(70, `Running ${strategy} on ${candles.length} bars...`);
+        let result, wf;
+
+        // ── VORTEX ────────────────────────────────────────────
+        if (strategy === 'vortex') {
+            // Fetch real HTF candles for the trend filter
+            // HTF granularity: M1→M30, M5→H1, M15→H4, H1→D1 etc.
+            const HTF_MAP  = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
+            const htfGran  = HTF_MAP[tf] || 3600; // default H1
+            const htfCount = Math.min(500, Math.ceil(count * tf / htfGran) + 50);
+            const symType  = VortexStrategy.getSymbolType(symbol);
+
+            let htfCandles = [];
+            if (symType === 'real') {
+                _setProgress(45, `Fetching HTF candles (${_tfLabel(htfGran)})...`);
+                try {
+                    htfCandles = await _fetchCandles(symbol, htfGran, htfCount, (d,t) => {
+                        _setProgress(45 + Math.round((d/t)*8), `HTF ${d}/${t}...`);
+                    });
+                } catch(e) {
+                    console.warn('[Backtest] HTF fetch failed, skipping HTF filter:', e.message);
+                }
+            }
+
+            _setProgress(54, `Running VORTEX on ${filteredCandles.length} bars...`);
+            result = await _simulateVortex(filteredCandles, stake, comm, symbol, (done, total) => {
+                _setProgress(54 + Math.round((done/total)*30), `Simulating bar ${done}/${total}...`);
+            }, VortexStrategy, tf, htfCandles, newsBlackout, fomcBlackout);
+
+            _setProgress(87, 'Running walk-forward...');
+            const splitIdx  = Math.floor(filteredCandles.length * 0.6);
+            const splitTime = filteredCandles[splitIdx].time;
+            const isC       = filteredCandles.slice(0, splitIdx);
+            const oosC      = filteredCandles.slice(splitIdx);
+            const isHtf     = htfCandles.filter(c => c.time <= splitTime);
+            const oosHtf    = htfCandles.filter(c => c.time >  splitTime);
+            const isRes     = await _simulateVortex(isC,  stake, comm, symbol, null, VortexStrategy, tf, isHtf, newsBlackout, fomcBlackout);
+            const oosRes    = await _simulateVortex(oosC, stake, comm, symbol, null, VortexStrategy, tf, oosHtf, newsBlackout, fomcBlackout);
+            const overfit   = _detectOverfit(isRes.stats, oosRes.stats);
+            wf = {
+                splitIdx, splitTime,
+                is:  { trades: isRes.trades,  equity: isRes.equity,  stats: isRes.stats  },
+                oos: { trades: oosRes.trades, equity: oosRes.equity, stats: oosRes.stats },
+                overfit, confidence: overfit,
+            };
+
+        // ── PHANTOM multi-TF ──────────────────────────────────
+        } else if (strategy === 'phantom') {
+            PhantomStrategy.resetDirState('_bt');
+            _setProgress(45, 'Fetching M1 candles...');
+            const m1Candles = await _fetchCandles(symbol, 60, Math.min(5000, count*5), (d,t) => {
+                _setProgress(45 + Math.round((d/t)*6), `M1 ${d}/${t}...`);
+            });
+            _setProgress(52, 'Fetching M15 candles...');
+            const m15Candles = await _fetchCandles(symbol, 900, Math.max(200, Math.ceil(count/3)), (d,t) => {
+                _setProgress(52 + Math.round((d/t)*5), `M15 ${d}/${t}...`);
+            });
+            const m5Candles = tf === 300 ? filteredCandles : await _fetchCandles(symbol, 300, count, null);
+
+            // HTF candles for trend filter (M5→H1, M15→H4)
+            // Synthetics also benefit — V75 H1 trend is meaningful
+            const htfGran  = tf <= 300 ? 3600 : 14400; // M5 → H1, M15 → H4
+            const htfCount = Math.min(500, Math.ceil(count * (tf || 300) / htfGran) + 50);
+            let phantomHtf = [];
+            _setProgress(58, `Fetching HTF candles (${_tfLabel(htfGran)})...`);
+            try {
+                phantomHtf = await _fetchCandles(symbol, htfGran, htfCount, (d,t) => {
+                    _setProgress(58 + Math.round((d/t)*5), `HTF ${d}/${t}...`);
+                });
+            } catch(e) {
+                console.warn('[PHANTOM BT] HTF fetch failed, skipping HTF filter:', e.message);
+            }
+
+            _setProgress(65, `Running PHANTOM M1(${m1Candles.length}) M5(${m5Candles.length}) M15(${m15Candles.length}) HTF(${phantomHtf.length})...`);
+            result = await _simulatePhantomMultiTF(m1Candles, m5Candles, m15Candles, stake, comm, PhantomStrategy, (d,t) => {
+                _setProgress(65 + Math.round((d/t)*20), `Bar ${d}/${t}...`);
+            }, phantomHtf);
+            result._chartCandles = m5Candles;
+
+            _setProgress(87, 'Running walk-forward...');
+            const splitIdx  = Math.floor(m5Candles.length / 2);
+            const splitTime = m5Candles[splitIdx].time;
+            const isM5  = m5Candles.slice(0, splitIdx), oosM5  = m5Candles.slice(splitIdx);
+            const isM1  = m1Candles.filter(c => c.time <= splitTime), oosM1  = m1Candles.filter(c => c.time > splitTime);
+            const isM15 = m15Candles.filter(c => c.time <= splitTime), oosM15 = m15Candles.filter(c => c.time > splitTime);
+            const isHtf = phantomHtf.filter(c => c.time <= splitTime), oosHtf = phantomHtf.filter(c => c.time > splitTime);
+            PhantomStrategy.resetDirState('_bt');
+            const isRes  = await _simulatePhantomMultiTF(isM1,  isM5,  isM15,  stake, comm, PhantomStrategy, null, isHtf);
+            PhantomStrategy.resetDirState('_bt');
+            const oosRes = await _simulatePhantomMultiTF(oosM1, oosM5, oosM15, stake, comm, PhantomStrategy, null, oosHtf);
+            const overfit = _detectOverfit(isRes.stats, oosRes.stats);
+            wf = {
+                splitIdx, splitTime,
+                is:  { trades: isRes.trades,  equity: isRes.equity,  stats: isRes.stats  },
+                oos: { trades: oosRes.trades, equity: oosRes.equity, stats: oosRes.stats },
+                overfit, confidence: overfit,
+            };
+
+        // ── ALL OTHER STRATEGIES ──────────────────────────────
+        } else {
+            _setProgress(50, `Fetching H4 candles...`);
+            const h4Count   = Math.min(1000, Math.ceil(count * tf / H4_GRAN) + 100);
+            const h4Candles = await _fetchCandles(symbol, H4_GRAN, h4Count, (d,t) => {
+                _setProgress(50 + Math.round((d/t)*12), `H4 ${d}/${t}...`);
+            });
+            _setProgress(65, `Running ${strategy}...`);
+            await _sleep(30);
+            const stratObj = _makeStrategy(strategy);
+            result = _simulate(candles, h4Candles, stratObj, stake, comm, symbol);
+            _setProgress(80, 'Walk-forward...');
+            await _sleep(30);
+            wf     = _walkForward(candles, h4Candles, stratObj, stake, comm, symbol);
+            _cachedH4Candles = h4Candles;
+        }
+
+        _setProgress(93, 'Rendering...');
         await _sleep(30);
 
-        // Full simulation for chart display
-        const stratObj = _makeStrategy(strategy);
-        const result   = _simulate(candles, h4Candles, stratObj, stake, comm);
-
-        _setProgress(80, 'Running walk-forward analysis...');
-        await _sleep(30);
-
-        // Walk-forward: IS (first 50%) vs OOS (second 50%)
-        const wf = WalkForward.run(candles, h4Candles, stratObj, stake, comm);
-
-        _setProgress(95, 'Rendering...');
-        await _sleep(30);
-
-        _renderChart(candles, result.trades, wf.splitTime);
+        const renderCandles = (strategy==='phantom' && result._chartCandles) ? result._chartCandles : filteredCandles;
+        _renderChart(renderCandles, result.trades, wf.splitTime);
         _renderEquity(result.equity, wf);
         _renderKPIs(result, wf);
         _renderWalkForward(wf);
         _renderTradeLog(result.trades);
 
-        // Compare mode — run all strategies on same candles
+        // OVERFIT WARNING — block if severe
+        if (wf.overfit?.isOverfit) {
+            _showOverfitWarning(wf.overfit);
+        }
+
         if (_btMode === 'compare') {
-            await _runComparison(candles, h4Candles, stake, comm);
+            const h4C = _cachedH4Candles || [];
+            await _runComparison(candles, h4C, stake, comm);
         } else {
             document.getElementById('bt-compare-wrap').style.display = 'none';
         }
 
         document.getElementById('bt-chart-count').textContent =
-            `${candles.length} candles  ·  ${result.trades.length} signals  ·  WF split @ bar ${wf.splitIdx}`;
+            `${renderCandles.length} candles · ${result.trades.length} signals · WF split @ bar ${wf.splitIdx || '—'}`;
 
-        _trades       = result.trades;
-        _wfResult     = wf;
+        _trades          = result.trades;
+        _wfResult        = wf;
         _cachedCandles   = candles;
-        _cachedH4Candles = h4Candles;
 
         _setProgress(100, 'Complete');
         _sfx.play('complete');
@@ -465,6 +669,36 @@ async function _run() {
     _setRunning(false);
     _running = false;
 }
+
+function _showOverfitWarning(overfit) {
+    let el = document.getElementById('bt-overfit-banner');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'bt-overfit-banner';
+        el.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1e293b;border:2px solid #ef4444;border-radius:10px;padding:16px 22px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.4);font-family:var(--font-mono,monospace);';
+        document.body.appendChild(el);
+    }
+    el.innerHTML = `
+        <div style="display:flex;align-items:flex-start;gap:12px;">
+            <div style="font-size:1.5rem;flex-shrink:0">⚠️</div>
+            <div>
+                <div style="font-size:0.75rem;font-weight:800;color:#ef4444;letter-spacing:0.1em;margin-bottom:6px;">${overfit.verdict}</div>
+                <div style="font-size:0.62rem;color:#94a3b8;line-height:1.6;">
+                    ${overfit.warnings.map(w => `• ${w}`).join('<br>')}
+                </div>
+                <div style="margin-top:10px;font-size:0.6rem;color:#ef4444;">
+                    This strategy should NOT be used with live money in this state.
+                    Increase candle count, simplify rules, or try a different symbol.
+                </div>
+                <button onclick="document.getElementById('bt-overfit-banner').remove()"
+                    style="margin-top:10px;padding:5px 14px;background:#ef444420;border:1px solid #ef4444;color:#ef4444;border-radius:5px;font-size:0.6rem;cursor:pointer;font-family:inherit;">
+                    I understand
+                </button>
+            </div>
+        </div>`;
+    el.style.display = '';
+}
+
 
 // _simulate imported from backtest-core.js
 
@@ -564,47 +798,50 @@ function _renderEquity(equity, wf) {
     }
 }
 
-function _renderKPIs(result) {
-    const { trades, equity } = result;
-    const closed  = trades.filter(t => t.outcome === 'TP' || t.outcome === 'SL');
-    const wins    = closed.filter(t => t.outcome === 'TP');
-    const losses  = closed.filter(t => t.outcome === 'SL');
-    const netPnL  = equity[equity.length - 1];
-    const winRate = closed.length ? (wins.length / closed.length * 100).toFixed(1) : 0;
+function _renderKPIs(result, wf) {
+    const s      = result.stats;
+    const oos    = wf?.oos?.stats;
+    const netPnL = result.equity[result.equity.length - 1] ?? 0;
+    const wr     = (s.winRate * 100).toFixed(1);
+    const pf     = s.profitFactor >= 999 ? '\u221e' : s.profitFactor.toFixed(2);
+    const wrColor= s.winRate >= 0.70 ? '#10b981' : s.winRate >= 0.55 ? '#f59e0b' : '#ef4444';
+    const rrColor= s.avgRR  >= 2.0  ? '#10b981' : s.avgRR  >= 1.5  ? '#f59e0b' : '#ef4444';
+    const pos    = netPnL >= 0;
 
-    const avgWin   = wins.length   ? wins.reduce((s,t)=>s+t.pnl,0)            / wins.length   : 0;
-    const avgLoss  = losses.length ? losses.reduce((s,t)=>s+Math.abs(t.pnl),0)/ losses.length : 0;
+    _kpi('bt-pnl',        `${pos?'+':'-'}$${Math.abs(netPnL).toFixed(2)}`,  pos?'#10b981':'#ef4444');
+    _kpi('bt-wr',         `${wr}%`,                                           wrColor);
+    _kpi('bt-trades',     `${s.wins}W / ${s.losses}L`,                       '#64748b');
+    _kpi('bt-dd',         `-$${s.maxDD.toFixed(2)}`,                          '#ef4444');
+    _kpi('bt-rr',         `${s.avgRR.toFixed(2)}:1`,                          rrColor);
+    _kpi('bt-pf',         pf,                                                  s.profitFactor>=1?'#10b981':'#ef4444');
+    _kpi('bt-avg-win',    `+$${s.avgWin.toFixed(2)}`,                        '#10b981');
+    _kpi('bt-avg-loss',   `-$${s.avgLoss.toFixed(2)}`,                       '#ef4444');
+    _kpi('bt-max-streak', String(s.maxStreak),                                s.maxStreak>=5?'#ef4444':'#64748b');
+    _kpi('bt-expectancy', `$${s.expectancy.toFixed(3)}`,                      s.expectancy>0?'#10b981':'#ef4444');
 
-    const grossWin  = wins.reduce((s,t)=>s+t.pnl,0);
-    const grossLoss = losses.reduce((s,t)=>s+Math.abs(t.pnl),0);
-    const pf        = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : '∞';
-
-    const rrVals = closed.filter(t=>t.sl&&t.tp&&t.entry).map(t=>{
-        const slD = Math.abs(t.entry-t.sl), tpD = Math.abs(t.entry-t.tp);
-        return slD > 0 ? tpD/slD : 0;
-    }).filter(r=>r>0);
-    const avgRR = rrVals.length ? (rrVals.reduce((a,b)=>a+b,0)/rrVals.length).toFixed(2) : '—';
-
-    let maxDD = 0, peak = 0, eq = 0;
-    equity.forEach(v => { if(v>peak)peak=v; if(peak-v>maxDD)maxDD=peak-v; });
-
-    let streak=0, maxStreak=0;
-    closed.forEach(t => { if(t.outcome==='SL'){streak++;maxStreak=Math.max(maxStreak,streak);}else{streak=0;} });
-
-    const expectancy = closed.length
-        ? ((winRate/100 * avgWin) - ((1-winRate/100) * avgLoss)).toFixed(4) : '—';
-
-    const pos = netPnL >= 0;
-    _kpi('bt-pnl',        `${pos?'+':''}${netPnL.toFixed(4)}`,  pos?'#10b981':'#ef4444');
-    _kpi('bt-wr',         `${winRate}%`,                          parseFloat(winRate)>=50?'#10b981':'#ef4444');
-    _kpi('bt-trades',     `${wins.length}W / ${losses.length}L`,  '#64748b');
-    _kpi('bt-dd',         `-${maxDD.toFixed(4)}`,                 '#ef4444');
-    _kpi('bt-rr',         avgRR,                                   '#64748b');
-    _kpi('bt-pf',         pf,                                      parseFloat(pf)>=1?'#10b981':'#ef4444');
-    _kpi('bt-avg-win',    `+${avgWin.toFixed(4)}`,                '#10b981');
-    _kpi('bt-avg-loss',   `-${avgLoss.toFixed(4)}`,               '#ef4444');
-    _kpi('bt-max-streak', String(maxStreak),                       maxStreak>=5?'#ef4444':'#64748b');
-    _kpi('bt-expectancy', String(expectancy),                      parseFloat(expectancy)>0?'#10b981':'#ef4444');
+    // $10 → $50 projection
+    const stake  = parseFloat(document.getElementById('bt-stake')?.value) || 1;
+    const projEl = document.getElementById('bt-projection');
+    if (projEl) {
+        if (s.expectancy > 0) {
+            const tradesNeeded = Math.ceil(Math.log(50/10) / Math.log(1 + s.expectancy/10));
+            const pct = Math.min(100, Math.max(0, (netPnL / 40) * 100));
+            projEl.innerHTML = `
+                <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.1em;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:5px;">$10 \u2192 $50 PROJECTION</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="flex:1;height:6px;background:rgba(100,116,139,0.15);border-radius:3px;overflow:hidden;">
+                        <div style="width:${pct.toFixed(0)}%;height:100%;background:${pct>=100?'#10b981':'#2563eb'};border-radius:3px;"></div>
+                    </div>
+                    <div style="font-size:0.6rem;font-weight:700;color:${pct>=100?'#10b981':'var(--text-dark)'};">
+                        ${pct>=100 ? '\u2713 TARGET REACHED' : '~'+tradesNeeded+' trades at $'+stake+' stake'}
+                    </div>
+                </div>
+                ${oos ? '<div style="font-size:0.58rem;color:var(--text-muted);margin-top:4px;">OOS: '+(oos.winRate*100).toFixed(1)+'% WR &middot; $'+oos.expectancy.toFixed(3)+' expectancy/trade</div>' : ''}
+            `;
+        } else {
+            projEl.innerHTML = '<div style="font-size:0.6rem;color:#ef4444;font-family:var(--font-mono);">\u26a0 Negative expectancy \u2014 loses money on average. Do not go live.</div>';
+        }
+    }
 }
 
 function _kpi(id, val, color) {
@@ -617,114 +854,69 @@ function _kpi(id, val, color) {
 function _renderWalkForward(wf) {
     const el = document.getElementById('bt-wf-section');
     if (!el) return;
-    if (!wf || wf.error) {
-        el.innerHTML = `<div style="color:var(--text-muted);font-size:0.62rem;padding:8px">${wf?.error || 'No walk-forward data'}</div>`;
-        return;
-    }
+    if (!wf) { el.innerHTML = '<div style="color:var(--text-muted);font-size:0.62rem;padding:8px">No walk-forward data</div>'; return; }
 
-    const { is, oos, confidence: c, suggestions } = wf;
-
-    // Store suggestions by id so onclick can look them up safely
-    suggestions.forEach(s => { _wfSugStore[s.id] = s; });
+    const { is, oos, overfit } = wf;
+    const c = overfit || wf.confidence;
+    if (!c || !is || !oos) return;
 
     el.innerHTML = `
-
-    <!-- ROW 1: Confidence badge + IS/OOS table side by side -->
     <div class="wf-top-row">
-
         <div class="wf-confidence-card">
             <svg width="72" height="72" viewBox="0 0 72 72">
                 <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(100,116,139,0.12)" stroke-width="6"/>
                 <circle cx="36" cy="36" r="30" fill="none" stroke="${c.color}" stroke-width="6"
                     stroke-dasharray="${(c.score/100*188.5).toFixed(1)} 188.5"
-                    stroke-dashoffset="47.1"
-                    stroke-linecap="round"
-                    transform="rotate(-90 36 36)"/>
+                    stroke-dashoffset="47.1" stroke-linecap="round" transform="rotate(-90 36 36)"/>
                 <text x="36" y="32" text-anchor="middle" font-size="15" font-weight="800" fill="${c.color}" font-family="DM Mono,monospace">${c.score}</text>
                 <text x="36" y="46" text-anchor="middle" font-size="10" font-weight="700" fill="${c.color}" font-family="DM Mono,monospace">${c.grade}</text>
             </svg>
-            <div class="wf-conf-label">WALK-FORWARD<br>CONFIDENCE</div>
+            <div class="wf-conf-label">OVERFIT<br>SCORE</div>
             <div class="wf-verdict" style="color:${c.color}">${c.verdict}</div>
         </div>
-
         <div class="wf-compare-card">
             <table class="wf-table">
                 <thead><tr>
                     <th>METRIC</th>
-                    <th style="color:#2563eb">◀ IN-SAMPLE</th>
-                    <th style="color:${oos.stats.netPnL>=0?'#10b981':'#ef4444'}">OUT-OF-SAMPLE ▶</th>
+                    <th style="color:#2563eb">IN-SAMPLE (60%)</th>
+                    <th style="color:${oos.stats.netPnL>=0?'#10b981':'#ef4444'}">OUT-OF-SAMPLE (40%)</th>
                     <th>DELTA</th>
                 </tr></thead>
                 <tbody>
-                    ${_wfRow('Win Rate',      is.stats.winRate.toFixed(1)+'%',    oos.stats.winRate.toFixed(1)+'%',    (oos.stats.winRate-is.stats.winRate).toFixed(1)+'%')}
-                    ${_wfRow('Profit Factor', is.stats.profitFactor===Infinity?'∞':is.stats.profitFactor.toFixed(2), oos.stats.profitFactor===Infinity?'∞':oos.stats.profitFactor.toFixed(2), null)}
-                    ${_wfRow('Net P&L',       '$'+is.stats.netPnL.toFixed(2),     '$'+oos.stats.netPnL.toFixed(2),    null)}
-                    ${_wfRow('Max Drawdown',  '-$'+is.stats.maxDD.toFixed(2),     '-$'+oos.stats.maxDD.toFixed(2),    null)}
-                    ${_wfRow('Avg R:R',       is.stats.avgRR.toFixed(2)+':1',     oos.stats.avgRR.toFixed(2)+':1',    null)}
-                    ${_wfRow('Total Trades',  String(is.stats.total),             String(oos.stats.total),            null)}
-                    ${_wfRow('Max Consec. SL',String(is.stats.maxStreak),         String(oos.stats.maxStreak),        null)}
-                    ${_wfRow('Expectancy',    is.stats.expectancy.toFixed(4),     oos.stats.expectancy.toFixed(4),    null)}
+                    ${_wfRow('Win Rate',       (is.stats.winRate*100).toFixed(1)+'%',  (oos.stats.winRate*100).toFixed(1)+'%',  ((oos.stats.winRate-is.stats.winRate)*100).toFixed(1)+'%')}
+                    ${_wfRow('Profit Factor',  is.stats.profitFactor>=999?'\u221e':is.stats.profitFactor.toFixed(2), oos.stats.profitFactor>=999?'\u221e':oos.stats.profitFactor.toFixed(2), null)}
+                    ${_wfRow('Net P&L',        '$'+is.stats.netPnL.toFixed(2),        '$'+oos.stats.netPnL.toFixed(2),        null)}
+                    ${_wfRow('Max Drawdown',   '-$'+is.stats.maxDD.toFixed(2),        '-$'+oos.stats.maxDD.toFixed(2),        null)}
+                    ${_wfRow('Avg R:R',        is.stats.avgRR.toFixed(2)+':1',        oos.stats.avgRR.toFixed(2)+':1',        null)}
+                    ${_wfRow('Trades',         String(is.stats.total),                String(oos.stats.total),                null)}
+                    ${_wfRow('Max Loss Streak',String(is.stats.maxStreak),            String(oos.stats.maxStreak),            null)}
+                    ${_wfRow('Expectancy',     '$'+is.stats.expectancy.toFixed(3),    '$'+oos.stats.expectancy.toFixed(3),    null)}
                 </tbody>
             </table>
         </div>
     </div>
-
-    <!-- ROW 2: Score breakdown — full width -->
-    <div class="wf-breakdown-card">
-        <div class="wf-sub-label">SCORE BREAKDOWN</div>
-        ${c.breakdown.map(b => `
-            <div class="wf-score-row">
-                <div class="wf-score-label">${b.label}</div>
-                <div class="wf-score-bar-wrap">
-                    <div class="wf-score-bar" style="width:${(b.pts/b.max*100).toFixed(0)}%;background:${b.pts/b.max>=0.7?'#10b981':b.pts/b.max>=0.4?'#f59e0b':'#ef4444'}"></div>
-                </div>
-                <div class="wf-score-pts">${b.pts} / ${b.max}</div>
-                <div class="wf-score-val">${b.value}</div>
-            </div>
-        `).join('')}
-    </div>
-
-    <!-- ROW 3: Suggestions — full width, each card on its own line -->
-    <div class="wf-suggestions">
-        <div class="wf-sub-label">
-            STRATEGY SUGGESTIONS
-            <span style="font-size:0.52rem;color:var(--text-muted);font-weight:400;margin-left:8px;letter-spacing:0;">
-                rule-based · AI-powered coming soon
-            </span>
+    ${c.warnings && c.warnings.length ? `
+    <div class="wf-breakdown-card" style="margin-top:10px;">
+        <div class="wf-sub-label" style="color:${c.isOverfit?'#ef4444':'#f59e0b'}">
+            ${c.isOverfit ? '\u26a0 OVERFIT WARNINGS' : 'NOTES'}
         </div>
-        ${suggestions.length === 0
-            ? '<div style="color:var(--text-muted);font-size:0.65rem;padding:8px 0;">No issues detected — strategy looks clean.</div>'
-            : suggestions.map(s => `
-                <div class="wf-suggestion" data-id="${s.id}" data-priority="${s.priority}">
-                    <div class="wf-sug-header">
-                        <span class="wf-sug-icon">${s.icon}</span>
-                        <span class="wf-sug-type">${s.type.replace(/_/g,' ').toUpperCase()}</span>
-                        <span class="wf-sug-priority ${s.priority}">${s.priority.toUpperCase()}</span>
-                        <button class="wf-sug-open-btn"
-                            title="Open this strategy in Strategy Builder with suggestion pre-applied"
-                            onclick="window._openInBuilder('${s.id}')">
-                            ⚙ Open in Builder
-                        </button>
-                    </div>
-                    <div class="wf-sug-observation">${s.observation}</div>
-                    <div class="wf-sug-tweak"><span class="wf-sug-tweak-label">TWEAK — </span>${s.tweak}</div>
-                    <div class="wf-sug-impact"><span class="wf-sug-tweak-label">EXPECTED — </span>${s.expected_impact}</div>
-                </div>
-            `).join('')
-        }
-    </div>`;
+        ${c.warnings.map(w => `<div style="font-size:0.62rem;color:var(--text-body);padding:3px 0;line-height:1.5;">&#x2022; ${w}</div>`).join('')}
+        ${c.isOverfit ? '<div style="margin-top:8px;font-size:0.62rem;color:#ef4444;font-weight:700;">This strategy is NOT ready for live money. Fix the warnings above first.</div>' : ''}
+    </div>` : ''}
+    `;
 }
 
 function _wfRow(label, isVal, oosVal, delta) {
-    const deltaColor = delta
-        ? (parseFloat(delta) >= 0 ? '#10b981' : '#ef4444') : '';
+    const dv = parseFloat(delta);
+    const dc = delta ? (dv >= 0 ? '#10b981' : '#ef4444') : '';
     return `<tr>
         <td>${label}</td>
         <td style="color:#2563eb;font-weight:600">${isVal}</td>
         <td style="font-weight:600">${oosVal}</td>
-        <td style="color:${deltaColor};font-weight:600">${delta || '—'}</td>
+        <td style="color:${dc};font-weight:600">${delta || '\u2014'}</td>
     </tr>`;
 }
+
 
 function _renderTradeLog(trades) {
     const el = document.getElementById('bt-trade-log');

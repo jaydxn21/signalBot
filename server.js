@@ -61,8 +61,9 @@ function _authMiddleware(req) {
     return _verifyToken(token);
 }
 
-function _json(res, status, body) {
-    res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+function _json(res, status, body, req) {
+    const corsH = req ? _corsHeaders(req) : { 'Access-Control-Allow-Origin': '*' };
+    res.writeHead(status, { 'Content-Type': 'application/json', ...corsH });
     res.end(JSON.stringify(body));
 }
 
@@ -126,24 +127,41 @@ function pushToMT5(payload) {
     console.log(`[WS] Pushed to ${mt5Clients.length} MT5 client(s)`);
 }
 
+// ─── CORS ──────────────────────────────────────────────────────────────────
+// Set ALLOWED_ORIGINS env var on Render (space-separated):
+//   e.g. "https://nexus.netlify.app https://www.nexus.netlify.app"
+// Leave unset locally — falls back to permissive mode.
+const _allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(' ').map(s => s.trim()).filter(Boolean)
+    : null;
+
+function _corsHeaders(req) {
+    const origin  = req.headers['origin'] || '';
+    const allowed = !_allowedOrigins || _allowedOrigins.includes(origin)
+        ? (origin || '*')
+        : _allowedOrigins[0];
+    return {
+        'Access-Control-Allow-Origin':      allowed,
+        'Access-Control-Allow-Methods':     'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers':     'Content-Type, Authorization',
+        'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
+    };
+}
+
 // ─── Main HTTP Server ──────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
-    let pathname    = parsedUrl.pathname.replace(/\/+$/, '') || '/'; // strip trailing slashes
+    let pathname    = parsedUrl.pathname.replace(/\/+$/, '') || '/';
 
     if (pathname === '/' || pathname === '') pathname = '/index.html';
 
-    // Debug — remove after confirming routes work
     if (pathname.startsWith('/api/')) {
         console.log(`[API] ${req.method} ${pathname}`);
     }
 
     if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-            'Access-Control-Allow-Origin':  '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        });
+        res.writeHead(204, _corsHeaders(req));
         res.end();
         return;
     }
@@ -151,7 +169,7 @@ const server = http.createServer((req, res) => {
     // ── /api/signal ──────────────────────────────────────────────────────────
     if (pathname === '/api/signal') {
         if (req.method === 'GET') {
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
             res.end(JSON.stringify(latestSignal || { action: 'none', timestamp: 0 }));
             return;
         }
@@ -163,7 +181,7 @@ const server = http.createServer((req, res) => {
                 try {
                     const signalData = JSON.parse(body);
                     if (latestSignal && latestSignal.timestamp === signalData.timestamp) {
-                        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                         res.end(JSON.stringify({ status: 'duplicate', skipped: true }));
                         return;
                     }
@@ -172,7 +190,7 @@ const server = http.createServer((req, res) => {
                     if (signalHistory.length > 50) signalHistory.pop();
                     console.log(`[${new Date().toLocaleTimeString()}] SIGNAL → ${signalData.action.toUpperCase()} ${signalData.symbol} @ ${signalData.price}`);
                     pushToMT5(latestSignal);
-                    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                     res.end(JSON.stringify({ status: 'ok', received: latestSignal }));
                 } catch (err) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -185,7 +203,7 @@ const server = http.createServer((req, res) => {
 
     // ── /api/signals/history ─────────────────────────────────────────────────
     if (pathname === '/api/signals/history' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
         res.end(JSON.stringify(signalHistory));
         return;
     }
@@ -204,10 +222,10 @@ const server = http.createServer((req, res) => {
                 console.log(`[MT5] Trade closed → ${result.outcome} ${result.symbol} P&L: ${result.pnl}`);
                 // Push update to any connected browser clients
                 pushToMT5({ type: 'trade_result', ...result });
-                res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ status: 'ok' }));
             } catch(err) {
-                res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ error: 'Invalid JSON' }));
             }
         });
@@ -217,7 +235,7 @@ const server = http.createServer((req, res) => {
     // ── /api/trade-results ──────────────────────────────────────────────────────
     // GET all stored MT5 trade results
     if (pathname === '/api/trade-results' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
         res.end(JSON.stringify(mt5TradeResults));
         return;
     }
@@ -241,7 +259,7 @@ const server = http.createServer((req, res) => {
                     if (err) console.error('[DataLogger] Write error:', err);
                     else console.log(`[DataLogger] ${filename} → ${record.type} ${record.outcome || 'pending'} ${record.pnl ?? ''}`);
                 });
-                res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ status: 'ok' }));
             } catch(err) {
                 res.writeHead(400);
@@ -284,11 +302,11 @@ const server = http.createServer((req, res) => {
                 fs.writeFileSync(filePath, code, 'utf8');
                 console.log(`[StrategyBuilder] Saved: js/strategies/${safeName}`);
 
-                res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ success: true, filename: safeName, path: filePath }));
             } catch(err) {
                 console.error('[StrategyBuilder] Save error:', err.message);
-                res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
@@ -311,12 +329,46 @@ const server = http.createServer((req, res) => {
                     }))
                     .sort((a, b) => new Date(b.modified) - new Date(a.modified))
                 : [];
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
             res.end(JSON.stringify({ strategies: files }));
         } catch(err) {
-            res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.writeHead(500, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
             res.end(JSON.stringify({ error: err.message }));
         }
+        return;
+    }
+
+    // ── /api/ai ───────────────────────────────────────────────────────────────
+    // Proxy to Anthropic API — avoids browser CORS restrictions.
+    // Requires ANTHROPIC_API_KEY env var.
+    if (pathname === '/api/ai' && req.method === 'POST') {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+            _json(res, 503, { error: 'ANTHROPIC_API_KEY not set on server' }, req);
+            return;
+        }
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', async () => {
+            try {
+                const payload = JSON.parse(body);
+                // Forward to Anthropic using Node's built-in fetch (Node 18+)
+                const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+                    method:  'POST',
+                    headers: {
+                        'Content-Type':      'application/json',
+                        'x-api-key':         apiKey,
+                        'anthropic-version': '2023-06-01',
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const data = await upstream.json();
+                res.writeHead(upstream.status, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+                res.end(JSON.stringify(data));
+            } catch(e) {
+                _json(res, 500, { error: e.message }, req);
+            }
+        });
         return;
     }
 
@@ -328,11 +380,11 @@ const server = http.createServer((req, res) => {
             try {
                 const { username, password } = JSON.parse(body);
                 if (!username || !password || username.length < 3 || password.length < 6)
-                    return _json(res, 400, { error: 'Username ≥3 chars, password ≥6 chars required' });
+                    return _json(res, 400, { error: 'Username ≥3 chars, password ≥6 chars required' }, req);
 
                 const db = _readDB();
                 const id = username.toLowerCase().trim();
-                if (db.users[id]) return _json(res, 409, { error: 'Username already taken' });
+                if (db.users[id]) return _json(res, 409, { error: 'Username already taken' }, req);
 
                 db.users[id] = {
                     id, username,
@@ -343,8 +395,8 @@ const server = http.createServer((req, res) => {
                 };
                 _writeDB(db);
                 const token = _makeToken(id);
-                _json(res, 201, { token, userId: id, username });
-            } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+                _json(res, 201, { token, userId: id, username }, req);
+            } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
         });
         return;
     }
@@ -360,11 +412,11 @@ const server = http.createServer((req, res) => {
                 const id  = (username || '').toLowerCase().trim();
                 const user = db.users[id];
                 if (!user || user.passwordHash !== _hashPassword(password))
-                    return _json(res, 401, { error: 'Invalid username or password' });
+                    return _json(res, 401, { error: 'Invalid username or password' }, req);
 
                 const token = _makeToken(id);
-                _json(res, 200, { token, userId: id, username: user.username });
-            } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+                _json(res, 200, { token, userId: id, username: user.username }, req);
+            } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
         });
         return;
     }
@@ -372,22 +424,22 @@ const server = http.createServer((req, res) => {
     // ── /api/user/profile ─────────────────────────────────────────────────────
     if (pathname === '/api/user/profile' && req.method === 'GET') {
         const auth = _authMiddleware(req);
-        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
         const db   = _readDB();
         const user = db.users[auth.userId];
-        if (!user) return _json(res, 404, { error: 'User not found' });
-        _json(res, 200, { userId: user.id, username: user.username, createdAt: user.createdAt });
+        if (!user) return _json(res, 404, { error: 'User not found' }, req);
+        _json(res, 200, { userId: user.id, username: user.username, createdAt: user.createdAt }, req);
         return;
     }
 
     // ── /api/user/settings ────────────────────────────────────────────────────
     if (pathname === '/api/user/settings') {
         const auth = _authMiddleware(req);
-        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
         if (req.method === 'GET') {
             const db = _readDB();
-            _json(res, 200, { settings: db.users[auth.userId]?.settings || {} });
+            _json(res, 200, { settings: db.users[auth.userId]?.settings || {} }, req);
             return;
         }
         if (req.method === 'POST') {
@@ -400,9 +452,9 @@ const server = http.createServer((req, res) => {
                     if (db.users[auth.userId]) {
                         db.users[auth.userId].settings = settings;
                         _writeDB(db);
-                        _json(res, 200, { ok: true });
-                    } else { _json(res, 404, { error: 'User not found' }); }
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+                        _json(res, 200, { ok: true }, req);
+                    } else { _json(res, 404, { error: 'User not found' }, req); }
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
             });
             return;
         }
@@ -411,11 +463,11 @@ const server = http.createServer((req, res) => {
     // ── /api/user/strategies ──────────────────────────────────────────────────
     if (pathname === '/api/user/strategies') {
         const auth = _authMiddleware(req);
-        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
         if (req.method === 'GET') {
             const db = _readDB();
-            _json(res, 200, { strategies: db.users[auth.userId]?.strategies || {} });
+            _json(res, 200, { strategies: db.users[auth.userId]?.strategies || {} }, req);
             return;
         }
         if (req.method === 'POST') {
@@ -424,26 +476,26 @@ const server = http.createServer((req, res) => {
             req.on('end', () => {
                 try {
                     const { name, strategy } = JSON.parse(body);
-                    if (!name) return _json(res, 400, { error: 'name required' });
+                    if (!name) return _json(res, 400, { error: 'name required' }, req);
                     const db = _readDB();
                     if (db.users[auth.userId]) {
                         db.users[auth.userId].strategies[name] = { ...strategy, updatedAt: Date.now() };
                         _writeDB(db);
-                        _json(res, 200, { ok: true });
-                    } else { _json(res, 404, { error: 'User not found' }); }
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+                        _json(res, 200, { ok: true }, req);
+                    } else { _json(res, 404, { error: 'User not found' }, req); }
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
             });
             return;
         }
         if (req.method === 'DELETE') {
             const name = new url.URL(req.url, 'http://localhost').searchParams.get('name');
-            if (!name) return _json(res, 400, { error: 'name required' });
+            if (!name) return _json(res, 400, { error: 'name required' }, req);
             const db = _readDB();
             if (db.users[auth.userId]) {
                 delete db.users[auth.userId].strategies[name];
                 _writeDB(db);
-                _json(res, 200, { ok: true });
-            } else { _json(res, 404, { error: 'User not found' }); }
+                _json(res, 200, { ok: true }, req);
+            } else { _json(res, 404, { error: 'User not found' }, req); }
             return;
         }
     }
@@ -451,11 +503,11 @@ const server = http.createServer((req, res) => {
     // ── /api/user/trades ──────────────────────────────────────────────────────
     if (pathname === '/api/user/trades') {
         const auth = _authMiddleware(req);
-        if (!auth) return _json(res, 401, { error: 'Unauthorized' });
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
         if (req.method === 'GET') {
             const db = _readDB();
-            _json(res, 200, { trades: db.users[auth.userId]?.trades || [] });
+            _json(res, 200, { trades: db.users[auth.userId]?.trades || [] }, req);
             return;
         }
         if (req.method === 'POST') {
@@ -473,12 +525,18 @@ const server = http.createServer((req, res) => {
                             .slice(0, 500);
                         db.users[auth.userId].trades = merged;
                         _writeDB(db);
-                        _json(res, 200, { ok: true, count: merged.length });
-                    } else { _json(res, 404, { error: 'User not found' }); }
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }); }
+                        _json(res, 200, { ok: true, count: merged.length }, req);
+                    } else { _json(res, 404, { error: 'User not found' }, req); }
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
             });
             return;
         }
+    }
+
+    // ── API catch-all — unknown /api/ routes return 404 JSON ─────────────────
+    if (pathname.startsWith('/api/')) {
+        _json(res, 404, { error: `Unknown API route: ${req.method} ${pathname}` }, req);
+        return;
     }
 
     // ── Static Files ─────────────────────────────────────────────────────────
@@ -540,6 +598,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`   UI              → http://127.0.0.1:${PORT}`);
     console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/login`);
     console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/register`);
+    console.log(`   AI Proxy        → POST http://127.0.0.1:${PORT}/api/ai  [key: ${process.env.ANTHROPIC_API_KEY ? '✓ set' : '✗ ANTHROPIC_API_KEY not set'}]`);
     console.log(`   MT5 poll        → http://127.0.0.1:${PORT}/api/signal`);
     console.log(`   MT5 WS push     → ws://127.0.0.1:${PORT}/mt5`);
     console.log(`   Save strategy   → POST http://127.0.0.1:${PORT}/api/save-strategy`);

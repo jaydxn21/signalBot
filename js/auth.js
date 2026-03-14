@@ -7,6 +7,16 @@
 //   import { Auth } from './js/auth.js';
 //   Auth.guard();   // redirects to login.html if not authenticated
 
+// Compute API base URL once at module load.
+// Empty string = same origin (localhost dev).
+// Set NEXUS_API_URL as a meta tag or just edit the RENDER_URL below.
+const _RENDER_URL = 'https://nexus-api.onrender.com'; // ← update before deploying
+const _API_BASE = (typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1')
+    ? _RENDER_URL
+    : '';
+
 export const Auth = {
     // ── Read stored session ───────────────────────────────────────────────
     get() {
@@ -57,7 +67,7 @@ export const Auth = {
     async syncTrades(trades) {
         if (this.isGuest() || !trades?.length) return;
         try {
-            await fetch('/api/user/trades', {
+            await fetch(`${_API_BASE}/api/user/trades`, {
                 method: 'POST',
                 headers: this.headers(),
                 body: JSON.stringify({ trades }),
@@ -69,7 +79,7 @@ export const Auth = {
     async fetchTrades() {
         if (this.isGuest()) return null;
         try {
-            const r = await fetch('/api/user/trades', { headers: this.headers() });
+            const r = await fetch(`${_API_BASE}/api/user/trades`, { headers: this.headers() });
             if (!r.ok) return null;
             const d = await r.json();
             return d.trades || null;
@@ -80,7 +90,7 @@ export const Auth = {
     async syncSettings(settings) {
         if (this.isGuest()) return;
         try {
-            await fetch('/api/user/settings', {
+            await fetch(`${_API_BASE}/api/user/settings`, {
                 method: 'POST',
                 headers: this.headers(),
                 body: JSON.stringify({ settings }),
@@ -92,7 +102,7 @@ export const Auth = {
     async fetchSettings() {
         if (this.isGuest()) return null;
         try {
-            const r = await fetch('/api/user/settings', { headers: this.headers() });
+            const r = await fetch(`${_API_BASE}/api/user/settings`, { headers: this.headers() });
             if (!r.ok) return null;
             const d = await r.json();
             return d.settings || null;
@@ -103,7 +113,7 @@ export const Auth = {
     async saveStrategy(name, strategy) {
         if (this.isGuest()) return false;
         try {
-            const r = await fetch('/api/user/strategies', {
+            const r = await fetch(`${_API_BASE}/api/user/strategies`, {
                 method: 'POST',
                 headers: this.headers(),
                 body: JSON.stringify({ name, strategy }),
@@ -116,7 +126,7 @@ export const Auth = {
     async fetchStrategies() {
         if (this.isGuest()) return null;
         try {
-            const r = await fetch('/api/user/strategies', { headers: this.headers() });
+            const r = await fetch(`${_API_BASE}/api/user/strategies`, { headers: this.headers() });
             if (!r.ok) return null;
             const d = await r.json();
             return d.strategies || null;

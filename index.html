@@ -7,22 +7,83 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <link rel="icon" href="favicon.ico">
     <link rel="stylesheet" href="css/styles.css">
+
+    <!-- Deploy overlay — injected before any JS loads to avoid flash -->
+    <script>
+        (function() {
+            if (sessionStorage.getItem('nexus_deploy_bot')) {
+                document.documentElement.setAttribute('data-deploying', '1');
+            }
+        })();
+    </script>
+    <style>
+        #deploy-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(8, 12, 24, 0.92);
+            backdrop-filter: blur(12px);
+            z-index: 99999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+        }
+        [data-deploying="1"] #deploy-overlay { display: flex; }
+
+        .deploy-spinner {
+            width: 44px; height: 44px;
+            border: 3px solid rgba(139,92,246,0.2);
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: deploy-spin 0.7s linear infinite;
+        }
+        @keyframes deploy-spin { to { transform: rotate(360deg); } }
+
+        .deploy-label {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: #a78bfa;
+            text-transform: uppercase;
+        }
+        .deploy-sub {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.58rem;
+            color: rgba(148,163,184,0.6);
+            letter-spacing: 0.06em;
+        }
+    </style>
 </head>
 <body>
 
+<div id="deploy-overlay">
+    <div class="deploy-spinner"></div>
+    <div class="deploy-label" id="deploy-label">Deploying Strategy…</div>
+    <div class="deploy-sub">Setting up bot card</div>
+</div>
+
 <canvas id="wave-canvas"></canvas>
 
-<!-- Hide auth overlay immediately if token exists - prevents flash on navigation -->
+<!-- AUTH OVERLAY — hidden by default; shown by JS only if no token found -->
 <script>
-    if (localStorage.getItem("deriv_token")) {
-        document.addEventListener("DOMContentLoaded", function() {
-            var overlay = document.getElementById("auth-overlay");
-            if (overlay) overlay.style.display = "none";
-        });
-    }
+    // Run before any element renders: if we already have a token, mark the
+    // document so the auth overlay stays hidden even before signal-bot.js loads.
+    (function() {
+        var hasToken = localStorage.getItem('deriv_token') || sessionStorage.getItem('deriv_token');
+        if (hasToken) {
+            document.documentElement.setAttribute('data-authed', '1');
+        }
+    })();
 </script>
+<style>
+    /* Always hidden until JS explicitly shows it */
+    #auth-overlay { display: none; }
+    /* If JS crashes or is slow, data-authed keeps it hidden */
+    [data-authed="1"] #auth-overlay { display: none !important; }
+</style>
 
-<!-- AUTH OVERLAY -->
 <div id="auth-overlay">
     <div class="auth-box">
         <h1>NEXUS</h1>
@@ -100,7 +161,7 @@
                     <div class="stat-label" style="margin-bottom:10px;">Automations</div>
                     <label><span>Loss Protection (3x)</span><input type="checkbox" id="auto-stop-losses" checked></label>
                     <label><span>Log Training Data</span><input type="checkbox" id="auto-log" checked></label>
-                    <label><span>MT5 Auto-Push</span><input type="checkbox" id="auto-mt5"></label>
+                    <label><span>MT5 Auto-Push</span><input type="checkbox" id="auto-mt5" checked></label>
                     <label><span>Session Filter</span><input type="checkbox" id="auto-session"></label>
                 </div>
             </aside>
@@ -131,6 +192,10 @@
                             <div class="hud-stat">
                                 <div class="stat-label">Session</div>
                                 <div id="session-timer" class="mono" style="font-size:0.7rem;color:var(--text-dark);">00:00:00</div>
+                            </div>
+                            <div class="hud-stat" id="phantom-scan-hud" style="display:none;">
+                                <div class="stat-label" style="color:#a78bfa;">👻 Next Scan</div>
+                                <div id="phantom-scan-countdown" class="mono" style="font-size:0.7rem;color:#a78bfa;">—</div>
                             </div>
                         </div>
                     </div>
@@ -198,6 +263,27 @@
             <div class="stat-label" style="margin-bottom:4px;">Strategy</div>
             <select class="bot-strategy-select"></select>
         </div>
+
+        <!-- PHANTOM settings — only visible when PHANTOM strategy is selected -->
+        <div class="phantom-settings" style="display:none; background:rgba(139,92,246,0.06); border:1px solid rgba(139,92,246,0.18); border-radius:8px; padding:9px 10px; margin-bottom:8px;">
+            <div style="font-size:0.62rem;letter-spacing:0.12em;color:#a78bfa;font-weight:700;margin-bottom:8px;">👻 PHANTOM SESSION</div>
+            <div style="display:flex;gap:6px;margin-bottom:7px;">
+                <div style="flex:1;">
+                    <div class="stat-label" style="margin-bottom:3px;">Target $</div>
+                    <input type="number" class="phantom-target-input" min="0" step="1" placeholder="20"
+                        style="width:100%;padding:5px 7px;font-size:0.72rem;background:rgba(8,12,24,0.5);border:1px solid rgba(139,92,246,0.2);border-radius:5px;color:var(--text-primary);font-family:'DM Mono',monospace;box-sizing:border-box;">
+                </div>
+                <div style="flex:1;">
+                    <div class="stat-label" style="margin-bottom:3px;">Limit $</div>
+                    <input type="number" class="phantom-loss-input" min="0" step="1" placeholder="10"
+                        style="width:100%;padding:5px 7px;font-size:0.72rem;background:rgba(8,12,24,0.5);border:1px solid rgba(139,92,246,0.2);border-radius:5px;color:var(--text-primary);font-family:'DM Mono',monospace;box-sizing:border-box;">
+                </div>
+            </div>
+            <button class="phantom-configure-btn" style="width:100%;padding:5px;font-size:0.62rem;letter-spacing:0.1em;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.35);border-radius:5px;color:#a78bfa;cursor:pointer;font-family:'DM Mono',monospace;font-weight:700;">
+                SET SESSION TARGETS
+            </button>
+            <div class="phantom-session-badge" style="display:none;margin-top:7px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:5px;font-size:0.61rem;font-family:'DM Mono',monospace;letter-spacing:0.05em;"></div>
+        </div>
         <div style="display:flex;gap:6px;margin-bottom:10px;">
             <div style="flex:1;min-width:0;">
                 <div class="stat-label" style="margin-bottom:4px;">Symbol</div>
@@ -212,6 +298,11 @@
                     <option value="3600">H1</option>
                     <option value="14400">H4</option>
                 </select>
+            </div>
+            <div style="width:54px;">
+                <div class="stat-label" style="margin-bottom:4px;">Stake $</div>
+                <input type="number" class="bot-stake-input" value="1" min="0.35" step="0.5"
+                    style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:var(--text-primary);font-size:0.72rem;padding:5px 6px;font-family:'DM Mono',monospace;">
             </div>
         </div>
         <hr class="bot-card-divider">

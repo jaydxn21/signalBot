@@ -506,3 +506,74 @@ function _setBadge(id, isUp, text) {
     el.textContent = text;
     el.className   = `analytics-badge ${isUp ? 'badge-up' : 'badge-down'}`;
 }
+
+// ─────────────────────────────────────────────────────────────
+// MT5 REAL TRADES
+// ─────────────────────────────────────────────────────────────
+async function _pollMT5() {
+    try {
+        const r = await fetch('/api/trade-results');
+        if (!r.ok) return;
+        const { results } = await r.json();
+        if (results) _renderMT5(results);
+    } catch(_) {}
+}
+
+function _renderMT5(results = []) {
+    const closed = results.filter(t => t.pnl !== undefined && t.pnl !== null);
+
+    // Badge
+    const badge = document.getElementById('an-mt5-badge');
+    if (badge) {
+        if (closed.length === 0) {
+            badge.textContent = 'WAITING FOR EA';
+            badge.style.cssText = 'background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);';
+        } else {
+            badge.textContent = 'LIVE';
+            badge.style.cssText = 'background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);';
+        }
+    }
+
+    // Stats
+    const netPnL  = closed.reduce((s, t) => s + (t.pnl || 0), 0);
+    const wins    = closed.filter(t => (t.pnl || 0) > 0).length;
+    const wr      = closed.length ? Math.round((wins / closed.length) * 100) : 0;
+
+    const pnlEl = document.getElementById('an-mt5-pnl');
+    if (pnlEl) {
+        pnlEl.textContent = `$${netPnL >= 0 ? '+' : ''}${netPnL.toFixed(2)}`;
+        pnlEl.style.color = netPnL >= 0 ? 'var(--accent2)' : 'var(--accent3)';
+    }
+    _set('an-mt5-wr',     closed.length ? `${wr}%`       : '—');
+    _set('an-mt5-trades', closed.length ? closed.length  : '0');
+
+    // Simulated vs real drift
+    const simPnL  = SessionState.get().sessionPnL || 0;
+    const drift   = closed.length ? (netPnL - simPnL).toFixed(2) : null;
+    const driftEl = document.getElementById('an-mt5-drift');
+    if (driftEl) {
+        driftEl.textContent = drift !== null ? `${drift >= 0 ? '+' : ''}${drift}` : '—';
+        driftEl.style.color = drift !== null
+            ? (drift >= 0 ? 'var(--accent2)' : 'var(--accent3)')
+            : 'var(--text-muted)';
+    }
+
+    // Trade log
+    const logEl = document.getElementById('an-mt5-trade-log');
+    if (!logEl) return;
+    if (!closed.length) {
+        logEl.innerHTML = '<div style="font-size:0.62rem;color:var(--text-muted);text-align:center;padding:16px;font-style:italic;">No MT5 trade results yet — EA will post results here when trades close.</div>';
+        return;
+    }
+    logEl.innerHTML = [...closed].reverse().slice(0, 20).map(t => {
+        const pnl     = t.pnl || 0;
+        const time    = t.close_time ? new Date(t.close_time * 1000).toLocaleTimeString() : '—';
+        const isWin   = pnl > 0;
+        return `<div style="display:flex;gap:10px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border-light);font-size:0.62rem;font-family:'DM Mono',monospace;">
+            <span style="color:${isWin ? 'var(--accent2)' : 'var(--accent3)'};">${isWin ? '▲' : '▼'}</span>
+            <span style="color:var(--text-primary);flex:1;">${t.symbol || '—'}</span>
+            <span style="color:var(--text-sub);">${time}</span>
+            <span style="color:${isWin ? 'var(--accent2)' : 'var(--accent3)'};font-weight:600;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span>
+        </div>`;
+    }).join('');
+}

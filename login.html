@@ -201,6 +201,11 @@
 
 <script type="module" src="js/nav.js"></script>
 <script>
+    // API base URL — auto-detects prod vs local (matches js/config.js)
+    const API_BASE = (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+        ? 'https://nexus-api.onrender.com'  // ← same URL as js/config.js
+        : '';
+
     // Check if already logged in
     const existing = localStorage.getItem('nexus_auth');
     if (existing) {
@@ -250,7 +255,7 @@
         clearError();
 
         try {
-            const r = await fetch('/api/auth/login', {
+            const r = await fetch(`${API_BASE}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password }),
@@ -281,7 +286,7 @@
         clearError();
 
         try {
-            const r = await fetch('/api/auth/register', {
+            const r = await fetch(`${API_BASE}/api/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password }),

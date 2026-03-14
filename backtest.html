@@ -54,6 +54,14 @@
                                 <option value="frxXAUUSD">Gold</option>
                                 <option value="frxXAGUSD">Silver</option>
                             </optgroup>
+                            <optgroup label="💥 Crash &amp; Boom">
+                                <option value="CRASH1000">Crash 1000</option>
+                                <option value="BOOM1000">Boom 1000</option>
+                                <option value="CRASH500">Crash 500</option>
+                                <option value="BOOM500">Boom 500</option>
+                                <option value="stpRNG">Step Index</option>
+                            </optgroup>
+                            </optgroup>
                         </select>
                     </div>
 
@@ -65,7 +73,16 @@
 
                     <div class="bt-field-group">
                         <label class="bt-label">STRATEGY</label>
-                        <select id="bt-strategy" class="bt-select">
+                        <select id="bt-strategy" class="bt-select" onchange="window.btStrategyChanged(this.value)">
+                            <optgroup label="👻 PHANTOM">
+                                <option value="phantom">PHANTOM (Multi-TF Scalper)</option>
+                            </optgroup>
+                            <optgroup label="💥 Crash &amp; Boom">
+                                <option value="nova">NOVA (Crash &amp; Boom)</option>
+                                <option value="pulse">PULSE (Compounder)</option>
+                                <option value="kismet">KISMET (Structure)</option>
+                                <option value="vortex">VORTEX (Any Symbol)</option>
+                            </optgroup>
                             <optgroup label="⚡ Synthetic">
                                 <option value="synthetic_scalp">BB+RSI Synthetic</option>
                                 <option value="ultra_scalp">Ultra Scalper</option>
@@ -90,6 +107,15 @@
                         <div class="bt-compare-slot" id="bt-slot-2">
                             <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
                             <select class="bt-select bt-compare-strategy" data-slot="2">
+                                <optgroup label="👻 PHANTOM">
+                                    <option value="phantom">PHANTOM</option>
+                                </optgroup>
+                                <optgroup label="💥 Crash &amp; Boom">
+                                    <option value="nova">NOVA</option>
+                                    <option value="pulse">PULSE</option>
+                                    <option value="kismet">KISMET</option>
+                                    <option value="vortex">VORTEX</option>
+                                </optgroup>
                                 <optgroup label="⚡ Synthetic">
                                     <option value="synthetic_scalp">BB+RSI Synthetic</option>
                                     <option value="ultra_scalp">Ultra Scalper</option>
@@ -109,6 +135,15 @@
                             <div class="bt-compare-slot-label" style="background:#f59e0b">C</div>
                             <select class="bt-select bt-compare-strategy" data-slot="3">
                                 <option value="">— none —</option>
+                                <optgroup label="👻 PHANTOM">
+                                    <option value="phantom">PHANTOM</option>
+                                </optgroup>
+                                <optgroup label="💥 Crash &amp; Boom">
+                                    <option value="nova">NOVA</option>
+                                    <option value="pulse">PULSE</option>
+                                    <option value="kismet">KISMET</option>
+                                    <option value="vortex">VORTEX</option>
+                                </optgroup>
                                 <optgroup label="⚡ Synthetic">
                                     <option value="synthetic_scalp">BB+RSI Synthetic</option>
                                     <option value="ultra_scalp">Ultra Scalper</option>
@@ -141,11 +176,7 @@
                         <div class="bt-field-group">
                             <label class="bt-label">CANDLES</label>
                             <select id="bt-count" class="bt-select">
-                                <option value="500">500</option>
-                                <option value="1000" selected>1 000</option>
-                                <option value="2000">2 000</option>
-                                <option value="3000">3 000 (2 chunks)</option>
-                                <option value="5000">5 000 (4 chunks)</option>
+                                <!-- populated dynamically by btBuildCandleOptions() -->
                             </select>
                         </div>
                     </div>
@@ -159,6 +190,44 @@
                             <label class="bt-label">COMMISSION</label>
                             <input id="bt-commission" type="number" class="bt-input" value="0" min="0" step="0.01" placeholder="0.00">
                         </div>
+                    </div>
+
+                    <!-- Date range filter (optional — filters fetched candles by date) -->
+                    <div class="bt-field-group" style="margin-top:4px;">
+                        <label class="bt-label" style="display:flex;align-items:center;justify-content:space-between;">
+                            DATE RANGE
+                            <span style="font-size:9px;opacity:0.45;font-weight:400;letter-spacing:0;">optional filter</span>
+                        </label>
+                        <div class="bt-field-row" style="gap:6px;">
+                            <div class="bt-field-group" style="flex:1;">
+                                <label class="bt-label" style="font-size:8px;opacity:0.5;">FROM</label>
+                                <input id="bt-date-from" type="date" class="bt-input" style="width:100%;padding:5px 8px;font-size:11px;">
+                            </div>
+                            <div class="bt-field-group" style="flex:1;">
+                                <label class="bt-label" style="font-size:8px;opacity:0.5;">TO</label>
+                                <input id="bt-date-to" type="date" class="bt-input" style="width:100%;padding:5px 8px;font-size:11px;">
+                            </div>
+                            <button onclick="window.btClearDates()" title="Clear date filter"
+                                style="background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:rgba(255,255,255,0.4);font-size:10px;padding:0 8px;cursor:pointer;align-self:flex-end;height:26px;white-space:nowrap;">✕</button>
+                        </div>
+                    </div>
+
+                    <!-- News blackout filter -->
+                    <div class="bt-field-group" style="margin-top:4px;">
+                        <label class="bt-label" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="document.getElementById('bt-news-toggle').click()">
+                            NEWS BLACKOUT
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <span style="font-size:9px;opacity:0.45;font-weight:400;">Skip high-impact events</span>
+                                <input type="checkbox" id="bt-news-toggle" checked style="cursor:pointer;">
+                            </div>
+                        </label>
+                        <div id="bt-news-detail" style="font-size:9px;opacity:0.4;margin-top:3px;line-height:1.5;padding:0 2px;">
+                            NFP: Fri 12:30–15:30 UTC &nbsp;·&nbsp; FOMC/CPI: manual toggle below
+                        </div>
+                        <label style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;font-size:10px;opacity:0.6;" onclick="document.getElementById('bt-fomc-toggle').click()">
+                            <input type="checkbox" id="bt-fomc-toggle" style="cursor:pointer;">
+                            Also block FOMC / CPI days (manual — check when applicable)
+                        </label>
                     </div>
 
                     <button id="bt-run-btn" class="bt-run-btn">
@@ -224,6 +293,9 @@
                                 <div id="bt-expectancy" class="bt-kpi-val">—</div>
                             </div>
                         </div>
+
+                        <!-- $10 → $50 Projection -->
+                        <div id="bt-projection" style="margin-top:10px;padding:10px;background:rgba(37,99,235,0.05);border:1px solid rgba(37,99,235,0.15);border-radius:6px;"></div>
 
                         <button id="bt-export-btn" class="bt-export-btn">⬇  EXPORT CSV</button>
                         <button id="bt-journal-btn" class="bt-export-btn" style="margin-top:6px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(139,92,246,0.15));border-color:rgba(139,92,246,0.35);color:#a78bfa;">📖  SEND TO JOURNAL</button>

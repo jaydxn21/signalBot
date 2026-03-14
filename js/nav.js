@@ -8,7 +8,10 @@ import { SessionState } from './session-state.js';
 import { Auth }         from './auth.js';
 
 // Guard — redirect to login if not authenticated (guest mode passes through)
-if (window.location.pathname.indexOf('login.html') === -1) {
+// Runs immediately but only on non-login pages
+const _onLoginPage = window.location.pathname.endsWith('login.html') ||
+                     window.location.pathname === '/login.html';
+if (!_onLoginPage) {
     Auth.guard();
 }
 

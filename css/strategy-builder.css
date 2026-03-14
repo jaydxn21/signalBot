@@ -127,7 +127,7 @@ body:has(#sb-layout) #workspace { padding:0;gap:0; }
 }
 
 .sb-rule {
-    background: var(--surface-dark);
+    background: #f8fafc;
     border-radius: var(--r-sm);
     padding: 7px 8px;
     margin-bottom: 6px;
@@ -282,7 +282,7 @@ body:has(#sb-layout) #workspace { padding:0;gap:0; }
 }
 
 #sb-preview-code {
-    background: var(--surface-dark);
+    background: #f8fafc;
     border-radius: var(--r-sm);
     border: 1px solid var(--border-subtle);
     overflow: auto;

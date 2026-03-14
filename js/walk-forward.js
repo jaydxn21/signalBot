@@ -17,7 +17,7 @@ export const WalkForward = {
 
     // Run full IS + OOS analysis
     // Returns { is, oos, confidence, suggestions, splitIdx }
-    run(candles, h4Candles, strategyId, stake = 10, commission = 0) {
+    run(candles, h4Candles, strategyId, stake = 10, commission = 0, symbol = '') {
         if (candles.length < 100) {
             return { error: 'Need at least 100 candles for walk-forward analysis' };
         }
@@ -37,8 +37,8 @@ export const WalkForward = {
             ? _getBuiltinStrategy(strategyId)
             : strategyId;
 
-        const isResult   = _simulate(isCandles,  isH4,  stratObj, stake, commission);
-        const oosResult  = _simulate(oosCandles, oosH4, stratObj, stake, commission);
+        const isResult   = _simulate(isCandles,  isH4,  stratObj, stake, commission, symbol);
+        const oosResult  = _simulate(oosCandles, oosH4, stratObj, stake, commission, symbol);
 
         const isStats    = _calcStats(isResult.trades,  isResult.equity);
         const oosStats   = _calcStats(oosResult.trades, oosResult.equity);

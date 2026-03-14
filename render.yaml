@@ -1,0 +1,47 @@
+# render.yaml
+# Drop this file in the root of your repo.
+# Render reads it automatically — creates both the web service
+# and the Postgres database from one file.
+#
+# First deploy steps:
+#   1. Push repo to GitHub
+#   2. Go to render.com → New → Blueprint → connect your repo
+#   3. Render reads this file and creates everything automatically
+#   4. After first deploy, open the Postgres shell and run schema.sql
+
+services:
+  # ── Node.js API server ────────────────────────────────────────
+  - type: web
+    name: nexus-api
+    runtime: node
+    plan: free                      # upgrade to starter ($7/mo) for always-on
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    healthCheckPath: /api/signal    # Render pings this to check health
+
+    envVars:
+      # Automatically injected by Render from the database below
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexus-db
+          property: connectionString
+
+      # Your Netlify URL — add both with and without www
+      # Replace nexus-app with your actual Netlify subdomain
+      - key: ALLOWED_ORIGINS
+        value: "https://nexus-app.netlify.app https://www.nexus-app.netlify.app"
+
+      # Change this to a long random string before deploying
+      # Generate one: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - key: NEXUS_SECRET
+        value: "CHANGE_ME_TO_A_RANDOM_SECRET"
+
+      - key: NODE_ENV
+        value: production
+
+  # ── PostgreSQL database ───────────────────────────────────────
+databases:
+  - name: nexus-db
+    plan: free                      # free for 90 days, then $7/mo
+    databaseName: nexus
+    user: nexus_user
