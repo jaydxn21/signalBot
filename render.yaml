@@ -1,47 +1,40 @@
-# render.yaml
-# Drop this file in the root of your repo.
-# Render reads it automatically — creates both the web service
-# and the Postgres database from one file.
-#
-# First deploy steps:
-#   1. Push repo to GitHub
-#   2. Go to render.com → New → Blueprint → connect your repo
-#   3. Render reads this file and creates everything automatically
-#   4. After first deploy, open the Postgres shell and run schema.sql
+# render.yaml — Blueprint deploy config
+# Steps:
+#   1. Push this repo to GitHub
+#   2. render.com → New → Blueprint → connect repo
+#   3. Render reads this file, creates the web service + DB automatically
+#   4. After first deploy: go to the Render shell → node -e "require('./server.js')"
+#      or just open the URL — server auto-creates the data/ directory
 
 services:
-  # ── Node.js API server ────────────────────────────────────────
   - type: web
     name: nexus-api
     runtime: node
-    plan: free                      # upgrade to starter ($7/mo) for always-on
+    plan: free                       # upgrade to starter ($7/mo) for always-on
     buildCommand: "npm install"
     startCommand: "node server.js"
-    healthCheckPath: /api/signal    # Render pings this to check health
+    healthCheckPath: /api/signal
 
     envVars:
-      # Automatically injected by Render from the database below
       - key: DATABASE_URL
         fromDatabase:
           name: nexus-db
           property: connectionString
 
-      # Your Netlify URL — add both with and without www
-      # Replace nexus-app with your actual Netlify subdomain
+      # After first deploy, Render gives you a URL like:
+      # https://nexus-api.onrender.com
+      # Update this to match your actual service URL
       - key: ALLOWED_ORIGINS
-        value: "https://nexus-app.netlify.app https://www.nexus-app.netlify.app"
+        value: "https://nexus-api-khvt.onrender.com"
 
-      # Change this to a long random string before deploying
-      # Generate one: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
       - key: NEXUS_SECRET
-        value: "CHANGE_ME_TO_A_RANDOM_SECRET"
+        value: "1635b7dc40f7264b243ea3daaa64f8371a849c296dbc70e4e63456b4825fb52f"
 
       - key: NODE_ENV
         value: production
 
-  # ── PostgreSQL database ───────────────────────────────────────
 databases:
   - name: nexus-db
-    plan: free                      # free for 90 days, then $7/mo
+    plan: free
     databaseName: nexus
     user: nexus_user
