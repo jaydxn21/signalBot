@@ -89,15 +89,27 @@ export function detectSpike(candles, atr) {
     const wickDown = Math.min(c.open, c.close) - c.low;
     const body     = Math.abs(c.close - c.open);
 
+    // Crash/Boom spikes appear as full body candles on M1 (not wicks)
+    // A spike = large directional body >= 4×ATR
+    const isBullBody = c.close > c.open && body >= atr * 4;
+    const isBearBody = c.close < c.open && body >= atr * 4;
+    // Also keep wick detection as fallback for other brokers/TFs
     const isUpSpike   = wickUp   >= atr * 4 && wickUp   > body * 2;
     const isDownSpike = wickDown >= atr * 4 && wickDown > body * 2;
 
-    if (!isUpSpike && !isDownSpike) return null;
+    const isUp   = isBullBody || isUpSpike;
+    const isDown = isBearBody || isDownSpike;
+
+    if (!isUp && !isDown) return null;
+
+    const magnitude = isUp
+        ? (isBullBody ? body : wickUp) / atr
+        : (isBearBody ? body : wickDown) / atr;
 
     return {
-        direction: isUpSpike ? 'up' : 'down',
-        magnitude: isUpSpike ? wickUp / atr : wickDown / atr,
-        time:      c.time,
+        direction: isUp ? 'up' : 'down',
+        magnitude,
+        time: c.time,
     };
 }
 

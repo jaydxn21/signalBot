@@ -51,52 +51,69 @@ function _barsForDays(calendarDays, tfSeconds) {
     return Math.round(calendarDays * barsPerDay);
 }
 
-window.btBuildCandleOptions = function() {
-    const sel = document.getElementById('bt-count');
-    if (!sel) return;
-    const tf = parseInt(document.getElementById('bt-tf')?.value || '300');
+// ── LOOKBACK INPUT — days or candles ─────────────────────────
+// bt-count-input holds the user value (days or candles)
+// bt-count (hidden select) holds the resolved candle count for _run()
+let _btCountMode = 'days'; // 'days' | 'candles'
 
-    const now   = new Date();
-    const label = (daysBack) => {
-        const d = new Date(now - daysBack * 86400000);
-        return d.toLocaleString('default', { month: 'short', year: '2-digit' });
-    };
+window.btToggleCountMode = function() {
+    const tf    = parseInt(document.getElementById('bt-tf')?.value || '300');
+    const input = document.getElementById('bt-count-input');
+    const unit  = document.getElementById('bt-count-unit');
+    const toggle= document.getElementById('bt-count-mode-toggle');
+    if (!input) return;
 
-    // Fixed small options always present
-    const fixed = [
-        { bars: 500,  label: '500' },
-        { bars: 1000, label: '1 000', defaultSel: true },
-    ];
+    if (_btCountMode === 'days') {
+        const days = parseInt(input.value) || 61;
+        input.value = _barsForDays(days, tf);
+        unit.textContent = 'candles';
+        toggle.textContent = 'switch to days';
+        _btCountMode = 'candles';
+    } else {
+        const bars = parseInt(input.value) || 1000;
+        const secsPerBar = tf || 300;
+        input.value = Math.round(bars * secsPerBar / 86400);
+        unit.textContent = 'days';
+        toggle.textContent = 'switch to candles';
+        _btCountMode = 'days';
+    }
+    window.btSyncCountFromInput();
+};
 
-    // Month milestones: 1 month ago → 12 months ago
-    // Skip months where bar count would be same as previous (very fast TFs)
-    const months = [];
-    const seen = new Set();
-    for (let m = 1; m <= 12; m++) {
-        const days  = Math.round(m * 30.44);
-        const bars  = _barsForDays(days, tf);
-        const bucket = Math.round(bars / 500) * 500; // round to nearest 500
-        if (seen.has(bucket)) continue;
-        seen.add(bucket);
-        const slow = bars > 15000 ? ' ⚠ slow' : '';
-        months.push({ bars: bucket, label: `${bucket.toLocaleString()}  (${label(days)})${slow}` });
+window.btSyncCountFromInput = function() {
+    const tf    = parseInt(document.getElementById('bt-tf')?.value || '300');
+    const input = document.getElementById('bt-count-input');
+    const hint  = document.getElementById('bt-count-hint');
+    const sel   = document.getElementById('bt-count');
+    if (!input || !sel) return;
+
+    let bars;
+    if (_btCountMode === 'days') {
+        const days = Math.max(1, parseInt(input.value) || 61);
+        bars = _barsForDays(days, tf);
+        if (hint) {
+            const tfLabel = tf < 3600 ? `${tf/60}m` : `${tf/3600}h`;
+            hint.textContent = `≈ ${bars.toLocaleString()} ${tfLabel} candles`;
+        }
+    } else {
+        bars = Math.max(1, parseInt(input.value) || 1000);
+        if (hint) {
+            const days = Math.round(bars * tf / 86400);
+            hint.textContent = `≈ ${days} days`;
+        }
     }
 
-    const all = [...fixed, ...months];
+    let opt = sel.querySelector(`option[value="${bars}"]`);
+    if (!opt) {
+        opt = document.createElement('option');
+        opt.value = bars;
+        sel.appendChild(opt);
+    }
+    sel.value = bars;
+};
 
-    // Preserve current selection if possible
-    const current = parseInt(sel.value) || 1000;
-    sel.innerHTML = '';
-    all.forEach(opt => {
-        const o = document.createElement('option');
-        o.value = opt.bars;
-        o.textContent = opt.label;
-        if (opt.bars === current || opt.defaultSel && current === 1000) o.selected = true;
-        sel.appendChild(o);
-    });
-
-    // If nothing selected, pick default
-    if (!sel.value) sel.value = all.find(o => o.defaultSel)?.bars || 1000;
+window.btBuildCandleOptions = function() {
+    window.btSyncCountFromInput();
 };
 
 window._openInBuilder = function() {
@@ -113,7 +130,9 @@ window.btStrategyChanged = function(strategy) {
     const notices = {
         phantom: { color: '#a78bfa', icon: '\u{1F47B}', text: 'PHANTOM multi-TF — fetches M1+M5+M15. Takes longer.' },
         vortex:  { color: '#06b6d4', icon: '\u{1F300}', text: 'VORTEX — works on any symbol. Reads volatility state.' },
-        nova:    { color: '#f59e0b', icon: '\u{1F4A5}', text: 'NOVA — Crash & Boom only. Use CRASH1000 or BOOM1000.' },
+        nova:    { color: '#f59e0b', icon: '💥', text: 'NOVA — Crash & Boom only. Requires a spike within last 10 bars to enter. Use CRASH1000 or BOOM1000.' },
+        kismet:  { color: '#10b981', icon: '🎯', text: 'KISMET — Crash/Boom/Step Index. Spike fade, run fade, drift re-entry. SL=0.5×ATR TP=2×ATR.' },
+        pulse:   { color: '#f472b6', icon: '⚡', text: 'PULSE — Boom/Crash/Step Index. Simple scalper, 1:1 R:R. Needs 50%+ win rate to profit.' },
     };
     const n = notices[strategy];
     if (!n) return;
@@ -606,6 +625,36 @@ async function _run() {
                 oos: { trades: oosRes.trades, equity: oosRes.equity, stats: oosRes.stats },
                 overfit, confidence: overfit,
             };
+
+        // ── NOVA / KISMET / PULSE — force M1 candles ─────────
+        } else if (['nova','kismet','pulse'].includes(strategy)) {
+            // These strategies need M1 resolution to detect spikes and short runs.
+            // Ignore the selected TF — always run on M1.
+            console.log(`[BT] ${strategy.toUpperCase()} branch reached — fetching M1 candles for ${symbol}`);
+            _setProgress(45, `Fetching M1 candles for ${strategy.toUpperCase()}...`);
+            const m1Count   = Math.max(count, 5000); // at least 5k M1 bars
+            const m1Candles = await _fetchCandles(symbol, 60, m1Count, (d,t) => {
+                _setProgress(45 + Math.round((d/t)*20), `M1 ${d}/${t}...`);
+            });
+            console.log(`[BT] M1 fetch complete — ${m1Candles.length} candles`);
+
+            // Apply date filter to M1 candles if set
+            let m1Filtered = m1Candles;
+            if (dateFrom || dateTo) {
+                const fromTs = dateFrom ? new Date(dateFrom + 'T00:00:00Z').getTime()/1000 : 0;
+                const toTs   = dateTo   ? new Date(dateTo   + 'T23:59:59Z').getTime()/1000 : Infinity;
+                m1Filtered = m1Candles.filter(c => c.time >= fromTs && c.time <= toTs);
+            }
+
+            _setProgress(68, `Running ${strategy.toUpperCase()} on ${m1Filtered.length} M1 bars...`);
+            await _sleep(30);
+            const stratObj = _makeStrategy(strategy);
+            result = _simulate(m1Filtered, [], stratObj, stake, comm, symbol);
+            result._chartCandles = m1Filtered;
+
+            _setProgress(85, 'Walk-forward...');
+            await _sleep(30);
+            wf = _walkForward(m1Filtered, [], stratObj, stake, comm, symbol);
 
         // ── ALL OTHER STRATEGIES ──────────────────────────────
         } else {

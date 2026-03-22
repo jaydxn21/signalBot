@@ -504,43 +504,233 @@ export async function _simulateVortex(candles, stake = 1, commission = 0, symbol
 export function _getBuiltinStrategy(id) {
     const strats = {
 
-        // ── NOVA v2 ───────────────────────────────────────────
-        nova: (candles, h4, rsiState, atr, symbol) => {
-            const c = candles; if (c.length < 25) return null;
-            const isCrash = symbol && symbol.toUpperCase().includes('CRASH');
-            const isBoom  = symbol && symbol.toUpperCase().includes('BOOM');
+        // ── NOVA — redirects to fixed version ────────────────
+        nova: (...args) => strats.nova_fixed(...args),
+
+        // ── KISMET ────────────────────────────────────────────
+        // Structure-first: spike_fade → run_fade → drift_reentry
+        // SL=0.5×ATR, TP=2.0×ATR (spike_fade=3.0×ATR)
+        kismet: (candles, h4, rsiState, atr, symbol, _lastSpike) => {
+            if (candles.length < 20 || !atr) return null;
+            const isCrash = symbol?.toUpperCase().includes('CRASH');
+            const isBoom  = symbol?.toUpperCase().includes('BOOM');
+            const isStep  = symbol?.toUpperCase().includes('STEP') || symbol === 'stpRNG';
+            if (!isCrash && !isBoom && !isStep) return null;
+
+            const bias     = isCrash ? 'BUY' : isBoom ? 'SELL' : 'BOTH';
+            const spikeDir = isCrash ? 'down' : isBoom ? 'up' : null;
+            const cl       = candles.slice(0, -1);
+            const c0       = cl[cl.length - 1];
+            const c1       = cl[cl.length - 2];
+
+            // ── Spike detection (last closed candle) ──────────
+            // Crash/Boom spikes are full body candles on M1, not wicks
+            const wickUp   = c1.high - Math.max(c1.open, c1.close);
+            const wickDown = Math.min(c1.open, c1.close) - c1.low;
+            const body1    = Math.abs(c1.close - c1.open);
+            const spikeUp   = (c1.close > c1.open && body1 >= atr * 3.5) ||
+                              (wickUp >= atr * 3.5 && wickUp > body1 * 1.5);
+            const spikeDown = (c1.close < c1.open && body1 >= atr * 3.5) ||
+                              (wickDown >= atr * 3.5 && wickDown > body1 * 1.5);
+
+            // ── MODE 1: Spike fade ────────────────────────────
+            if (spikeUp && spikeDir === 'up') {
+                const confirmed = c0.close < c1.close;
+                return { type: 'SELL', tpMultiplier: 3.0, slMultiplier: 0.5,
+                         _mode: 'spike_fade', score: confirmed ? 90 : 75 };
+            }
+            if (spikeDown && spikeDir === 'down') {
+                const confirmed = c0.close > c1.close;
+                return { type: 'BUY', tpMultiplier: 3.0, slMultiplier: 0.5,
+                         _mode: 'spike_fade', score: confirmed ? 90 : 75 };
+            }
+
+            // ── MODE 2: Run-length fade ───────────────────────
+            if (cl.length >= 7) {
+                const threshold = isStep ? 5 : 6;
+                let runDir = cl[cl.length-1].close > cl[cl.length-2].close ? 'up' : 'down';
+                let runLen = 1;
+                for (let i = cl.length - 2; i >= 1; i--) {
+                    const d = cl[i].close > cl[i-1].close ? 'up' : 'down';
+                    if (d !== runDir) break;
+                    runLen++;
+                }
+                if (runLen >= threshold) {
+                    const fadeDir = runDir === 'up' ? 'SELL' : 'BUY';
+                    // For Crash/Boom run fade must align with bias
+                    if (isStep || fadeDir === bias) {
+                        return { type: fadeDir, tpMultiplier: isStep ? 1.5 : 2.0,
+                                 slMultiplier: 0.5, _mode: 'run_fade',
+                                 score: 55 + Math.min(runLen - threshold, 5) * 5 };
+                    }
+                }
+            }
+
+            // ── MODE 3: Drift re-entry ────────────────────────
+            if (!isStep && cl.length >= 5) {
+                const c2 = cl[cl.length - 3];
+                const c3 = cl[cl.length - 4];
+                if (bias === 'SELL') {
+                    const pulledBack = c2.close > c3.close || c1.close > c2.close;
+                    const reverting  = c0.close < c1.close;
+                    if (pulledBack && reverting) {
+                        // ATR volatility gate
+                        const avgAtr = cl.slice(-20).reduce((s, c, i, a) => {
+                            if (i === 0) return s;
+                            return s + Math.max(c.high-c.low, Math.abs(c.high-a[i-1].close), Math.abs(c.low-a[i-1].close));
+                        }, 0) / 19;
+                        if (atr >= avgAtr * 0.4) {
+                            return { type: 'SELL', tpMultiplier: 2.0, slMultiplier: 0.5, _mode: 'drift_reentry', score: 62 };
+                        }
+                    }
+                } else if (bias === 'BUY') {
+                    const pulledBack = c2.close < c3.close || c1.close < c2.close;
+                    const reverting  = c0.close > c1.close;
+                    if (pulledBack && reverting) {
+                        const avgAtr = cl.slice(-20).reduce((s, c, i, a) => {
+                            if (i === 0) return s;
+                            return s + Math.max(c.high-c.low, Math.abs(c.high-a[i-1].close), Math.abs(c.low-a[i-1].close));
+                        }, 0) / 19;
+                        if (atr >= avgAtr * 0.4) {
+                            return { type: 'BUY', tpMultiplier: 2.0, slMultiplier: 0.5, _mode: 'drift_reentry', score: 62 };
+                        }
+                    }
+                }
+            }
+            return null;
+        },
+
+        // ── NOVA v2 FIX ───────────────────────────────────────
+        // Requires a recent spike within last 10 bars before voting.
+        // Without this gate the vote system fires on every bar.
+        nova_fixed: (candles, h4, rsiState, atr, symbol) => {
+            if (candles.length < 25 || !atr) return null;
+            const isCrash = symbol?.toUpperCase().includes('CRASH');
+            const isBoom  = symbol?.toUpperCase().includes('BOOM');
             const bias    = isCrash ? 'BUY' : isBoom ? 'SELL' : null;
-            if (!bias) return null;
-            const cl = c.slice(0, -1);
+            if (!bias) { if(candles.length===26) console.log('[NOVA] no bias for symbol:', symbol); return null; }
+
+            const cl = candles.slice(0, -1);
             const c0 = cl[cl.length-1], c1 = cl[cl.length-2], c2 = cl[cl.length-3];
             if (!c0 || !c1 || !c2) return null;
+
+            // ── Debug: log once at bar 100 ────────────────────
+            if (candles.length === 100) {
+                const body = Math.abs(c0.close - c0.open);
+                const wu = c0.high - Math.max(c0.open, c0.close);
+                const wd = Math.min(c0.open, c0.close) - c0.low;
+                console.log(`[NOVA] bar 100 | ATR=${atr?.toFixed(4)} | body=${body.toFixed(4)} wick_up=${wu.toFixed(4)} wick_down=${wd.toFixed(4)} | thresh=${(atr*4).toFixed(4)}`);
+            }
+
+            // ── SPIKE GATE: must have spike within last 10 bars ──
+            // On Crash/Boom indices spikes are FULL BODY candles (not wicks).
+            // A spike = large body move in the spike direction.
+            // Crash spike = large bearish candle (close << open)
+            // Boom  spike = large bullish candle (close >> open)
+            const spikeThresh = (symbol?.includes('500')) ? 3 : 4;
+            let recentSpike = null;
+            for (let i = Math.max(0, cl.length - 10); i < cl.length; i++) {
+                const c    = cl[i];
+                const body = Math.abs(c.close - c.open);
+                const isBearBody = c.close < c.open && body >= atr * spikeThresh;
+                const isBullBody = c.close > c.open && body >= atr * spikeThresh;
+                // Also check wicks as fallback (some brokers do show wick spikes)
+                const wu = c.high - Math.max(c.open, c.close);
+                const wd = Math.min(c.open, c.close) - c.low;
+                const wickUp   = wu >= atr * spikeThresh && wu > body * 2;
+                const wickDown = wd >= atr * spikeThresh && wd > body * 2;
+
+                if (isBullBody || wickUp)  { recentSpike = { direction: 'up',   bar: i }; break; }
+                if (isBearBody || wickDown){ recentSpike = { direction: 'down', bar: i }; break; }
+            }
+            // No spike in last 10 bars → no entry
+            if (!recentSpike) return null;
+
             const ema = (arr, p) => { if(arr.length<p)return null; const k=2/(p+1); let v=arr.slice(0,p).reduce((s,x)=>s+x.close,0)/p; for(let i=p;i<arr.length;i++) v=arr[i].close*k+v*(1-k); return v; };
             const rsi = _calcRSI(cl, rsiState);
             const e8  = ema(cl,8), e21 = ema(cl,21), e50 = ema(cl,50);
             if (!rsi || !e8 || !e21) return null;
-            // Block entries during spikes
-            if (atr) { const wU=c0.high-Math.max(c0.open,c0.close), wD=Math.min(c0.open,c0.close)-c0.low; if(wU>=atr*4||wD>=atr*4) return null; }
-            // Trend filter
-            if (e50) { if (bias==='BUY'&&c0.close<e50*0.998) return null; if (bias==='SELL'&&c0.close>e50*1.002) return null; }
+            if (e50) { if(bias==='BUY'&&c0.close<e50*0.998) return null; if(bias==='SELL'&&c0.close>e50*1.002) return null; }
+
             const pBull=c1.close>c1.open, cBull=c0.close>c0.open;
             const engBull=!pBull&&cBull&&c0.close>c1.open&&c0.open<c1.close;
             const engBear= pBull&&!cBull&&c0.close<c1.open&&c0.open>c1.close;
-            let votes = 1; // bias
-            if (bias==='BUY') {
+
+            const hasSpike = (bias==='BUY' && recentSpike.direction==='down')
+                          || (bias==='SELL'&& recentSpike.direction==='up');
+            const tpMult  = hasSpike ? 2.5 : 1.5;
+            const slMult  = 0.8;
+
+            if (bias === 'BUY') {
+                let votes = 1;
                 if(e8>e21&&c0.close>e8) votes++;
                 if(rsi>40&&rsi<65) votes++;
-                if(c0.low<=(ema(cl,20)||0)-2*1) votes++;
                 if(engBull) votes+=2;
                 if(c0.close>c1.close&&c1.close>c2.close) votes++;
-                if(votes>=3) return { type:'BUY', tpMultiplier:1.5, slMultiplier:0.8 };
+                if(votes>=3) return { type:'BUY', tpMultiplier:tpMult, slMultiplier:slMult };
             } else {
+                let votes = 1;
                 if(e8<e21&&c0.close<e8) votes++;
                 if(rsi<60&&rsi>35) votes++;
                 if(engBear) votes+=2;
                 if(c0.close<c1.close&&c1.close<c2.close) votes++;
-                if(votes>=3) return { type:'SELL', tpMultiplier:1.5, slMultiplier:0.8 };
+                if(votes>=3) return { type:'SELL', tpMultiplier:tpMult, slMultiplier:slMult };
             }
             return null;
+        },
+
+        // ── PULSE ─────────────────────────────────────────────
+        // Simple EMA+RSI scalper. 1:1 R:R. Requires 50%+ WR.
+        // Step Index: run-length fade. Boom/Crash: drift fade.
+        pulse: (candles, h4, rsiState, atr, symbol) => {
+            if (candles.length < 20 || !atr) return null;
+            const isBoom  = symbol?.toUpperCase().includes('BOOM');
+            const isCrash = symbol?.toUpperCase().includes('CRASH');
+            const isStep  = symbol?.toUpperCase().includes('STEP') || symbol === 'stpRNG';
+            if (!isBoom && !isCrash && !isStep) return null;
+
+            const bias = isCrash ? 'BUY' : isBoom ? 'SELL' : 'BOTH';
+            const cl   = candles.slice(0, -1);
+            const c0   = cl[cl.length-1], c1 = cl[cl.length-2], c2 = cl[cl.length-3];
+            if (!c0 || !c1 || !c2) return null;
+
+            // ── Step Index: 4-bar run fade ──────────────────
+            if (isStep) {
+                if (cl.length < 6) return null;
+                const c3 = cl[cl.length-4], c4 = cl[cl.length-5];
+                if (!c3 || !c4) return null;
+                const run4Down = c0.close<c1.close&&c1.close<c2.close&&c2.close<c3.close&&c3.close<c4.close;
+                const run4Up   = c0.close>c1.close&&c1.close>c2.close&&c2.close>c3.close&&c3.close>c4.close;
+                if (run4Down) return { type:'BUY',  tpMultiplier:1.0, slMultiplier:1.0 };
+                if (run4Up)   return { type:'SELL', tpMultiplier:1.0, slMultiplier:1.0 };
+                return null;
+            }
+
+            // ── Crash/Boom: EMA + RSI drift fade ─────────────
+            const ema = (arr, p) => { if(arr.length<p)return null; const k=2/(p+1); let v=arr.slice(0,p).reduce((s,x)=>s+x.close,0)/p; for(let i=p;i<arr.length;i++) v=arr[i].close*k+v*(1-k); return v; };
+            const e8  = ema(cl,8), e21 = ema(cl,21);
+            const rsi = _calcRSI(cl, rsiState);
+            if (!e8 || !e21 || !rsi) return null;
+
+            const pBull=c1.close>c1.open, cBull=c0.close>c0.open;
+            const engBull=!pBull&&cBull&&c0.close>c1.open&&c0.open<c1.close;
+            const engBear= pBull&&!cBull&&c0.close<c1.open&&c0.open>c1.close;
+
+            if (bias === 'SELL') {
+                const emaOk = e8<e21||c0.close<e8;
+                const rsiOk = rsi<60&&rsi>30;
+                if (!emaOk||!rsiOk) return null;
+                const factors = [emaOk, engBear, c0.close<c1.close&&c1.close<c2.close].filter(Boolean).length;
+                if (factors < 1) return null;
+                return { type:'SELL', tpMultiplier:1.0, slMultiplier:1.0 };
+            } else {
+                const emaOk = e8>e21||c0.close>e8;
+                const rsiOk = rsi>40&&rsi<70;
+                if (!emaOk||!rsiOk) return null;
+                const factors = [emaOk, engBull, c0.close>c1.close&&c1.close>c2.close].filter(Boolean).length;
+                if (factors < 1) return null;
+                return { type:'BUY', tpMultiplier:1.0, slMultiplier:1.0 };
+            }
         },
 
         // ── Legacy strategies kept for compare mode ───────────

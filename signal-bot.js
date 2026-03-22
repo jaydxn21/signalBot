@@ -1594,8 +1594,11 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
     const tpMult = signal.tpMultiplier || 1.5;
     const slMult = signal.slMultiplier || 1.0;
-    const sl = type === 'BUY' ? bar.close - atr * slMult : bar.close + atr * slMult;
-    const tp = type === 'BUY' ? bar.close + atr * tpMult : bar.close - atr * tpMult;
+    const slDist = atr * slMult;
+    const tpDist = atr * tpMult;
+
+    const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
+    const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
     bot.openSignal    = { type, sl, tp, entry: bar.close };
     bot.lastConfidence = confidence;
@@ -2086,8 +2089,26 @@ function _createBotCard(id, savedConfig) {
 
     // ── PHANTOM settings panel visibility ────────────────────
     const phantomPanel = card.querySelector('.phantom-settings');
+    const tfSelect     = card.querySelector('.bot-tf-select');
     const showHidePhantom = () => {
         if (phantomPanel) phantomPanel.style.display = stratSelect.value === 'phantom' ? 'block' : 'none';
+
+        // NOVA/KISMET: show M1 notice, lock TF visually
+        const isM1Strat = stratSelect.value === 'nova' || stratSelect.value === 'kismet';
+        let m1Notice = card.querySelector('.m1-notice');
+        if (isM1Strat) {
+            if (tfSelect) { tfSelect.value = '300'; tfSelect.disabled = true; }
+            if (!m1Notice) {
+                m1Notice = document.createElement('div');
+                m1Notice.className = 'm1-notice';
+                m1Notice.style.cssText = 'font-size:9px;color:#f59e0b;margin-top:4px;opacity:0.8;';
+                m1Notice.textContent = '📊 M5 locked — NOVA/KISMET run on M5 for correct R:R';
+                tfSelect?.closest('.bot-field-group')?.appendChild(m1Notice);
+            }
+        } else {
+            if (tfSelect) tfSelect.disabled = false;
+            if (m1Notice) m1Notice.remove();
+        }
     };
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
@@ -2156,10 +2177,14 @@ function _createBotCard(id, savedConfig) {
 window.getBotConfig = function(id) {
     const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
     if (!card) return null;
+    const strategy = card.querySelector('.bot-strategy-select').value;
+    // NOVA and KISMET run on M5 — M1 ATR too small for Deriv broker min stop levels
+    const tfRaw    = parseInt(card.querySelector('.bot-tf-select').value);
+    const tf       = (strategy === 'nova' || strategy === 'kismet') ? 300 : tfRaw;
     return {
-        strategy: card.querySelector('.bot-strategy-select').value,
+        strategy,
         symbol:   card.querySelector('.bot-symbol-select').value,
-        tf:       parseInt(card.querySelector('.bot-tf-select').value),
+        tf,
         stake:               parseFloat(card.querySelector('.bot-stake-input')?.value) || 1,
         phantomStake:        parseFloat(card.querySelector('.phantom-stake-input')?.value) || 1,
         phantomCooldownBars: 3,

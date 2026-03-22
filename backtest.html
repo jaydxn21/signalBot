@@ -174,10 +174,24 @@
                             </select>
                         </div>
                         <div class="bt-field-group">
-                            <label class="bt-label">CANDLES</label>
-                            <select id="bt-count" class="bt-select">
-                                <!-- populated dynamically by btBuildCandleOptions() -->
-                            </select>
+                            <label class="bt-label" style="display:flex;align-items:center;justify-content:space-between;">
+                                LOOKBACK
+                                <span id="bt-count-mode-toggle" onclick="window.btToggleCountMode()"
+                                    style="font-size:9px;opacity:0.5;cursor:pointer;text-decoration:underline;font-weight:400;letter-spacing:0;">
+                                    switch to candles
+                                </span>
+                            </label>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <input id="bt-count-input" type="number" class="bt-input"
+                                    value="61" min="1" step="1"
+                                    style="flex:1;"
+                                    onchange="window.btSyncCountFromInput()">
+                                <span id="bt-count-unit"
+                                    style="font-size:10px;opacity:0.5;white-space:nowrap;min-width:36px;">days</span>
+                            </div>
+                            <div id="bt-count-hint" style="font-size:9px;opacity:0.35;margin-top:3px;padding:0 2px;"></div>
+                            <!-- hidden select kept for compatibility with _run() which reads bt-count -->
+                            <select id="bt-count" style="display:none;"></select>
                         </div>
                     </div>
 
