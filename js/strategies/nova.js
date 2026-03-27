@@ -10,6 +10,12 @@
 //   5. RSI direction fixed — BUY needs RSI recovering (>40, <65),
 //      SELL needs RSI overextended or falling (<60, >35)
 //   6. Added Boom 500 / Crash 500 support
+//
+// PATCH v2.1:
+//   FIX A — Multi-TF gate: require 2+ TF agreement before firing.
+//            Single-TF signals were causing 3× over-firing vs backtest.
+//   FIX B — ATR/SL noise guard: skip if M5 ATR makes the designed SL
+//            sub-candle noise (guaranteed wick stop-out).
 
 const NOVA_SYMBOLS = {
     'CRASH1000':  { bias: 'BUY',  spikeDir: 'down', name: 'Crash 1000', atrMult: 1.0 },
@@ -225,6 +231,12 @@ export const NovaStrategy = {
         const biasResults = results.filter(r => r.dir === bias);
         if (biasResults.length === 0) return null;
 
+        // ── FIX A: Multi-TF gate ──────────────────────────────────────────────
+        // Require at least 2 timeframes in agreement before firing.
+        // Single-TF signals (1 TF with 3+ votes) caused 3× over-firing vs backtest.
+        // This single line closes the primary gap between backtest and live trade count.
+        if (biasResults.length < 2) return null;
+
         const tfCount    = biasResults.length;
         const allFactors = [...new Set(biasResults.flatMap(r => r.factors))];
         const bestATR    = biasResults.reduce((a, r) => Math.max(a, r.atr || 0), 0);
@@ -247,6 +259,17 @@ export const NovaStrategy = {
         // Post-spike fade: slMult 0.8, tpMult 2.5 → R:R = 3.125:1
         const slMult = cfg.atrMult * 0.8;
         const tpMult = hasSpike ? cfg.atrMult * 2.5 : cfg.atrMult * 1.5;
+
+        // ── FIX B: ATR/SL noise guard ─────────────────────────────────────────
+        // On Crash 1000 M5, ATR is typically 1.5–4 pts. The designed SL is
+        // 0.8× ATR = ~1.2–3.2 pts. When ATR is high (volatile candle), the SL
+        // is sub-candle noise — a wick stop-out is near-certain on the next bar.
+        // Skip the signal if the M5 ATR result is above the safe threshold.
+        // Threshold tuning: start at 3.0, adjust after observing 1 day of ATR logs.
+        // Increase if too many valid signals are blocked; decrease if wick stops persist.
+        const M5_ATR_NOISE_THRESHOLD = 3.0; // pts — tune based on live ATR observations
+        const m5Result = biasResults.find(r => r.tf === 'M5');
+        if (m5Result?.atr && m5Result.atr > M5_ATR_NOISE_THRESHOLD) return null;
 
         return {
             type:         bias,

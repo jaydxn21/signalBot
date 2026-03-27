@@ -263,7 +263,7 @@
             <div class="stat-label" style="margin-bottom:4px;">Strategy</div>
             <select class="bot-strategy-select"></select>
         </div>
-
+ 
         <!-- PHANTOM settings — only visible when PHANTOM strategy is selected -->
         <div class="phantom-settings" style="display:none; background:rgba(139,92,246,0.06); border:1px solid rgba(139,92,246,0.18); border-radius:8px; padding:9px 10px; margin-bottom:8px;">
             <div style="font-size:0.62rem;letter-spacing:0.12em;color:#a78bfa;font-weight:700;margin-bottom:8px;">👻 PHANTOM SESSION</div>
@@ -279,11 +279,21 @@
                         style="width:100%;padding:5px 7px;font-size:0.72rem;background:rgba(8,12,24,0.5);border:1px solid rgba(139,92,246,0.2);border-radius:5px;color:var(--text-primary);font-family:'DM Mono',monospace;box-sizing:border-box;">
                 </div>
             </div>
+            <!-- PHANTOM lot size — replaces phantom-stake-input -->
+            <div style="margin-bottom:7px;">
+                <div class="stat-label" style="margin-bottom:3px;">Lot size</div>
+                <div style="display:flex;align-items:center;gap:5px;">
+                    <input type="number" class="phantom-lot-input" min="0.01" max="100" step="0.01" value="0.01" placeholder="0.01"
+                        style="width:80px;padding:5px 7px;font-size:0.72rem;background:rgba(8,12,24,0.5);border:1px solid rgba(139,92,246,0.2);border-radius:5px;color:var(--text-primary);font-family:'DM Mono',monospace;box-sizing:border-box;">
+                    <span style="font-size:10px;color:rgba(167,139,250,0.6);">lot</span>
+                </div>
+            </div>
             <button class="phantom-configure-btn" style="width:100%;padding:5px;font-size:0.62rem;letter-spacing:0.1em;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.35);border-radius:5px;color:#a78bfa;cursor:pointer;font-family:'DM Mono',monospace;font-weight:700;">
                 SET SESSION TARGETS
             </button>
             <div class="phantom-session-badge" style="display:none;margin-top:7px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:5px;font-size:0.61rem;font-family:'DM Mono',monospace;letter-spacing:0.05em;"></div>
         </div>
+ 
         <div style="display:flex;gap:6px;margin-bottom:10px;">
             <div style="flex:1;min-width:0;">
                 <div class="stat-label" style="margin-bottom:4px;">Symbol</div>
@@ -299,14 +309,18 @@
                     <option value="14400">H4</option>
                 </select>
             </div>
-            <div style="width:54px;">
-                <div class="stat-label" style="margin-bottom:4px;">Stake $</div>
-                <input type="number" class="bot-stake-input" value="1" min="0.35" step="0.5"
-                    style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:var(--text-primary);font-size:0.72rem;padding:5px 6px;font-family:'DM Mono',monospace;">
+            <!-- Lot size input — replaces bot-stake-input -->
+            <div style="width:62px;">
+                <div class="stat-label" style="margin-bottom:4px;">Lot</div>
+                <div style="position:relative;">
+                    <input type="number" class="bot-lot-input" value="0.01" min="0.01" max="100" step="0.01"
+                        style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:var(--text-primary);font-size:0.68rem;padding:5px 6px;font-family:'DM Mono',monospace;box-sizing:border-box;">
+                </div>
             </div>
         </div>
+ 
         <hr class="bot-card-divider">
-        <div class="stat-grid" style="margin-bottom:10px;">
+        <div class="stat-grid bot-card-stats" style="margin-bottom:10px;">
             <div class="stat-item">
                 <div class="stat-label">W / L</div>
                 <div class="stat-value" style="font-size:0.85rem;">

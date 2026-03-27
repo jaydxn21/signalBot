@@ -34,6 +34,12 @@
 //   Spike-fade TP = 3.0× ATR  (biggest moves happen post-spike)
 //   → Breakeven WR = 33%. Target WR = 65%+
 //   → Expectancy at 65% WR = 0.65×2 - 0.35×1 = +0.95R per trade
+//
+// PATCH v1.1:
+//   FIX — ATR/SL noise guard: skip entries where the designed SL distance
+//          is below a viable minimum (guaranteed wick stop-out on M5).
+//   FIX — MAX ATR guard: skip entries during extreme volatility spikes
+//          where post-spike ATR is unreliable for SL sizing.
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL CONFIG
@@ -296,6 +302,22 @@ export const KismetStrategy = {
         if (!cfg) return null;
         if (!candles || candles.length < 15 || !atr) return null;
         if (this.isHalted(botId)) return null;
+
+        // ── FIX: ATR/SL noise guard ───────────────────────────────────────────
+        // KISMET SL = 0.5× ATR. On Crash 1000 M5, ATR is typically 1.5–4 pts.
+        // If the resulting SL distance is below the viable minimum, a wick will
+        // stop the trade out on the very next candle regardless of direction.
+        // MIN_SL_POINTS: start at 1.5 pts. Raise to 2.0 if wick stops persist.
+        const MIN_SL_POINTS = 1.5;
+        if (atr * 0.5 < MIN_SL_POINTS) return null;
+
+        // ── FIX: MAX ATR guard ────────────────────────────────────────────────
+        // During and immediately after spike candles, ATR spikes far above normal.
+        // Entries at extreme ATR are unreliable — the SL is calculated from a
+        // distorted ATR value and the spike environment is too noisy.
+        // MAX_ATR_FOR_ENTRY: start at 50 pts. Tune after checking daily ATR logs.
+        const MAX_ATR_FOR_ENTRY = 50;
+        if (atr > MAX_ATR_FOR_ENTRY) return null;
 
         const spikeState = this.getSpikeState(botId);
 

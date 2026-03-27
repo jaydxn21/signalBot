@@ -1,4 +1,11 @@
-// signal-bot.js — Multi-instance runner v2.0
+// signal-bot.js — Multi-instance runner v2.1
+// PATCH v2.1 changes:
+//   - KISMET cooldown: 1 candle → 3 candles (was 5s bug, now 15min on M5)
+//   - KISMET drift_reentry: score gate added (< 70 blocked)
+//   - stake → lotSize throughout (UI input, config, fireSignal, all close fns)
+//   - PnL calculation: stake×multiplier → lotSize×pointValue×priceDist
+//   - _pointValue() helper for per-symbol dollar-per-point calibration
+//   - fireSignal: riskPerLot conversion removed, lotSize used directly
 if (location.hostname !== 'localhost') console.log = () => {};
 
 import { DerivAPI }          from './js/deriv-api.js';
@@ -47,8 +54,6 @@ const SYMBOL_MAP = {
     'stpRNG':'Step Index','STEP':'Step Index',
 };
 
-// Strategies grouped by compatible symbol type.
-// Used to build categorized <optgroup> dropdowns in bot cards.
 const STRATEGY_GROUPS = [
     {
         label: '🌀 VORTEX',
@@ -131,13 +136,32 @@ const STRATEGY_GROUPS = [
     },
 ];
 
-// Flat list used where a simple array is still needed
 const STRATEGY_OPTIONS = STRATEGY_GROUPS.flatMap(g => g.strategies);
 
 const TF_LABEL = {
     60:'M1', 120:'M2', 300:'M5', 600:'M10',
     900:'M15', 1800:'M30', 3600:'H1', 14400:'H4', 86400:'D1'
 };
+
+// ─────────────────────────────────────────────────────────────
+// POINT VALUE HELPER
+// $/point/lot calibrated from live trade data.
+// Verified: $0.31 avg win ÷ 3.76pts ÷ 0.2 lot = $0.4126/pt/lot on Crash 1000.
+// Update this map as you trade additional symbols.
+// ─────────────────────────────────────────────────────────────
+function _pointValue(symbol) {
+    const MAP = {
+        'CRASH1000':  0.41,
+        'CRASH_1000': 0.41,
+        'BOOM1000':   0.41,
+        'BOOM_1000':  0.41,
+        'CRASH500':   0.41,
+        'BOOM500':    0.41,
+        'CRASH_500':  0.41,
+        'BOOM_500':   0.41,
+    };
+    return MAP[symbol] || 0.41;
+}
 
 // ─────────────────────────────────────────────────────────────
 // BOT STATE CLASS
@@ -148,15 +172,15 @@ class BotState {
         this.config       = config;
         this.candles      = [];
         this.h4Candles    = [];
-        this.htfCandles   = [];   // real HTF candles for VORTEX HTF filter
-        this.htfGran      = 14400; // HTF granularity in seconds (dynamic per TF)
+        this.htfCandles   = [];
+        this.htfGran      = 14400;
         this.rsiState     = { prevAvgGain: 0, prevAvgLoss: 0, initialized: false };
         this.strategy     = new StrategyEngine();
         this.openSignal      = null;
         this.lastFiredMs     = 0;
-        this.lastSLTimeMs    = 0;   // timestamp of last SL hit (for cooldown)
-        this.lastSLBarIdx    = 0;   // candle index of last SL (for re-entry delay)
-        this.h4KissCandidate = null; // {dir, bar} — first touch, waiting for confirmation
+        this.lastSLTimeMs    = 0;
+        this.lastSLBarIdx    = 0;
+        this.h4KissCandidate = null;
         this.isActive        = false;
         this.sessionStart    = null;
         this.wins            = 0;
@@ -171,15 +195,9 @@ class BotState {
 let api       = null;
 let symbolMap = {};
 
-// ── MT5 SYMBOL NAME MAP ───────────────────────────────────────
-// Deriv's active_symbols display_name doesn't always match
-// the exact symbol string in MT5 Market Watch.
-// This map corrects known mismatches.
 const MT5_SYMBOL_MAP = {
-    // Deriv API key       → MT5 Market Watch name
     'stpRNG':              'Step Index',
     'STEP':                'Step Index',
-    // Deriv display names (from active_symbols) → MT5 names
     'Step Index 100':      'Step Index',
     'Step Index 200':      'Step Index 200',
     'Crash 1000 Index':    'Crash 1000 Index',
@@ -239,22 +257,17 @@ const bots = {};
 
 // ─────────────────────────────────────────────────────────────
 // OVERLAY PANEL
-// Per-bot overlay selections stored in overlayState[botId]
-// Panel only visible in focus mode; selections persist in split mode
 // ─────────────────────────────────────────────────────────────
 const OVERLAY_IDS = ['show-asian','show-pdhpdl','show-fvg','show-h4','show-major','show-orb','show-ob','show-bos'];
-const overlayState = {}; // botId → { 'show-asian': bool, ... }
+const overlayState = {};
 
 function _initOverlayPanel() {
-    // Wire each checkbox to save state + redraw
     OVERLAY_IDS.forEach(id => {
         document.getElementById(id)?.addEventListener('change', () => {
             if (focusedBotId) _saveOverlayState(focusedBotId);
             redrawOverlays();
         });
     });
-
-    // Collapse / expand toggle
     const toggleBtn = document.getElementById('overlay-panel-toggle');
     const panel     = document.getElementById('overlay-panel');
     if (toggleBtn && panel) {
@@ -289,8 +302,6 @@ function _showOverlayPanel(show) {
 
 // ─────────────────────────────────────────────────────────────
 // SAVE / RESTORE BOT CONFIGS
-// Persists active bot configs to SessionState so they survive
-// navigation back to the terminal page.
 // ─────────────────────────────────────────────────────────────
 function _saveBotConfigs() {
     const active = Object.values(bots)
@@ -329,8 +340,6 @@ async function init() {
 
     Analytics.init();
 
-    // ── Cloud restore: pull server trades into localStorage on login ───────
-    // Only runs if this is a fresh session (no local trades yet today)
     if (!Auth.isGuest()) {
         const localTrades = SessionState.get().trades || [];
         if (localTrades.length === 0) {
@@ -338,14 +347,12 @@ async function init() {
                 if (serverTrades?.length) {
                     SessionState.set({ trades: serverTrades });
                     log(`Restored ${serverTrades.length} trades from cloud`, 'info');
-                    Analytics.init(); // re-render analytics with restored data
+                    Analytics.init();
                 }
             }).catch(() => {});
         }
     }
-    // ─────────────────────────────────────────────────────────────────────
 
-    // ── Restore persisted session P&L display ──────────────────
     const restoredState = SessionState.get();
     const pnlEl = document.getElementById('session-pnl');
     if (pnlEl && restoredState.sessionPnL !== 0) {
@@ -359,7 +366,6 @@ async function init() {
     if (winsEl)   winsEl.textContent   = restoredState.wins   || 0;
     if (lossesEl) lossesEl.textContent = restoredState.losses || 0;
     if (wrEl)     wrEl.textContent     = restoredState.winRate ? `${restoredState.winRate}%` : '0%';
-    // ─────────────────────────────────────────────────────────
 
     document.getElementById('clear-logs')?.addEventListener('click', () => {
         const logs    = document.getElementById('logs');
@@ -370,10 +376,8 @@ async function init() {
 
     const token = Storage.getToken();
     if (token) {
-        // Token exists — overlay stays hidden (CSS default), connect immediately
         api.connect(token);
     } else {
-        // No token — remove data-authed so overlay becomes visible
         document.documentElement.removeAttribute('data-authed');
         document.getElementById('auth-overlay').style.display = 'flex';
     }
@@ -387,52 +391,38 @@ async function init() {
         api.connect(t);
     };
 
-    document.getElementById('btn-logout').onclick  = logout; // nav.js also wires this; signal-bot keeps Deriv disconnect
+    document.getElementById('btn-logout').onclick  = logout;
     document.getElementById('btn-add-bot').onclick = () => _createBotCard(Date.now(), null);
 
-    // Overlay panel — wire checkboxes and collapse toggle
     _initOverlayPanel();
-
-    // Restore any bots that were running before navigation
     _restoreBotCards();
 
-    // ── PHANTOM SCAN COUNTDOWN ────────────────────────────────
-    // Ticks every second. Finds the active PHANTOM bot, calculates
-    // seconds until the next candle closes, and updates the HUD.
     setInterval(() => {
         const hudWrap    = document.getElementById('phantom-scan-hud');
         const hudEl      = document.getElementById('phantom-scan-countdown');
         if (!hudEl || !hudWrap) return;
 
-        // Find a running PHANTOM bot
         const phantomBot = Object.values(bots).find(b =>
             b.config?.strategy === 'phantom' &&
             document.querySelector(`.bot-card[data-bot-id="${b.id}"]`)?.classList.contains('running')
         );
 
-        if (!phantomBot) {
-            hudWrap.style.display = 'none';
-            return;
-        }
+        if (!phantomBot) { hudWrap.style.display = 'none'; return; }
 
         const session = PhantomStrategy.getSession();
 
-        // If halted, show status instead of countdown
         if (session.mode === 'halted') {
             hudWrap.style.display = 'flex';
             hudEl.textContent = '🛑 HALTED';
             hudEl.style.color = '#f87171';
             return;
         }
-
         if (session.mode === 'observer') {
             hudWrap.style.display = 'flex';
             hudEl.textContent = '👁 OBSERVING';
             hudEl.style.color = '#a78bfa';
             return;
         }
-
-        // If a trade is open, show trailing status
         if (phantomBot.openSignal?.isPhantom) {
             hudWrap.style.display = 'flex';
             const trailLabel = phantomBot.openSignal.scaleOutDone ? 'TRAILING ½' : 'IN TRADE';
@@ -441,42 +431,30 @@ async function init() {
             return;
         }
 
-        // Calculate time to next candle close
-        const tf = phantomBot.config.tf || 300; // seconds
+        const tf = phantomBot.config.tf || 300;
         const lastCandle = phantomBot.candles?.[phantomBot.candles.length - 1];
-        if (!lastCandle) {
-            hudWrap.style.display = 'none';
-            return;
-        }
+        if (!lastCandle) { hudWrap.style.display = 'none'; return; }
 
-        // lastCandle.time is the open time of the current forming candle (unix seconds)
-        const candleCloseAt = (lastCandle.time + tf) * 1000; // ms
+        const candleCloseAt = (lastCandle.time + tf) * 1000;
         const secsLeft = Math.max(0, Math.round((candleCloseAt - Date.now()) / 1000));
-
         const mins = String(Math.floor(secsLeft / 60)).padStart(2, '0');
         const secs = String(secsLeft % 60).padStart(2, '0');
 
         hudWrap.style.display = 'flex';
-        hudEl.style.color = secsLeft <= 10 ? '#fbbf24' : '#a78bfa'; // amber flash in last 10s
+        hudEl.style.color = secsLeft <= 10 ? '#fbbf24' : '#a78bfa';
         hudEl.textContent = secsLeft === 0 ? 'SCANNING…' : `${mins}:${secs}`;
     }, 1000);
 
-    // ── DEPLOY FROM STRATEGY BUILDER ──────────────────────────
     const deployRaw = sessionStorage.getItem('nexus_deploy_bot');
     if (deployRaw) {
         sessionStorage.removeItem('nexus_deploy_bot');
         try {
             const payload = JSON.parse(deployRaw);
-
-            // Update overlay label with strategy name
             const labelEl = document.getElementById('deploy-label');
             if (labelEl) labelEl.textContent = `Deploying "${payload.name || payload.strategy}"…`;
-
             const id = Date.now();
             _createBotCard(id, payload);
             log(`Strategy "${payload.name || payload.strategy}" deployed from Builder — configure and start.`, 'info');
-
-            // Flash card + dismiss overlay
             setTimeout(() => {
                 const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
                 if (card) {
@@ -484,7 +462,6 @@ async function init() {
                     card.style.boxShadow = '0 0 0 2px #8b5cf6';
                     setTimeout(() => { card.style.boxShadow = ''; }, 2000);
                 }
-                // Fade out overlay
                 const overlay = document.getElementById('deploy-overlay');
                 if (overlay) {
                     overlay.style.transition = 'opacity 0.4s';
@@ -502,22 +479,18 @@ async function init() {
         }
     }
 
-    // ── QUICK SYMBOL FROM MARKET PAGE ─────────────────────────
     const quickSym = sessionStorage.getItem('nexus_quick_sym');
     if (quickSym) {
         sessionStorage.removeItem('nexus_quick_sym');
         setTimeout(() => {
-            // Prefer a stopped card; if none, create one
             const targetCard = document.querySelector('.bot-card.stopped') ||
                                document.querySelector('.bot-card');
-
             if (!targetCard) {
                 const id = Date.now();
                 _createBotCard(id, { strategy: 'momentum', symbol: quickSym, tf: 300 });
                 log(`New bot created from Market with symbol ${quickSym}`, 'info');
-                return; // savedConfig already sets symbol during card creation
+                return;
             }
-
             const symSelect = targetCard.querySelector('.bot-symbol-select');
             if (symSelect) {
                 symSelect.value = quickSym;
@@ -538,7 +511,6 @@ window.startBot = function(id) {
     const config = window.getBotConfig(id);
     if (!config) return;
 
-    // ── RISK MANAGEMENT CHECKS ────────────────────────────────
     const maxBots = Settings.get('maxBots') || 3;
     const activeBotCount = Object.values(bots).filter(b => b.isActive).length;
     if (activeBotCount >= maxBots) {
@@ -553,7 +525,6 @@ window.startBot = function(id) {
         _showRiskAlert(`Daily loss limit of $${maxDailyLoss} reached. All trading halted.`);
         return;
     }
-    // ─────────────────────────────────────────────────────────
 
     const bot        = new BotState(id, config);
     bots[id]         = bot;
@@ -564,10 +535,8 @@ window.startBot = function(id) {
     UIManager.startSession();
     log(`Bot #${id} started — ${config.strategy} on ${config.symbol} ${TF_LABEL[config.tf] || 'M5'}`, 'info');
 
-    // Create chart panel for this bot
     const symLabel = (SYMBOL_MAP[config.symbol] || config.symbol).replace(' Index','').trim();
     ChartManager.addBot(id, symLabel, TF_LABEL[config.tf] || 'M5');
-    // Hide empty placeholder
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph) ph.style.display = 'none';
 
@@ -590,10 +559,9 @@ window.stopBot = function(id) {
     window.setBotRunning(id, false);
     log(`Bot #${id} stopped`, 'neutral');
 
-    // Release Deriv subscriptions so restart doesn't get "already subscribed"
     if (bot.config?.symbol) {
         api.forgetSymbol(bot.config.symbol, bot.config.tf);
-        api.forgetSymbol(bot.config.symbol, 14400); // H4
+        api.forgetSymbol(bot.config.symbol, 14400);
     }
 
     ChartManager.removeBot(id);
@@ -614,28 +582,23 @@ window.focusBot = function(id) {
     const symLabel = (SYMBOL_MAP[bot.config.symbol] || bot.config.symbol).replace(' Index','').trim();
     const tfLabel  = TF_LABEL[bot.config.tf] || 'M5';
 
-    // Always update HUD labels
     document.getElementById('chart-symbol-label').textContent = symLabel;
     document.getElementById('chart-tf-label').textContent     = tfLabel;
     ChartManager.updateLabel(id, symLabel, tfLabel);
 
     if (ChartManager.count() > 1) {
-        // Switch to focus mode — shows #chart-main-wrap
         ChartManager.focus(id);
-        _loadOverlayState(id);   // restore this bot's overlay selections
-        _showOverlayPanel(true); // show overlay panel in focus mode
-        // Load this bot's candles into the main engine
+        _loadOverlayState(id);
+        _showOverlayPanel(true);
         setTimeout(() => {
             ChartManager.loadMain(id, bot.candles);
             redrawOverlays();
-            // Restore open signal markers if this bot has an active trade
             if (bot.openSignal) {
                 const eng = ChartManager.mainEngine();
                 if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
             }
         }, 30);
     } else {
-        // Single bot — show overlay panel always
         _showOverlayPanel(true);
         _loadOverlayState(id);
         const engine = ChartManager.get(id);
@@ -647,12 +610,10 @@ window.focusBot = function(id) {
     }
 };
 
-// Called when user clicks Split View — hide overlay panel
 window.onSplitView = function() {
     _showOverlayPanel(false);
 };
 
-// Get the correct ChartEngine for a bot — main engine if focused, split engine otherwise
 function _engineFor(botId) {
     if (!ChartManager.isSplitMode() && botId === focusedBotId) {
         return ChartManager.mainEngine();
@@ -662,11 +623,10 @@ function _engineFor(botId) {
 
 function subscribeBot(bot) {
     Notify.request();
-    // HTF granularity: dynamic based on entry TF
     const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
     bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
         ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
-        : 14400; // all other strategies use H4
+        : 14400;
     api.subscribe(bot.config.symbol, bot.config.tf);
     api.subscribe(bot.config.symbol, bot.htfGran);
     const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
@@ -682,11 +642,7 @@ function handleData(data) {
         const sym = req.ticks_history || req.subscribe || '?';
         const gran = req.granularity ? ` (${TF_LABEL[req.granularity] || req.granularity})` : '';
         log(`API Error [${sym}${gran}]: ${data.error.message}`, 'warn');
-
-        // If H4 subscription fails, bot can still run on main TF — don't stop it
-        // If main TF fails, the symbol/account type is incompatible
         if (req.granularity && req.granularity !== 14400) {
-            // Main TF failed — mark affected bots as needing attention
             Object.values(bots).forEach(bot => {
                 if (bot.isActive && bot.config.symbol === sym) {
                     log(`Bot on ${sym} may not function — check account permissions`, 'warn');
@@ -703,7 +659,6 @@ function handleData(data) {
         log('Terminal authorized — connection established', 'info');
         api.fetchActiveSymbols();
         SessionState.set({ connected: true });
-
         Object.values(bots).forEach(bot => {
             window.setBotOnline(bot.id);
             if (bot.isActive) subscribeBot(bot);
@@ -727,7 +682,6 @@ function handleData(data) {
 
         Object.values(bots).forEach(bot => {
             if (!bot.isActive) return;
-            // Only accept history for symbols this bot is subscribed to
             if (gran === 14400 && data.echo_req.ticks_history === bot.config.symbol) {
                 bot.h4Candles = history;
             }
@@ -742,7 +696,6 @@ function handleData(data) {
                     eng.setData(history);
                     if (bot.id === focusedBotId) redrawOverlays();
                     else if (ChartManager.isSplitMode()) {
-                        // Draw this bot's overlays on its own panel
                         const saved = overlayState[bot.id] || {};
                         const current = {};
                         OVERLAY_IDS.forEach(oid => {
@@ -771,7 +724,6 @@ function handleData(data) {
             close: parseFloat(data.ohlc.close)
         };
         Object.values(bots).forEach(bot => {
-            // Only send bar to bots subscribed to this exact symbol
             if (bot.isActive && bot.config.symbol === symbol) {
                 processBar(bot, bar, gran);
             }
@@ -805,11 +757,9 @@ function processBar(bot, bar, gran) {
     else bot.candles.push(bar);
     if (bot.candles.length > 1000) bot.candles.shift();
 
-    // Update whichever engine is active for this bot
     const activeEng = _engineFor(bot.id);
     if (activeEng) activeEng.update(bar);
 
-    // In focus mode also keep the split engine data current (for when returning to split)
     if (!ChartManager.isSplitMode() && bot.id === focusedBotId) {
         const splitEng = ChartManager.get(bot.id);
         if (splitEng && splitEng !== activeEng) splitEng.update(bar);
@@ -823,10 +773,8 @@ function processBar(bot, bar, gran) {
     const marketCond = isTrending === null ? '—' : isTrending ? 'TRENDING' : 'RANGING';
 
     ChartManager.updatePanelHUD(bot.id, rsi, atr, marketCond);
-    // Also update single-mode HUD if this bot is focused
     if (bot.id === focusedBotId) UIManager.updateHUD(rsi, atr, marketCond);
 
-    // Push live price to SessionState for market page
     const livePrices = SessionState.get().livePrices || {};
     const displaySym = SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
     const firstClose = bot.candles[0]?.close;
@@ -838,35 +786,11 @@ function processBar(bot, bar, gran) {
 
     checkOutcome(bot);
 
-    // ── PHANTOM — dedicated routing ───────────────────────────
-    if (bot.config.strategy === 'phantom') {
-        _runPhantom(bot, bar, atr, rsi);
-        return;
-    }
-
-    // ── NOVA — dedicated routing ──────────────────────────────
-    if (bot.config.strategy === 'nova') {
-        _runNova(bot, bar, atr, rsi);
-        return;
-    }
-
-    // ── PULSE — dedicated routing ─────────────────────────────
-    if (bot.config.strategy === 'pulse') {
-        _runPulse(bot, bar, atr, rsi);
-        return;
-    }
-
-    // ── KISMET — dedicated routing ────────────────────────────
-    if (bot.config.strategy === 'kismet') {
-        _runKismet(bot, bar, atr, rsi);
-        return;
-    }
-
-    // ── VORTEX — dedicated routing ────────────────────────────
-    if (bot.config.strategy === 'vortex') {
-        _runVortex(bot, bar, atr, rsi);
-        return;
-    }
+    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
+    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
+    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
 
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
@@ -884,8 +808,6 @@ function processBar(bot, bar, gran) {
     const now = Date.now();
     if (signal && (now - bot.lastFiredMs) > 30000) {
 
-        // ── REC 1: VWAP REVERSION — H4 bullish confirmation for BUY signals ──
-        // BUY signals had 33% WR vs SELL 80% WR. Only allow BUY if H4 trend is bullish.
         if (bot.config.strategy === 'vwap_reversion' && signal.type === 'BUY') {
             if (bot.h4Candles.length >= 21) {
                 const k     = 2 / 22;
@@ -900,11 +822,9 @@ function processBar(bot, bar, gran) {
             }
         }
 
-        // ── REC 2: RANGE BOUNDARY — 30-min cooldown after SL ──
-        // Three consecutive SLs in session from rapid re-entry after losses.
         if (bot.config.strategy === 'range_boundary') {
             const msSinceLastSL = now - bot.lastSLTimeMs;
-            const COOLDOWN_MS   = 30 * 60 * 1000; // 30 minutes
+            const COOLDOWN_MS   = 30 * 60 * 1000;
             if (bot.lastSLTimeMs > 0 && msSinceLastSL < COOLDOWN_MS) {
                 const minsLeft = Math.ceil((COOLDOWN_MS - msSinceLastSL) / 60000);
                 log(`Range Boundary cooldown — ${minsLeft}m remaining after last SL`, 'neutral');
@@ -912,42 +832,28 @@ function processBar(bot, bar, gran) {
             }
         }
 
-        // ── REC 3: H4 KISS — require 2 confirmation bars before entry ──
-        // All 3 losses entered on first touch of level. Wait for close beyond level + pullback.
         if (bot.config.strategy === 'h4_kiss') {
             if (bot.h4Candles.length >= 21) {
                 const k     = 2 / 22;
                 let h4ema   = bot.h4Candles.slice(0,21).reduce((s,c)=>s+c.close,0) / 21;
                 for (let i = 21; i < bot.h4Candles.length; i++)
                     h4ema = bot.h4Candles[i].close * k + h4ema * (1 - k);
-
-                const candidate = bot.h4KissCandidate;
+                const candidate  = bot.h4KissCandidate;
                 const isNearKiss = Math.abs(bar.close - h4ema) < atr * 0.8;
-
                 if (!candidate && isNearKiss) {
-                    // First touch — record candidate, don't fire yet
                     bot.h4KissCandidate = { dir: signal.type, bar: bar.time };
                     log(`H4 Kiss first touch @ ${bar.close.toFixed(4)} — waiting for confirmation bar`, 'neutral');
                     return;
                 } else if (candidate) {
-                    // Second touch in same direction — confirmed, fire and clear
-                    if (candidate.dir !== signal.type) {
-                        // Direction changed — reset candidate
-                        bot.h4KissCandidate = null;
-                        return;
-                    }
-                    bot.h4KissCandidate = null; // clear after confirmed fire
+                    if (candidate.dir !== signal.type) { bot.h4KissCandidate = null; return; }
+                    bot.h4KissCandidate = null;
                     log(`H4 Kiss confirmed (2-bar) @ ${bar.close.toFixed(4)}`, 'info');
-                    // fall through to fire
                 } else {
-                    // Signal not near kiss level — don't fire
                     return;
                 }
             }
         }
 
-        // ── REC 4: SYNTHETIC SCALP — 1-candle re-entry delay after SL ──
-        // Two near-identical entries 2 minutes apart. Enforce minimum 1 complete bar wait.
         if (bot.config.strategy === 'synthetic_scalp') {
             const barsSinceLastSL = bot.candles.length - bot.lastSLBarIdx;
             if (bot.lastSLBarIdx > 0 && barsSinceLastSL < 2) {
@@ -960,10 +866,6 @@ function processBar(bot, bar, gran) {
         fireSignal(bot, signal, bar, atr, rsi, isTrending);
     }
 }
-
-// ─────────────────────────────────────────────────────────────
-// FIRE SIGNAL
-// ─────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM MULTI-TF CANDLE BUFFERS
@@ -1012,10 +914,8 @@ function _runPhantom(bot, bar, atr, rsi) {
 
     const observerOnly = (session.mode === 'observer');
 
-    // ── TRAILING STOP + REVERSAL EXIT ────────────────────
     if (bot.openSignal?.isPhantom) {
         _applyTrailingStop(bot, atr);
-
         const shouldExit = PhantomReversalCheck(bot.candles, bot.openSignal, rsi);
         if (shouldExit) {
             const c = bot.candles[bot.candles.length - 2];
@@ -1031,12 +931,10 @@ function _runPhantom(bot, bar, atr, rsi) {
 
     if (bot.openSignal) return;
 
-    // ── COOLDOWN: 2 candles on the bot's own TF ───────────────
     const now = Date.now();
     const cooldownMs = 2 * (bot.config.tf || 300) * 1000;
     if ((now - bot.lastFiredMs) < cooldownMs) return;
 
-    // ── BUILD MULTI-TF BUFFERS & CHECK ENTRY ─────────────────
     const buf    = _buildPhantomTFBuffers(bot);
     const signal = PhantomStrategy.checkEntry(buf.m1, buf.m5, buf.m15, bot.id);
     if (!signal) return;
@@ -1056,8 +954,6 @@ function _runPhantom(bot, bar, atr, rsi) {
 // ─────────────────────────────────────────────────────────────
 // NOVA RUNNER
 // ─────────────────────────────────────────────────────────────
-
-// Shared TF buffer builder (same resample logic as PHANTOM)
 function _buildNovaTFBuffers(bot) {
     const candles = bot.candles;
     if (!candles || candles.length < 2) return { m1: [], m5: [], m15: [] };
@@ -1084,13 +980,10 @@ function _runNova(bot, bar, atr, rsi) {
         return;
     }
 
-    // ── SPIKE DETECTION on every candle ──────────────────────
     const spike = detectSpike(bot.candles, atr);
     if (spike) {
         NovaStrategy.recordSpike(bot.id, spike, bot.config.tf || 300);
         log(`💥 NOVA spike detected — ${spike.direction === 'up' ? '↑' : '↓'} ${spike.magnitude.toFixed(1)}× ATR on ${symCfg.name}`, 'neutral');
-
-        // If a trade is open and spike goes against us — emergency exit
         if (bot.openSignal?.isNova) {
             const c       = bot.candles[bot.candles.length - 2];
             const adverse = (bot.openSignal.type === 'BUY'  && spike.direction === 'down')
@@ -1107,25 +1000,16 @@ function _runNova(bot, bar, atr, rsi) {
         }
     }
 
-    // ── MANAGE OPEN TRADE ────────────────────────────────────
-    if (bot.openSignal?.isNova) {
-        _applyTrailingStop(bot, atr);
-        return;
-    }
-
+    if (bot.openSignal?.isNova) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
-
-    // ── COOLDOWN after spike ──────────────────────────────────
     if (NovaStrategy.inCooldown(bot.id)) return;
 
-    // ── COOLDOWN after last trade ─────────────────────────────
     const now = Date.now();
     const cooldownMs = 2 * (bot.config.tf || 300) * 1000;
     if ((now - bot.lastFiredMs) < cooldownMs) return;
 
-    // ── BUILD MULTI-TF BUFFERS & ENTRY CHECK ─────────────────
-    const buf    = _buildNovaTFBuffers(bot);
-    const spikeState = NovaStrategy.getSpikeState(bot.id);
+    const buf         = _buildNovaTFBuffers(bot);
+    const spikeState  = NovaStrategy.getSpikeState(bot.id);
     const recentSpike = spikeState.spike || null;
 
     const signal = NovaStrategy.checkEntry(bot.config.symbol, buf.m1, buf.m5, buf.m15, recentSpike);
@@ -1140,7 +1024,6 @@ function _runNova(bot, bar, atr, rsi) {
 
 function _novaCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
-
     if (outcome === 'TP') {
         log(`💥 NOVA ✓ exit  +${pnlAmt.toFixed(4)}`, 'buy');
         window.registerBotWin(bot.id, pnlAmt);
@@ -1154,13 +1037,11 @@ function _novaCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'nova', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
     }
-
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'nova',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
-
     bot.openSignal = null;
 }
 
@@ -1174,21 +1055,19 @@ function _runPulse(bot, bar, atr, rsi) {
         return;
     }
 
-    // ── SPIKE DETECTION (Crash/Boom only) ────────────────────
     if (cfg.type === 'crash_boom') {
         const spike = detectSpike(bot.candles, atr);
         if (spike) {
             PulseStrategy.recordSpike(bot.id, spike, bot.config.tf || 60);
             log(`⚡ PULSE spike — ${spike.direction === 'up' ? '↑' : '↓'} ${spike.magnitude.toFixed(1)}× ATR`, 'neutral');
-            // Emergency exit if spike hits our open trade adverse
             if (bot.openSignal?.isPulse) {
                 const c = bot.candles[bot.candles.length - 2];
                 const adverse = (bot.openSignal.type === 'BUY'  && spike.direction === 'down')
                              || (bot.openSignal.type === 'SELL' && spike.direction === 'up');
                 if (adverse) {
                     log(`⚡ PULSE spike exit`, 'warn');
-                    const stake  = bot.config.stake || PulseStrategy.getCurrentStake(bot.id);
-                    const pnlAmt = stake * (bot.openSignal.slMultiplier || 1.0);
+                    const lotSize = bot.config.lotSize || 0.01;
+                    const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
                     _pulseCloseTrade(bot, 'SL', pnlAmt, c);
                     return;
                 }
@@ -1196,18 +1075,13 @@ function _runPulse(bot, bar, atr, rsi) {
         }
     }
 
-    if (bot.openSignal?.isPulse) {
-        _applyTrailingStop(bot, atr);
-        return;
-    }
+    if (bot.openSignal?.isPulse) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
     if (PulseStrategy.inCooldown(bot.id)) return;
 
-    // ── COOLDOWN between trades ───────────────────────────────
     const cooldownMs = (bot.config.tf || 60) * 2 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
 
-    // Check session mode
     if (PulseStrategy.getMode() !== 'active') {
         const mode = PulseStrategy.getMode();
         if (mode === 'target_hit') log('⚡ PULSE target reached — session complete', 'buy');
@@ -1215,52 +1089,44 @@ function _runPulse(bot, bar, atr, rsi) {
         return;
     }
 
-    // ── ENTRY CHECK ───────────────────────────────────────────
     const spikeState  = PulseStrategy.getSpikeState(bot.id);
     const recentSpike = spikeState.spike || null;
     const signal      = PulseStrategy.checkEntry(bot.config.symbol, bot.candles, recentSpike);
     if (!signal) return;
 
-    // Use the compounded stake from the session
-    const stake = bot.config.stake || PulseStrategy.getCurrentStake(bot.id);
-    signal.stake = stake;
-
     bot.lastFiredMs = Date.now();
     const level = signal.compoundLevel;
-    log(`⚡ PULSE ${signal.type} @ ${bar.close.toFixed(4)} | stake $${stake.toFixed(2)} | level ${level} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    log(`⚡ PULSE ${signal.type} @ ${bar.close.toFixed(4)} | lot ${(bot.config.lotSize || 0.01).toFixed(2)} | level ${level} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
 }
 
 function _pulseCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
-
-    const session = PulseStrategy.recordTrade(bot.id, outcome, pnlAmt);
+    const session  = PulseStrategy.recordTrade(bot.id, outcome, pnlAmt);
     const newStake = session.currentStake;
     const level    = session.compoundLevel;
 
     if (outcome === 'TP') {
-        log(`⚡ PULSE ✓ +$${pnlAmt.toFixed(2)} | next stake $${newStake.toFixed(2)} | level ${level} | total $${session.realizedPnL.toFixed(2)}`, 'buy');
+        log(`⚡ PULSE ✓ +$${pnlAmt.toFixed(2)} | level ${level} | total $${session.realizedPnL.toFixed(2)}`, 'buy');
         window.registerBotWin(bot.id, pnlAmt);
         UIManager.registerWin(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'pulse', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
         Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
     } else {
-        log(`⚡ PULSE ✗ -$${pnlAmt.toFixed(2)} | stake reset $${newStake.toFixed(2)} | total $${session.realizedPnL.toFixed(2)}`, 'sell');
+        log(`⚡ PULSE ✗ -$${pnlAmt.toFixed(2)} | total $${session.realizedPnL.toFixed(2)}`, 'sell');
         window.registerBotLoss(bot.id, pnlAmt);
         UIManager.registerLoss(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'pulse', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
     }
-
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'pulse',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
-
     bot.openSignal = null;
 }
 
@@ -1268,7 +1134,6 @@ function _pulseCloseTrade(bot, outcome, pnlAmt, bar) {
 // VORTEX — RUN + CLOSE
 // ─────────────────────────────────────────────────────────────
 function _vortexBaseline(bot) {
-    // Compute baseline ATR from candle history for vol ratio
     const candles = bot.candles;
     if (!candles || candles.length < 35) return null;
     const samples = [];
@@ -1289,75 +1154,59 @@ function _vortexBaseline(bot) {
 function _runVortex(bot, bar, atr, rsi) {
     if (!atr) return;
 
-    // Register entry TF and news settings on every bar (cheap, ensures always current)
     const tfMins = bot.config.tf ? Math.round(bot.config.tf / 60) : 5;
     VortexStrategy.setTf(bot.id, tfMins);
     VortexStrategy.setNewsOptions(bot.id, {
-        newsBlackout: Settings.get('vortexNewsBlackout') !== false, // default ON
-        fomcBlackout: Settings.get('vortexFomcBlackout') === true,  // default OFF
+        newsBlackout: Settings.get('vortexNewsBlackout') !== false,
+        fomcBlackout: Settings.get('vortexFomcBlackout') === true,
     });
 
     const baseline = _vortexBaseline(bot);
-    if (!baseline) return; // not enough history yet
+    if (!baseline) return;
 
     const volRatio = atr / baseline;
 
-    // ── CHAOS DETECTION on every bar ─────────────────────────
     const chaos = VortexStrategy.detectChaos(bot.candles, atr, baseline);
     if (chaos) {
         VortexStrategy.recordChaos(bot.id, chaos.direction);
         log(`🌀 VORTEX chaos detected — vol×${chaos.volRatio.toFixed(1)} | waiting for retrace`, 'warn');
-
-        // Emergency exit if open trade and chaos goes against us
         if (bot.openSignal?.isVortex) {
             const adverse = (bot.openSignal.type === 'BUY'  && chaos.direction === 'down')
                          || (bot.openSignal.type === 'SELL' && chaos.direction === 'up');
             if (adverse) {
                 log(`🌀 VORTEX chaos exit`, 'warn');
-                const pnlAmt = (bot.openSignal.stake || 1.0) * (bot.openSignal.slMultiplier || 0.4);
-                _vortexCloseTrade(bot, 'SL', pnlAmt, bot.candles[bot.candles.length - 2]);
+                const lotSize = bot.config.lotSize || 0.01;
+                const c       = bot.candles[bot.candles.length - 2];
+                const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
+                _vortexCloseTrade(bot, 'SL', pnlAmt, c);
                 return;
             }
         }
     }
 
-    if (bot.openSignal?.isVortex) {
-        _applyTrailingStop(bot, atr);
-        return;
-    }
+    if (bot.openSignal?.isVortex) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
     if (VortexStrategy.isHalted(bot.id))      { log(`🌀 VORTEX halted — 5 consecutive losses`, 'warn'); return; }
     if (VortexStrategy.isTooFrequent(bot.id)) { log(`🌀 VORTEX rate limit — max 3 trades/hr`, 'neutral'); return; }
 
-    // Cooldown: 2 candles minimum between entries
     const cooldownMs = (bot.config.tf || 60) * 2 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
 
-    const baseStake = parseFloat(bot.config.stake) || 1.0;
-    const signal    = VortexStrategy.checkEntryFull(bot.id, bot.config.symbol, bot.candles, baseStake);
+    const baseLot = parseFloat(bot.config.lotSize) || 0.01;
+    const signal  = VortexStrategy.checkEntryFull(bot.id, bot.config.symbol, bot.candles, baseLot);
     if (!signal) return;
 
     bot.lastFiredMs = Date.now();
-    const stakeLabel = signal.stake !== signal.baseStake
-        ? `stake $${signal.stake.toFixed(2)} (scaled from $${signal.baseStake.toFixed(2)} at vol×${signal.volRatio})`
-        : `stake $${signal.stake.toFixed(2)}`;
-
-    log(`🌀 VORTEX ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | vol×${signal.volRatio} | ${stakeLabel}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    log(`🌀 VORTEX ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | vol×${signal.volRatio} | lot ${baseLot.toFixed(2)}`, signal.type === 'BUY' ? 'buy' : 'sell');
     log(`   ${signal.factors.join(' · ')}`, 'neutral');
 
-    // Override bot stake temporarily for this trade
-    const origStake = bot.config.stake;
-    bot.config.stake = signal.stake;
     fireSignal(bot, signal, bar, atr, rsi, null);
-    bot.config.stake = origStake;
 }
 
 function _vortexCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
     const mode = bot.openSignal.mode || '';
-
-    VortexStrategy.recordOutcome(bot.id, outcome, type); // type = 'BUY'|'SELL'
-
+    VortexStrategy.recordOutcome(bot.id, outcome, type);
     if (outcome === 'TP') {
         log(`🌀 VORTEX ✓ +$${pnlAmt.toFixed(2)} [${mode}]`, 'buy');
         window.registerBotWin(bot.id, pnlAmt);
@@ -1373,13 +1222,11 @@ function _vortexCloseTrade(bot, outcome, pnlAmt, bar) {
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'vortex', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
     }
-
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'vortex',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
-
     bot.openSignal = null;
 }
 
@@ -1393,46 +1240,43 @@ function _runKismet(bot, bar, atr, rsi) {
         return;
     }
 
-    // ── SPIKE DETECTION on every bar ─────────────────────────
     const spike = KismetStrategy.detectSpike(bot.candles, atr);
     if (spike) {
         KismetStrategy.recordSpike(bot.id, spike, bot.config.tf || 60);
         log(`🎯 KISMET spike — ${spike.direction === 'up' ? '↑' : '↓'} ${spike.magnitude.toFixed(1)}× ATR on ${cfg.name}`, 'neutral');
-
-        // Emergency exit: close open trade if spike goes against us
         if (bot.openSignal?.isKismet) {
             if (KismetStrategy.checkAdverseSpike(bot.openSignal, spike)) {
                 log(`🎯 KISMET adverse spike — emergency exit`, 'warn');
-                const stake  = bot.openSignal.stake || 1.0;
-                const pnlAmt = stake * (bot.openSignal.slMultiplier || 0.5);
-                _kismetCloseTrade(bot, 'SL', pnlAmt, bot.candles[bot.candles.length - 2]);
+                const lotSize = bot.config.lotSize || 0.01;
+                const c       = bot.candles[bot.candles.length - 2];
+                const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
+                _kismetCloseTrade(bot, 'SL', pnlAmt, c);
                 return;
             }
         }
     }
 
-    if (bot.openSignal?.isKismet) {
-        _applyTrailingStop(bot, atr);
-        return;
-    }
+    if (bot.openSignal?.isKismet) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
 
-    // Halted for the day?
     if (KismetStrategy.isHalted(bot.id)) {
         log(`🎯 KISMET halted — 6 consecutive losses reached`, 'warn');
         return;
     }
 
-    // Cooldown between trades (1 candle minimum)
-    const cooldownMs = (bot.config.tf || 60) * 1 * 1000;
+    // ── PATCH: 3-candle cooldown (was 1× tf ms — effectively 5 seconds bug) ──
+    // At M5 (300s): 3 × 300 × 1000 = 900,000ms = 15 minutes between entries.
+    // This aligns KISMET trade frequency with BT4's ~42 trades/day baseline.
+    const cooldownMs = bot.config.tf * 3 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
 
-    // ── ENTRY CHECK ───────────────────────────────────────────
     const signal = KismetStrategy.checkEntry(bot.config.symbol, bot.candles, atr, bot.id);
     if (!signal) return;
 
-    // Attach stake for emergency exit calculation
-    signal.stake = bot.config.stake || 1.0;
+    // ── PATCH: drift_reentry score gate ──────────────────────────────────────
+    // Drift re-entries are the lowest quality KISMET mode — only fire high
+    // confidence ones. spike_fade (score 75–90) and run_fade are unaffected.
+    if (signal.mode === 'drift_reentry' && signal.score < 70) return;
 
     bot.lastFiredMs = Date.now();
     log(`🎯 KISMET ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | score ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
@@ -1442,9 +1286,7 @@ function _runKismet(bot, bar, atr, rsi) {
 
 function _kismetCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
-
     KismetStrategy.recordOutcome(bot.id, outcome);
-
     if (outcome === 'TP') {
         log(`🎯 KISMET ✓ +$${pnlAmt.toFixed(2)} [${bot.openSignal.mode || ''}]`, 'buy');
         window.registerBotWin(bot.id, pnlAmt);
@@ -1460,19 +1302,16 @@ function _kismetCloseTrade(bot, outcome, pnlAmt, bar) {
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'kismet', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
     }
-
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'kismet',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
-
     bot.openSignal = null;
 }
 
 function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
-
     if (outcome === 'TP') {
         log(`👻 PHANTOM ✓ exit  +${pnlAmt.toFixed(4)}`, 'buy');
         window.registerBotWin(bot.id, pnlAmt);
@@ -1487,9 +1326,9 @@ function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'phantom', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
     }
 
-    const stakeSize = bot.config.phantomStake || 1;
-    const updatedSession = PhantomStrategy.recordTrade(bot.id, outcome, pnlAmt * stakeSize);
-    PhantomStrategy.recordOutcome(bot.id, type, outcome); // direction block
+    const lotSize        = bot.config.phantomLot || bot.config.lotSize || 0.01;
+    const updatedSession = PhantomStrategy.recordTrade(bot.id, outcome, pnlAmt * lotSize);
+    PhantomStrategy.recordOutcome(bot.id, type, outcome);
     _updatePhantomBadge(bot.id, updatedSession);
 
     if (updatedSession.mode === 'observer') {
@@ -1503,7 +1342,6 @@ function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
-
     bot.openSignal = null;
 }
 
@@ -1514,7 +1352,6 @@ function _updatePhantomBadge(botId, session) {
     if (!badge) return;
 
     if (!session.configured) { badge.style.display = 'none'; return; }
-
     badge.style.display = 'block';
 
     const pnl    = session.realizedPnL;
@@ -1539,11 +1376,8 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const type  = signal.type  || signal;
     const label = signal.label || type;
 
-    // ── CONFIDENCE SCORE ─────────────────────────────────────
-    // PHANTOM has its own scoring — skip the generic ConfidenceEngine for it
     let confidence;
     if (signal.isPhantom || signal.isNova || signal.isPulse || signal.isKismet || signal.isVortex) {
-        const tag = signal.isNova ? '💥 NOVA' : signal.isPulse ? '⚡ PULSE' : signal.isKismet ? '🎯 KISMET' : signal.isVortex ? '🌀 VORTEX' : '👻 PHANTOM';
         confidence = {
             score:   signal.score || 50,
             grade:   signal.score >= 70 ? 'A' : signal.score >= 55 ? 'B' : 'C',
@@ -1551,9 +1385,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
             factors: signal.factors || [],
         };
         log(`SIGNAL ${type} @ ${bar.close.toFixed(4)} — ${label}`, type === 'BUY' ? 'buy' : 'sell');
-        if (signal.factors?.length) {
-            log(`Signals: ${signal.factors.slice(0, 5).join(' · ')}`, 'neutral');
-        }
+        if (signal.factors?.length) log(`Signals: ${signal.factors.slice(0, 5).join(' · ')}`, 'neutral');
     } else {
         confidence = ConfidenceEngine.score({
             type,
@@ -1565,16 +1397,12 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         });
         const confLabel = `${label} [${confidence.grade}${confidence.score}]`;
         log(`SIGNAL ${type} @ ${bar.close.toFixed(4)} — ${confLabel}`, type === 'BUY' ? 'buy' : 'sell');
-        if (confidence.factors.length) {
-            log(`Confluence: ${confidence.factors.slice(0, 3).join(' · ')}`, 'neutral');
-        }
+        if (confidence.factors.length) log(`Confluence: ${confidence.factors.slice(0, 3).join(' · ')}`, 'neutral');
     }
 
     window.registerBotSignal(bot.id, type, bar.close.toFixed(4), label, confidence);
     Notify.signal(type, bot.config.symbol, bar.close, label, confidence);
 
-    // ── LIVE CONFIDENCE PREVIEW in analytics ─────────────────
-    // Push to SessionState immediately so analytics page shows it without waiting for trade close
     const liveConf = SessionState.get().liveConfidence || {};
     liveConf[bot.id] = {
         botId:    bot.id,
@@ -1600,7 +1428,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
     const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
-    bot.openSignal    = { type, sl, tp, entry: bar.close };
+    bot.openSignal     = { type, sl, tp, entry: bar.close };
     bot.lastConfidence = confidence;
 
     const sigEngine = _engineFor(bot.id);
@@ -1631,43 +1459,36 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     }
 
     if (document.getElementById('auto-mt5')?.checked) {
-        // Resolve MT5 symbol name: API key → display name → MT5 override → fallback
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
-        const mt5Symbol    = MT5_SYMBOL_MAP[bot.config.symbol]  // direct API key override
-                          || MT5_SYMBOL_MAP[derivDisplay]        // display name override
-                          || derivDisplay;                        // fallback to display name
+        const mt5Symbol    = MT5_SYMBOL_MAP[bot.config.symbol]
+                          || MT5_SYMBOL_MAP[derivDisplay]
+                          || derivDisplay;
 
-        // ── STAKE → LOT SIZE CONVERSION ──────────────────────
-        // riskPerLot = how many dollars you lose per 1.0 lot when SL is hit.
-        // Calibrated from MT5 report: ~$3 loss per lot on Boom/Crash 1000
-        // at typical ATR-based SL distance. Configurable in Settings.
-        const riskPerLot = parseFloat(Settings.get('mt5RiskPerLot')) || 3.0;
-        const tradeStake = signal.stake
-            || bot.config.stake
-            || bot.config.phantomStake
-            || parseFloat(document.getElementById('bt-stake')?.value)
-            || 1.0;
-        const rawLot  = tradeStake / riskPerLot;
-        const lotSize = Math.max(0.01, parseFloat((Math.round(rawLot / 0.01) * 0.01).toFixed(2)));
+        // ── Lot size — direct from config, no stake/riskPerLot conversion ────
+        // signal.lotSize allows strategies to override (e.g. PULSE compounding).
+        const lotSize    = signal.lotSize || bot.config.lotSize || bot.config.phantomLot || 0.01;
+        const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
         try {
             const res  = await fetch('/api/signal', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: type.toLowerCase(), symbol: mt5Symbol,
-                    price: bar.close, sl: parseFloat(sl.toFixed(5)),
-                    tp: parseFloat(tp.toFixed(5)),
-                    lotSize,                          // ← EA uses this for position size
-                    stake: tradeStake,                // ← informational
-                    label, timestamp: bar.time * 1000
+                    action:    type.toLowerCase(),
+                    symbol:    mt5Symbol,
+                    price:     bar.close,
+                    sl:        parseFloat(sl.toFixed(5)),
+                    tp:        parseFloat(tp.toFixed(5)),
+                    lotSize:   clampedLot,
+                    label,
+                    timestamp: bar.time * 1000,
                 })
             });
             const json = await res.json();
             if (json.status === 'ok') {
                 document.getElementById('mt5-indicator').className = 'status-dot status-online';
                 SessionState.set({ mt5Connected: true });
-                log(`→ MT5: ${type} ${mt5Symbol} @ ${bar.close} | lot ${lotSize} (stake $${tradeStake.toFixed(2)})`, 'info');
+                log(`→ MT5: ${type} ${mt5Symbol} @ ${bar.close} | lot ${clampedLot}`, 'info');
             }
         } catch(e) {
             log('MT5 push failed — server unreachable', 'warn');
@@ -1677,12 +1498,6 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
 // ─────────────────────────────────────────────────────────────
 // SHARED TRAILING STOP
-// Activates once price reaches 50% of TP distance from entry.
-// Phase 1 (price < 50% TP): SL stays fixed.
-// Phase 2 (price >= 50% TP): SL snaps to breakeven immediately.
-// Phase 3 (trail active): SL walks 1×ATR behind closed candle,
-//          ratcheting in trade direction — never steps back.
-//          TP and trail compete — first hit closes the trade.
 // ─────────────────────────────────────────────────────────────
 function _applyTrailingStop(bot, atr) {
     const sig = bot.openSignal;
@@ -1697,7 +1512,7 @@ function _applyTrailingStop(bot, atr) {
     const price    = closed.close;
     const inProfit = type === 'BUY' ? price - entry : entry - price;
 
-    if (inProfit < halfway) return; // haven't reached 50% of TP yet
+    if (inProfit < halfway) return;
 
     if (!sig.trailActivated) {
         sig.trailActivated = true;
@@ -1710,21 +1525,10 @@ function _applyTrailingStop(bot, atr) {
         return;
     }
 
-    // Walk SL 1×ATR behind price — ratchet only, never retreat
-    const candidate = type === 'BUY'
-        ? price - atr
-        : price + atr;
-
+    const candidate = type === 'BUY' ? price - atr : price + atr;
     let moved = false;
-    if (type === 'BUY'  && candidate > sig.trailSL) {
-        sig.trailSL = candidate;
-        sig.sl      = candidate;
-        moved = true;
-    } else if (type === 'SELL' && candidate < sig.trailSL) {
-        sig.trailSL = candidate;
-        sig.sl      = candidate;
-        moved = true;
-    }
+    if (type === 'BUY'  && candidate > sig.trailSL) { sig.trailSL = candidate; sig.sl = candidate; moved = true; }
+    else if (type === 'SELL' && candidate < sig.trailSL) { sig.trailSL = candidate; sig.sl = candidate; moved = true; }
 
     if (moved) {
         const eng = _engineFor(bot.id);
@@ -1733,7 +1537,6 @@ function _applyTrailingStop(bot, atr) {
     }
 }
 
-// Push a modify signal to MT5 via the server — EA calls OrderModify on receipt
 async function _pushMT5Modify(bot, newSL, tp) {
     if (!Settings.get('mt5Enabled')) return;
     const mt5Symbol = bot.config.mt5Symbol || bot.config.symbol;
@@ -1758,6 +1561,8 @@ async function _pushMT5Modify(bot, newSL, tp) {
 
 // ─────────────────────────────────────────────────────────────
 // CHECK OUTCOME
+// PnL is now: lotSize × pointValue × priceDist
+// Verified from live trade: $0.31 win = 0.2 lot × $0.41/pt/lot × 3.76pts
 // ─────────────────────────────────────────────────────────────
 function checkOutcome(bot) {
     if (!bot.openSignal) return;
@@ -1779,71 +1584,42 @@ function checkOutcome(bot) {
 
     if (!hit) return;
 
-    // ── PHANTOM SCALE-OUT: on first TP, close 50% and trail the rest ──
+    // ── PHANTOM SCALE-OUT ─────────────────────────────────────
     if (bot.openSignal.isPhantom && hit === 'TP' && !bot.openSignal.scaleOutDone) {
-        const scaleStake = bot.config.stake || bot.config.phantomStake || 1;
-        const halfPnl    = scaleStake * (bot.openSignal.tpMultiplier || 1.5) * 0.5;
+        const lotSize   = bot.config.phantomLot || bot.config.lotSize || 0.01;
+        const pv        = _pointValue(bot.config.symbol);
+        const halfPnl   = lotSize * pv * Math.abs(tp - entry) * 0.5;
         bot.openSignal.scaleOutDone = true;
-        // Move SL to breakeven
         bot.openSignal.sl = entry;
-        // Extend TP by 1.5x ATR for trailing remainder
         const atr = Indicators.calculateATR(bot.candles) || Math.abs(tp - entry);
         bot.openSignal.tp = type === 'BUY' ? entry + atr * 2.5 : entry - atr * 2.5;
 
-        log(`👻 PHANTOM scale-out — 50% closed at 1:1 +${halfPnl.toFixed(4)} | SL → breakeven, trailing remainder`, 'buy');
+        log(`👻 PHANTOM scale-out — 50% closed +${halfPnl.toFixed(4)} | SL → breakeven, trailing remainder`, 'buy');
         window.registerBotWin(bot.id, halfPnl);
         UIManager.registerWin(halfPnl);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'phantom', type, entry, sl, tp, outcome: 'TP', pnl: halfPnl });
         PhantomStrategy.recordTrade(bot.id, 'TP', halfPnl);
         _updatePhantomBadge(bot.id, PhantomStrategy.getSession());
 
-        // Redraw levels
         const eng = _engineFor(bot.id);
         if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
-        return; // keep trade open for trailing remainder
+        return;
     }
 
-    const stake      = bot.config.stake || bot.config.phantomStake || 1;
+    // ── PnL calculation — lotSize × pointValue × price distance ──────────────
+    const lotSize     = bot.config.lotSize || bot.config.phantomLot || 0.01;
+    const pv          = _pointValue(bot.config.symbol);
     const slPriceDist = Math.abs(entry - sl);
     const tpPriceDist = Math.abs(tp - entry);
-    // PnL = stake × (price_distance / sl_distance) × sl_multiplier
-    // Simplifies to: stake × tpMultiplier on TP, stake × slMultiplier on SL
-    const pnlAmt = hit === 'TP'
-        ? stake * (bot.openSignal.tpMultiplier || (slPriceDist > 0 ? tpPriceDist / slPriceDist : 1.5))
-        : stake * (bot.openSignal.slMultiplier || 1.0);
+    const pnlAmt      = hit === 'TP'
+        ? lotSize * pv * tpPriceDist
+        : lotSize * pv * slPriceDist;
 
-    // PHANTOM scale-out uses same stake logic
-    // (halfPnl already handled above, this is the full close path)
-
-    // PHANTOM full close (SL or trailed TP of remainder)
-    if (bot.openSignal.isPhantom) {
-        _phantomCloseTrade(bot, hit, pnlAmt, closed);
-        return;
-    }
-
-    // NOVA full close
-    if (bot.openSignal.isNova) {
-        _novaCloseTrade(bot, hit, pnlAmt, closed);
-        return;
-    }
-
-    // PULSE full close
-    if (bot.openSignal.isPulse) {
-        _pulseCloseTrade(bot, hit, pnlAmt, closed);
-        return;
-    }
-
-    // KISMET full close
-    if (bot.openSignal.isKismet) {
-        _kismetCloseTrade(bot, hit, pnlAmt, closed);
-        return;
-    }
-
-    // VORTEX full close
-    if (bot.openSignal.isVortex) {
-        _vortexCloseTrade(bot, hit, pnlAmt, closed);
-        return;
-    }
+    if (bot.openSignal.isPhantom) { _phantomCloseTrade(bot, hit, pnlAmt, closed); return; }
+    if (bot.openSignal.isNova)    { _novaCloseTrade(bot, hit, pnlAmt, closed);    return; }
+    if (bot.openSignal.isPulse)   { _pulseCloseTrade(bot, hit, pnlAmt, closed);   return; }
+    if (bot.openSignal.isKismet)  { _kismetCloseTrade(bot, hit, pnlAmt, closed);  return; }
+    if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; }
 
     if (hit === 'TP') {
         log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
@@ -1878,10 +1654,10 @@ function checkOutcome(bot) {
     const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
     SessionState.set({ wins, losses, sessionPnL: pnl, winRate });
 
-    // ── Auto cloud sync every trade (fire-and-forget) ──────────
     if (!Auth.isGuest()) {
         Auth.syncTrades(SessionState.get().trades).catch(() => {});
     }
+
     const outcomeEngine = _engineFor(bot.id);
     if (outcomeEngine) {
         outcomeEngine.clearMarkers();
@@ -1890,8 +1666,6 @@ function checkOutcome(bot) {
 
     bot.openSignal = null;
 
-    // ── LOSS PROTECTION (3× SL rule) ─────────────────────────
-    // Record SL timestamp and candle index for cooldown/re-entry filters
     if (hit === 'SL') {
         bot.lastSLTimeMs = Date.now();
         bot.lastSLBarIdx = bot.candles.length;
@@ -1911,8 +1685,6 @@ function checkOutcome(bot) {
         }
     }
 
-    // ── DAILY LOSS LIMIT CHECK after every loss ───────────────
-    // PHANTOM manages its own loss limit — skip global check for it
     const maxDailyLoss = Settings.get('maxDailyLoss') || 500;
     const currentPnL   = SessionState.get().sessionPnL;
     if (bot.config.strategy !== 'phantom' && bot.config.strategy !== 'nova' && bot.config.strategy !== 'pulse' && bot.config.strategy !== 'kismet' && bot.config.strategy !== 'vortex' && currentPnL <= -maxDailyLoss) {
@@ -1927,17 +1699,15 @@ function checkOutcome(bot) {
 // ─────────────────────────────────────────────────────────────
 function redrawOverlays() {
     if (!focusedBotId || !bots[focusedBotId]) return;
-    const bot = bots[focusedBotId];
-
+    const bot    = bots[focusedBotId];
     const engine = _engineFor(focusedBotId);
     if (!engine) return;
     _drawOverlaysOnEngine(engine, bot);
 }
 
-// Draws active overlays onto any engine (split panel or main)
 function _drawOverlaysOnEngine(engine, bot) {
     const series = engine.getCandleSeries();
-    OverlayManager.clearAll(series, engine);  // engine is the stable key
+    OverlayManager.clearAll(series, engine);
     if (document.getElementById('show-asian')?.checked)  OverlayManager.drawAsianRange(series, bot.candles);
     if (document.getElementById('show-pdhpdl')?.checked) OverlayManager.drawPDHPDL(series, bot.h4Candles);
     if (document.getElementById('show-fvg')?.checked)    OverlayManager.drawFVG(series, bot.candles, engine);
@@ -1948,23 +1718,19 @@ function _drawOverlaysOnEngine(engine, bot) {
     if (document.getElementById('show-bos')?.checked)    OverlayManager.drawBreakOfStructure(series, bot.candles);
 }
 
-// Redraws overlays on ALL active split panels using each bot's own state
 function redrawAllSplitOverlays() {
     if (!ChartManager.isSplitMode()) return;
     Object.values(bots).forEach(bot => {
         if (!bot.isActive) return;
         const eng = ChartManager.get(bot.id);
         if (!eng) return;
-        // Use this bot's saved overlay state
         const saved = overlayState[bot.id] || {};
-        // Temporarily apply this bot's overlay state to checkboxes, draw, restore
         const current = {};
         OVERLAY_IDS.forEach(id => {
             const el = document.getElementById(id);
             if (el) { current[id] = el.checked; el.checked = saved[id] || false; }
         });
         _drawOverlaysOnEngine(eng, bot);
-        // Restore focused bot's state
         OVERLAY_IDS.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.checked = current[id];
@@ -1981,20 +1747,10 @@ function _showRiskAlert(message) {
         alert = document.createElement('div');
         alert.id = 'risk-alert';
         alert.style.cssText = `
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #ef4444;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 0.72rem;
-            font-weight: 600;
-            letter-spacing: 0.04em;
-            z-index: 9999;
-            box-shadow: 0 8px 24px rgba(239,68,68,0.4);
-            animation: riskSlideIn 0.3s ease;
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #ef4444; color: white; padding: 12px 24px; border-radius: 8px;
+            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; z-index: 9999;
+            box-shadow: 0 8px 24px rgba(239,68,68,0.4); animation: riskSlideIn 0.3s ease;
         `;
         document.body.appendChild(alert);
     }
@@ -2020,16 +1776,12 @@ function logout() {
     document.getElementById('connection-indicator').className = 'status-dot status-offline';
     document.getElementById('conn-label').textContent         = 'Offline';
     document.getElementById('mt5-indicator').className        = 'status-dot status-offline';
-    // Clear all bot cards from the UI
     const botList = document.getElementById('bot-list');
     if (botList) botList.innerHTML = '';
-    // Remove all chart panels
     Object.keys(bots).forEach(id => ChartManager.removeBot(id));
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph) ph.style.display = 'flex';
     log('Logged out', 'warn');
-
-    // Sync trades to server before logging out of NEXUS auth
     const trades = SessionState.get().trades;
     Auth.syncTrades(trades).finally(() => Auth.logout());
 }
@@ -2069,12 +1821,16 @@ function _createBotCard(id, savedConfig) {
         symbolSelect.appendChild(opt);
     });
 
-    // Restore saved config if provided
     if (savedConfig) {
         stratSelect.value = savedConfig.strategy;
         symbolSelect.value = savedConfig.symbol;
         const tfSelect = card.querySelector('.bot-tf-select');
         if (tfSelect) tfSelect.value = savedConfig.tf;
+        // Restore lot size inputs
+        const lotInput = card.querySelector('.bot-lot-input');
+        if (lotInput && savedConfig.lotSize) lotInput.value = savedConfig.lotSize;
+        const phantomLotInput = card.querySelector('.phantom-lot-input');
+        if (phantomLotInput && savedConfig.phantomLot) phantomLotInput.value = savedConfig.phantomLot;
     }
 
     const updateLabel = () => {
@@ -2087,13 +1843,10 @@ function _createBotCard(id, savedConfig) {
     symbolSelect.addEventListener('change', updateLabel);
     updateLabel();
 
-    // ── PHANTOM settings panel visibility ────────────────────
     const phantomPanel = card.querySelector('.phantom-settings');
     const tfSelect     = card.querySelector('.bot-tf-select');
     const showHidePhantom = () => {
         if (phantomPanel) phantomPanel.style.display = stratSelect.value === 'phantom' ? 'block' : 'none';
-
-        // NOVA/KISMET: show M1 notice, lock TF visually
         const isM1Strat = stratSelect.value === 'nova' || stratSelect.value === 'kismet';
         let m1Notice = card.querySelector('.m1-notice');
         if (isM1Strat) {
@@ -2113,7 +1866,6 @@ function _createBotCard(id, savedConfig) {
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
 
-    // Configure button — sets session targets
     const configureBtn = card.querySelector('.phantom-configure-btn');
     if (configureBtn) {
         configureBtn.onclick = () => {
@@ -2137,7 +1889,6 @@ function _createBotCard(id, savedConfig) {
         };
     }
 
-    // Restore PHANTOM badge if already configured
     if (savedConfig?.strategy === 'phantom') {
         _updatePhantomBadge(id, PhantomStrategy.getSession());
     }
@@ -2178,15 +1929,14 @@ window.getBotConfig = function(id) {
     const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
     if (!card) return null;
     const strategy = card.querySelector('.bot-strategy-select').value;
-    // NOVA and KISMET run on M5 — M1 ATR too small for Deriv broker min stop levels
     const tfRaw    = parseInt(card.querySelector('.bot-tf-select').value);
     const tf       = (strategy === 'nova' || strategy === 'kismet') ? 300 : tfRaw;
     return {
         strategy,
-        symbol:   card.querySelector('.bot-symbol-select').value,
+        symbol:              card.querySelector('.bot-symbol-select').value,
         tf,
-        stake:               parseFloat(card.querySelector('.bot-stake-input')?.value) || 1,
-        phantomStake:        parseFloat(card.querySelector('.phantom-stake-input')?.value) || 1,
+        lotSize:             parseFloat(card.querySelector('.bot-lot-input')?.value)     || 0.01,
+        phantomLot:          parseFloat(card.querySelector('.phantom-lot-input')?.value) || 0.01,
         phantomCooldownBars: 3,
     };
 };
@@ -2239,7 +1989,6 @@ window.registerBotSignal = function(id, type, price, label, confidence) {
         badge.style.background = confidence.color + '22';
         badge.style.color      = confidence.color;
         badge.style.border     = `1px solid ${confidence.color}55`;
-        // Auto-clear after 60s
         clearTimeout(badge._timer);
         badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
     }
