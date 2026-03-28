@@ -27,6 +27,8 @@ import { Settings }          from './js/pages/settings.js';
 import { ChartManager, initChartManager } from './js/chart-manager.js';
 import { ConfidenceEngine }          from './js/confidence.js';
 import { Auth }              from './js/auth.js';
+import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
+
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
@@ -111,6 +113,7 @@ const STRATEGY_GROUPS = [
             { value: 'momentum',        label: 'Momentum Scalper'  },
             { value: 'rsi_fade',        label: 'RSI Fade Scalper'  },
             { value: 'swing',           label: 'Swing'             },
+            { value: 'cipher', label: 'CIPHER (BTC Structure)' },
         ]
     },
     {
@@ -159,6 +162,8 @@ function _pointValue(symbol) {
         'BOOM500':    0.41,
         'CRASH_500':  0.41,
         'BOOM_500':   0.41,
+        'cryBTCUSD': 0.01,  // ~$0.01/pt/lot at current sizing — verify from live trades
+        'BTCUSD':    0.01,  // same — update once you have live data
     };
     return MAP[symbol] || 0.41;
 }
@@ -790,8 +795,8 @@ function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
     if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
     if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'cipher')  {_runCipher(bot, bar, atr, rsi);   return; }
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
-
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
         if (forexStrategies.includes(bot.config.strategy)) {
@@ -1282,6 +1287,61 @@ function _runKismet(bot, bar, atr, rsi) {
     log(`🎯 KISMET ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | score ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
+}
+
+function _runCipher(bot, bar, atr, rsi) {
+    if (!isCipherSymbol(bot.config.symbol)) {
+        log(`⚡ CIPHER: ${bot.config.symbol} not supported. Use cryBTCUSD or BTCUSD.`, 'warn');
+        return;
+    }
+ 
+    if (bot.openSignal?.isCipher) {
+        _applyTrailingStop(bot, atr);
+        return;
+    }
+    if (bot.openSignal) return;
+ 
+    if (CipherStrategy.isHalted(bot.id)) {
+        log(`⚡ CIPHER halted — 5 consecutive losses`, 'warn');
+        return;
+    }
+ 
+    const signal = CipherStrategy.checkEntry(bot.candles, bot.h4Candles, atr, bot.id);
+    if (!signal) return;
+ 
+    CipherStrategy.recordTrade(bot.id);
+    log(`⚡ CIPHER ${signal.type} @ ${bar.close.toFixed(2)} | score ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
+ 
+    fireSignal(bot, signal, bar, atr, rsi, null);
+}
+
+function _cipherCloseTrade(bot, outcome, pnlAmt, bar) {
+    const { type, entry, sl, tp } = bot.openSignal;
+    CipherStrategy.recordOutcome(bot.id, outcome);
+ 
+    if (outcome === 'TP') {
+        log(`⚡ CIPHER ✓ +$${pnlAmt.toFixed(2)}`, 'buy');
+        window.registerBotWin(bot.id, pnlAmt);
+        UIManager.registerWin(pnlAmt);
+        UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
+        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'cipher', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
+        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
+    } else {
+        log(`⚡ CIPHER ✗ -$${pnlAmt.toFixed(2)}`, 'sell');
+        window.registerBotLoss(bot.id, pnlAmt);
+        UIManager.registerLoss(pnlAmt);
+        UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
+        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'cipher', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
+        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
+    }
+ 
+    SessionState.pushTrade({
+        time: Date.now(), symbol: bot.config.symbol, strategy: 'cipher',
+        type, entry, sl, tp, outcome, pnl: pnlAmt,
+        confidence: bot.lastConfidence || null,
+    });
+ 
+    bot.openSignal = null;
 }
 
 function _kismetCloseTrade(bot, outcome, pnlAmt, bar) {

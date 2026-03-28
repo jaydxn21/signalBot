@@ -13,6 +13,8 @@ import { CandleSpeedScalper } from './strategies/candle-speed.js';
 import { LondonBreakout }     from './strategies/london-breakout.js';
 import { NewsFadeScalper }    from './strategies/news-fade.js';
 import { UltraScalper }       from './strategies/ultra-scalper.js';
+import { CipherStrategy } from './strategies/cipher.js';
+
 
 // --- ADD THIS MAP ABOVE THE CLASS ---
 const STRATEGY_MODULES = {
@@ -31,6 +33,8 @@ const STRATEGY_MODULES = {
     london_breakout: LondonBreakout,
     news_fade: NewsFadeScalper,
     ultra_scalp: UltraScalper,
+    cipher: CipherStrategy,
+
 };
 
 export class StrategyEngine {
@@ -56,6 +60,7 @@ export class StrategyEngine {
             case 'candle_speed':    signal = CandleSpeedScalper.checkEntry(lowerTFCandles, atr);                             break;
             case 'london_breakout': signal = LondonBreakout.checkEntry(lowerTFCandles, atr);                                 break;
             case 'news_fade':       signal = NewsFadeScalper.checkEntry(lowerTFCandles, atr);                                break;
+            case 'cipher':          signal = CipherStrategy.checkEntry(lowerTFCandles, higherTFCandles, atr, 'engine');      break;
             case 'ultra_scalp':     signal = UltraScalper.checkEntry(lowerTFCandles, atr);                                   break;
         }
 
