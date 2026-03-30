@@ -1,14 +1,16 @@
-// cipher.js — CIPHER v1  BTC Hybrid Strategy
+// cipher.js — CIPHER v2 Enhanced — BTC Hybrid Strategy
 //
-// APPROACH: Structure + Trend
-//   H4 bias first — EMA21 slope determines direction. No trades against it.
-//   M5 entry — pullback to EMA zone + RSI recovery + body momentum trigger.
-//   Volatility gate — skip consolidation (ATR < 40% of 20-bar average).
-//   2:1 R:R minimum — breakeven WR = 33%. Wide margin for error.
+// IMPROVEMENTS over v1:
+//   1. H4+M5 multi-TF alignment — both must agree for high confidence
+//   2. Confidence gating — signals generate but only trade if score ≥ 65
+//   3. Rejected signal logging — tracks bad signals for tuning
+//   4. Stricter H4 bias — requires EMA21 slope to be consistent
+//   5. M5 entry now requires H4 direction agreement
 //
 // SYMBOLS: cryBTCUSD, BTCUSD (any BTC pair on Deriv)
 // TIMEFRAME: M5 entry, H4 bias
 // SESSIONS: 24/7 — self-filters via volatility regime gate
+// CONFIDENCE GATE: ≥ 65 to execute (tune down to 60 if needing 20-30/day)
 
 const CIPHER_SYMBOLS = ['cryBTCUSD', 'BTCUSD'];
 
@@ -62,35 +64,44 @@ function _atrAvg(candles, period = 10, lookback = 20) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// H4 BIAS
-// Returns 'BUY', 'SELL', or null (flat — no trade)
-// Uses EMA21 on H4. Requires slope confirmation (last 3 bars).
+// H4 BIAS — ENHANCED: Requires slope + price alignment
+// Returns { bias: 'BUY'|'SELL'|null, strength: 0-100 }
 // ─────────────────────────────────────────────────────────────
-function _h4Bias(h4Candles) {
-    if (!h4Candles || h4Candles.length < 25) return null;
+function _h4BiasEnhanced(h4Candles) {
+    if (!h4Candles || h4Candles.length < 25) return { bias: null, strength: 0 };
 
     const ema21now  = _ema(h4Candles, 21);
-    const ema21prev = _ema(h4Candles.slice(0, -3), 21);
-    if (!ema21now || !ema21prev) return null;
+    const ema21prev = _ema(h4Candles.slice(0, -5), 21);
+    if (!ema21now || !ema21prev) return { bias: null, strength: 0 };
 
     const price = h4Candles[h4Candles.length - 1].close;
     const slope = ema21now - ema21prev;
 
-    // Require both price position AND slope direction
-    // Flat slope (< 0.1% of price) = no bias
-    const flatThreshold = price * 0.001;
-    if (Math.abs(slope) < flatThreshold) return null;
+    // Require both price position AND slope direction (stricter)
+    const flatThreshold = price * 0.002;
+    if (Math.abs(slope) < flatThreshold) return { bias: null, strength: 0 };
 
-    if (price > ema21now && slope > 0) return 'BUY';
-    if (price < ema21now && slope < 0) return 'SELL';
-    return null; // price and slope disagree — skip
+    // Strength metric: how aligned is price + slope?
+    let strength = 50;
+    const distToEMA = Math.abs(price - ema21now);
+    const emaPercent = distToEMA / price;
+    
+    if (emaPercent < 0.002) strength += 25; // very close to EMA
+    else if (emaPercent < 0.005) strength += 15;
+    
+    const slopeStrength = Math.abs(slope) / price;
+    if (slopeStrength > 0.003) strength += 10;
+
+    if (price > ema21now && slope > 0) return { bias: 'BUY', strength: Math.min(100, strength) };
+    if (price < ema21now && slope < 0) return { bias: 'SELL', strength: Math.min(100, strength) };
+    
+    return { bias: null, strength: 0 }; // price and slope disagree
 }
 
 // ─────────────────────────────────────────────────────────────
 // M5 ENTRY CONDITIONS
 // ─────────────────────────────────────────────────────────────
 
-// Pullback to EMA zone: price within 1×ATR of EMA8/EMA21 band
 function _inEMAZone(candles, atr, bias) {
     const cl  = candles.slice(0, -1);
     const c0  = cl[cl.length - 1];
@@ -102,11 +113,10 @@ function _inEMAZone(candles, atr, bias) {
     const zoneBottom = Math.min(e8, e21) - atr * 0.3;
 
     if (bias === 'BUY')  return c0.low  <= zoneTop    && c0.close >= zoneBottom;
-    if (bias === 'SELL') return c0.high >= zoneBottom  && c0.close <= zoneTop;
+    if (bias === 'SELL') return c0.high >= zoneBottom && c0.close <= zoneTop;
     return false;
 }
 
-// RSI in recovery zone — not overextended in entry direction
 function _rsiOk(rsiVal, bias) {
     if (!rsiVal) return false;
     if (bias === 'BUY')  return rsiVal >= 35 && rsiVal <= 60;
@@ -114,7 +124,6 @@ function _rsiOk(rsiVal, bias) {
     return false;
 }
 
-// Trigger candle: body > 60% of range, closing in bias direction
 function _triggerCandle(candles, bias) {
     const cl = candles.slice(0, -1);
     const c0 = cl[cl.length - 1];
@@ -132,15 +141,21 @@ function _triggerCandle(candles, bias) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CIPHER STRATEGY
+// CIPHER STRATEGY — ENHANCED WITH CONFIDENCE GATING
 // ─────────────────────────────────────────────────────────────
 export const CipherStrategy = {
 
-    _stats: {}, // { [botId]: { consLosses, lastFiredMs, tradeCount, windowStart } }
+    _stats: {}, // { [botId]: { consLosses, lastFiredMs, tradeCount, windowStart, rejectedSignals } }
 
     _getStats(botId) {
         if (!this._stats[botId]) {
-            this._stats[botId] = { consLosses: 0, lastFiredMs: 0, tradeCount: 0, windowStart: Date.now() };
+            this._stats[botId] = {
+                consLosses: 0,
+                lastFiredMs: 0,
+                tradeCount: 0,
+                windowStart: Date.now(),
+                rejectedSignals: [],
+            };
         }
         return this._stats[botId];
     },
@@ -172,6 +187,18 @@ export const CipherStrategy = {
         s.lastFiredMs = Date.now();
     },
 
+    // Log a rejected signal for analysis
+    logRejectedSignal(botId, confidence, reason) {
+        const s = this._getStats(botId);
+        s.rejectedSignals.push({
+            time: Date.now(),
+            score: confidence,
+            reason,
+        });
+        // Keep last 100 rejected signals
+        if (s.rejectedSignals.length > 100) s.rejectedSignals.shift();
+    },
+
     checkEntry(m5Candles, h4Candles, atr, botId) {
         if (!m5Candles || m5Candles.length < 25 || !atr) return null;
         if (this.isHalted(botId))      return null;
@@ -184,13 +211,14 @@ export const CipherStrategy = {
         if (Date.now() - s.lastFiredMs < cooldownMs) return null;
 
         // ── Volatility regime gate ────────────────────────────
-        // Skip consolidation. ATR must be >= 40% of 20-bar average.
         const avgAtr = _atrAvg(m5Candles);
         if (avgAtr && atr < avgAtr * 0.4) return null;
 
-        // ── H4 bias ───────────────────────────────────────────
-        const bias = _h4Bias(h4Candles);
-        if (!bias) return null;
+        // ── H4 bias with strength ─────────────────────────────
+        const h4result = _h4BiasEnhanced(h4Candles);
+        const bias = h4result.bias;
+        const h4Strength = h4result.strength;
+        if (!bias) return null; // No H4 bias = no trade
 
         // ── RSI ───────────────────────────────────────────────
         const rsiVal = _rsi(m5Candles.slice(0, -1));
@@ -202,16 +230,34 @@ export const CipherStrategy = {
         // ── Trigger candle ────────────────────────────────────
         if (!_triggerCandle(m5Candles, bias)) return null;
 
-        const score = 70
-            + (rsiVal && bias === 'BUY'  && rsiVal < 50 ? 10 : 0)
-            + (rsiVal && bias === 'SELL' && rsiVal > 50 ? 10 : 0);
+        // ── CONFIDENCE CALCULATION ────────────────────────────
+        // Base: 50 + H4 strength + M5 confluence
+        let confidence = 50 + (h4Strength / 100) * 25; // H4 can add up to 25
+        
+        // M5 confluence
+        if (rsiVal && bias === 'BUY'  && rsiVal < 50) confidence += 10;
+        if (rsiVal && bias === 'SELL' && rsiVal > 50) confidence += 10;
+        confidence = Math.min(100, confidence);
+
+        // ── CONFIDENCE GATE — Only trade if score ≥ 65 ────────
+        // Tune this threshold:
+        //   65 = strict, fewer trades but higher quality
+        //   60 = balanced, ~20-30 trades/day
+        //   55 = loose, more trades but lower quality
+        const CONFIDENCE_THRESHOLD = 65;
+        
+        if (confidence < CONFIDENCE_THRESHOLD) {
+            // Signal generated but rejected due to low confidence
+            this.logRejectedSignal(botId, confidence, 'confidence gate');
+            return null; // Do NOT trade
+        }
 
         return {
             type:         bias,
-            label:        `CIPHER ${bias} [H4+M5 ${score}]`,
-            score,
+            label:        `CIPHER ${bias} [H4+M5 ${Math.round(confidence)}]`,
+            score:        Math.round(confidence),
             factors:      [
-                `H4 bias ${bias}`,
+                `H4 bias ${bias} (str ${h4Strength.toFixed(0)})`,
                 `EMA zone pullback`,
                 `RSI ${rsiVal?.toFixed(0)}`,
                 `Trigger candle`,

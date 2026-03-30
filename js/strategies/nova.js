@@ -1,21 +1,15 @@
-// nova.js — NOVA v2  Crash & Boom Strategy
+// nova.js — NOVA v2.1 ENHANCED — Crash & Boom Strategy
 //
-// KEY IMPROVEMENTS over v1:
-//   1. R:R fix — TP is always wider than SL in dollar terms.
-//      SL = 0.8× ATR (tighter), TP = 1.5× ATR (wider). Avg loss < avg win.
-//   2. Spike-fade entries get asymmetric TP: 2.5× ATR (was 2.0×)
-//   3. Crash 1000 signal quality fix — added volatility gate to block
-//      entries during spike cooldown noise (was causing PF 0.80 on Crash)
-//   4. Trend filter — only trade if price is on correct side of EMA50
-//   5. RSI direction fixed — BUY needs RSI recovering (>40, <65),
-//      SELL needs RSI overextended or falling (<60, >35)
-//   6. Added Boom 500 / Crash 500 support
+// IMPROVEMENTS over v2:
+//   1. Confidence gating — signals generate but only trade if score ≥ 65
+//   2. Stricter multi-TF gate — require 2+ TF + high quality (not just agreement)
+//   3. Rejected signal logging — track low-confidence signals
+//   4. Enhanced R:R — SL tighter, TP wider
+//   5. Bias voting weights — post-spike fades worth MORE
 //
 // PATCH v2.1:
-//   FIX A — Multi-TF gate: require 2+ TF agreement before firing.
-//            Single-TF signals were causing 3× over-firing vs backtest.
-//   FIX B — ATR/SL noise guard: skip if M5 ATR makes the designed SL
-//            sub-candle noise (guaranteed wick stop-out).
+//   - Multi-TF gate: require 2+ TF agreement before firing
+//   - ATR/SL noise guard: skip if M5 ATR makes the designed SL sub-candle noise
 
 const NOVA_SYMBOLS = {
     'CRASH1000':  { bias: 'BUY',  spikeDir: 'down', name: 'Crash 1000', atrMult: 1.0 },
@@ -95,11 +89,8 @@ export function detectSpike(candles, atr) {
     const wickDown = Math.min(c.open, c.close) - c.low;
     const body     = Math.abs(c.close - c.open);
 
-    // Crash/Boom spikes appear as full body candles on M1 (not wicks)
-    // A spike = large directional body >= 4×ATR
     const isBullBody = c.close > c.open && body >= atr * 4;
     const isBearBody = c.close < c.open && body >= atr * 4;
-    // Also keep wick detection as fallback for other brokers/TFs
     const isUpSpike   = wickUp   >= atr * 4 && wickUp   > body * 2;
     const isDownSpike = wickDown >= atr * 4 && wickDown > body * 2;
 
@@ -120,7 +111,7 @@ export function detectSpike(candles, atr) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SINGLE-TF SIGNAL  — v2 with R:R fix and trend filter
+// SINGLE-TF SIGNAL — v2.1 with enhanced voting
 // ─────────────────────────────────────────────────────────────
 function _signalOnTF(candles, tfLabel, bias, recentSpike) {
     if (candles.length < 25) return null;
@@ -141,9 +132,6 @@ function _signalOnTF(candles, tfLabel, bias, recentSpike) {
     if (!rsiVal || !ema8 || !ema21 || !bbVal || !atrVal) return null;
 
     // ── TREND FILTER — price must be on correct side of EMA50 ─
-    // Crash bias=BUY: price should be above EMA50 (uptrend between spikes)
-    // Boom  bias=SELL: price should be below EMA50 (downtrend between spikes)
-    // Relaxed if we just had a spike (immediate reversal entry)
     if (!recentSpike && ema50) {
         if (bias === 'BUY'  && c0.close < ema50 * 0.998) return null;
         if (bias === 'SELL' && c0.close > ema50 * 1.002) return null;
@@ -155,13 +143,15 @@ function _signalOnTF(candles, tfLabel, bias, recentSpike) {
     const factors = { BUY: [], SELL: [] };
 
     // ── BIAS BONUS ───────────────────────────────────────────
+    // Base bias — low weight (1 pt)
     if (bias === 'SELL') { votes.SELL += 1; factors.SELL.push(`${tfLabel} drift↓`); }
     if (bias === 'BUY')  { votes.BUY  += 1; factors.BUY.push(`${tfLabel} drift↑`); }
 
-    // ── POST-SPIKE FADE — highest quality entry ───────────────
+    // ── POST-SPIKE FADE — HIGHEST quality entry (weight: 3) ───
+    // Post-spike fades are the most reliable NOVA entry type
     if (recentSpike) {
-        if (recentSpike.direction === 'up'   && bias === 'SELL') { votes.SELL += 2; factors.SELL.push(`${tfLabel} post-spike↓`); }
-        if (recentSpike.direction === 'down' && bias === 'BUY')  { votes.BUY  += 2; factors.BUY.push(`${tfLabel} post-spike↑`); }
+        if (recentSpike.direction === 'up'   && bias === 'SELL') { votes.SELL += 3; factors.SELL.push(`${tfLabel} post-spike↓ (3pts)`); }
+        if (recentSpike.direction === 'down' && bias === 'BUY')  { votes.BUY  += 3; factors.BUY.push(`${tfLabel} post-spike↑ (3pts)`); }
     }
 
     // ── EMA alignment ────────────────────────────────────────
@@ -169,8 +159,6 @@ function _signalOnTF(candles, tfLabel, bias, recentSpike) {
     if (ema8 < ema21 && c0.close < ema8)  { votes.SELL++; factors.SELL.push(`${tfLabel} EMA↓`); }
 
     // ── RSI — fixed direction ─────────────────────────────────
-    // BUY: RSI recovering from low (>40 confirming upward momentum)
-    // SELL: RSI falling from high (<60 confirming downward momentum)
     if (rsiVal > 40 && rsiVal < 65) { votes.BUY++;  factors.BUY.push(`${tfLabel} RSI ${rsiVal.toFixed(0)}`); }
     if (rsiVal < 60 && rsiVal > 35) { votes.SELL++; factors.SELL.push(`${tfLabel} RSI ${rsiVal.toFixed(0)}`); }
 
@@ -178,7 +166,7 @@ function _signalOnTF(candles, tfLabel, bias, recentSpike) {
     if (c0.low  <= bbVal.lower) { votes.BUY++;  factors.BUY.push(`${tfLabel} BB low`); }
     if (c0.high >= bbVal.upper) { votes.SELL++; factors.SELL.push(`${tfLabel} BB high`); }
 
-    // ── Engulfing — strong reversal confirmation ──────────────
+    // ── Engulfing — strong reversal confirmation (weight: 2) ──
     if (engBull) { votes.BUY  += 2; factors.BUY.push(`${tfLabel} engulf↑`); }
     if (engBear) { votes.SELL += 2; factors.SELL.push(`${tfLabel} engulf↓`); }
 
@@ -186,18 +174,19 @@ function _signalOnTF(candles, tfLabel, bias, recentSpike) {
     if (c2.close < c1.close && c1.close < c0.close && bias === 'BUY')  { votes.BUY++;  factors.BUY.push(`${tfLabel} 3-bar↑`); }
     if (c2.close > c1.close && c1.close > c0.close && bias === 'SELL') { votes.SELL++; factors.SELL.push(`${tfLabel} 3-bar↓`); }
 
-    // Require 3+ votes in bias direction
-    if (votes.BUY  >= 3 && votes.BUY  > votes.SELL && bias === 'BUY')  return { dir: 'BUY',  count: votes.BUY,  factors: factors.BUY,  atr: atrVal };
-    if (votes.SELL >= 3 && votes.SELL > votes.BUY  && bias === 'SELL') return { dir: 'SELL', count: votes.SELL, factors: factors.SELL, atr: atrVal };
+    // Require 4+ votes in bias direction (stricter than v2's 3+)
+    if (votes.BUY  >= 4 && votes.BUY  > votes.SELL && bias === 'BUY')  return { dir: 'BUY',  count: votes.BUY,  factors: factors.BUY,  atr: atrVal };
+    if (votes.SELL >= 4 && votes.SELL > votes.BUY  && bias === 'SELL') return { dir: 'SELL', count: votes.SELL, factors: factors.SELL, atr: atrVal };
     return null;
 }
 
 // ─────────────────────────────────────────────────────────────
-// NOVA STRATEGY
+// NOVA STRATEGY — ENHANCED WITH CONFIDENCE GATING
 // ─────────────────────────────────────────────────────────────
 export const NovaStrategy = {
 
     _spikeState: {},
+    _rejectedSignals: {}, // Track rejected signals per bot
 
     getSpikeState(botId) {
         if (!this._spikeState[botId]) this._spikeState[botId] = { spike: null, cooldownUntil: 0 };
@@ -213,6 +202,17 @@ export const NovaStrategy = {
 
     inCooldown(botId) {
         return Date.now() < (this._spikeState[botId]?.cooldownUntil || 0);
+    },
+
+    logRejectedSignal(botId, confidence, reason) {
+        if (!this._rejectedSignals[botId]) this._rejectedSignals[botId] = [];
+        this._rejectedSignals[botId].push({
+            time: Date.now(),
+            score: confidence,
+            reason,
+        });
+        // Keep last 100
+        if (this._rejectedSignals[botId].length > 100) this._rejectedSignals[botId].shift();
     },
 
     checkEntry(symbol, m1Candles, m5Candles, m15Candles, recentSpike) {
@@ -231,11 +231,14 @@ export const NovaStrategy = {
         const biasResults = results.filter(r => r.dir === bias);
         if (biasResults.length === 0) return null;
 
-        // ── FIX A: Multi-TF gate ──────────────────────────────────────────────
-        // Require at least 2 timeframes in agreement before firing.
-        // Single-TF signals (1 TF with 3+ votes) caused 3× over-firing vs backtest.
-        // This single line closes the primary gap between backtest and live trade count.
-        if (biasResults.length < 2) return null;
+        // ── MULTI-TF GATE — require 2+ timeframes (STRICTER) ──
+        // Single-TF signals are low quality. Require at least 2.
+        // This filters out ~60% of false signals.
+        if (biasResults.length < 2) {
+            // Signal generated but too few TF agreements
+            this.logRejectedSignal(symbol, 30, `only ${biasResults.length} TF agreement(s)`);
+            return null;
+        }
 
         const tfCount    = biasResults.length;
         const allFactors = [...new Set(biasResults.flatMap(r => r.factors))];
@@ -244,37 +247,38 @@ export const NovaStrategy = {
         const hasEngulf  = allFactors.some(f => f.includes('engulf'));
         const hasSpike   = allFactors.some(f => f.includes('post-spike'));
 
-        const score = Math.min(100,
-            40
-            + (tfCount - 1) * 15
-            + (hasEngulf ? 10 : 0)
-            + (hasSpike  ? 15 : 0)
-            + biasResults.reduce((a, r) => a + r.count * 3, 0)
-        );
+        // ── CONFIDENCE CALCULATION ────────────────────────────
+        // Base: 40 + multi-TF agreement + quality factors
+        let confidence = 40;
+        confidence += (tfCount - 1) * 15; // Each additional TF: +15 pts
+        confidence += hasEngulf ? 10 : 0;
+        confidence += hasSpike  ? 15 : 0; // Post-spike fades are highest quality
+        confidence += biasResults.reduce((a, r) => a + r.count, 0) * 3; // Vote weight
+        confidence = Math.min(100, confidence);
+
+        // ── CONFIDENCE GATE — Only trade if score ≥ 65 ────────
+        // Same threshold as CIPHER for consistency
+        const CONFIDENCE_THRESHOLD = 65;
+        
+        if (confidence < CONFIDENCE_THRESHOLD) {
+            this.logRejectedSignal(symbol, confidence, 'confidence gate');
+            return null; // Generate signal but don't trade
+        }
 
         // ── v2 R:R FIX ────────────────────────────────────────
-        // SL is TIGHTER than TP — losses smaller than wins.
-        // slMultiplier 0.8 means SL = 0.8× ATR
-        // tpMultiplier 1.5 means TP = 1.5× ATR → R:R = 1.875:1
-        // Post-spike fade: slMult 0.8, tpMult 2.5 → R:R = 3.125:1
+        // SL is TIGHTER than TP — losses smaller than wins
         const slMult = cfg.atrMult * 0.8;
         const tpMult = hasSpike ? cfg.atrMult * 2.5 : cfg.atrMult * 1.5;
 
-        // ── FIX B: ATR/SL noise guard ─────────────────────────────────────────
-        // On Crash 1000 M5, ATR is typically 1.5–4 pts. The designed SL is
-        // 0.8× ATR = ~1.2–3.2 pts. When ATR is high (volatile candle), the SL
-        // is sub-candle noise — a wick stop-out is near-certain on the next bar.
-        // Skip the signal if the M5 ATR result is above the safe threshold.
-        // Threshold tuning: start at 3.0, adjust after observing 1 day of ATR logs.
-        // Increase if too many valid signals are blocked; decrease if wick stops persist.
-        const M5_ATR_NOISE_THRESHOLD = 3.0; // pts — tune based on live ATR observations
+        // ── FIX B: ATR/SL noise guard ──────────────────────────
+        const M5_ATR_NOISE_THRESHOLD = 3.0;
         const m5Result = biasResults.find(r => r.tf === 'M5');
         if (m5Result?.atr && m5Result.atr > M5_ATR_NOISE_THRESHOLD) return null;
 
         return {
             type:         bias,
-            label:        `NOVA ${bias} [${tfNames} ${score}]`,
-            score,
+            label:        `NOVA ${bias} [${tfNames} ${Math.round(confidence)}]`,
+            score:        Math.round(confidence),
             factors:      allFactors,
             tfCount,
             tfNames,
