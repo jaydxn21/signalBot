@@ -308,7 +308,7 @@ export const KismetStrategy = {
         // If the resulting SL distance is below the viable minimum, a wick will
         // stop the trade out on the very next candle regardless of direction.
         // MIN_SL_POINTS: start at 1.5 pts. Raise to 2.0 if wick stops persist.
-        const MIN_SL_POINTS = 1.0;
+        const MIN_SL_POINTS = 1.5;
         if (atr * 0.5 < MIN_SL_POINTS) return null;
 
         // ── FIX: MAX ATR guard ────────────────────────────────────────────────
