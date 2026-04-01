@@ -18,6 +18,20 @@ const NOVA_SYMBOLS_V3 = {
     'BOOM_500':   { bias: 'SELL', spikeDir: 'up',   name: 'Boom 500',   reversionMult: 0.5 },
 };
 
+// ─────────────────────────────────────────────────────────────
+// EXPORTED SYMBOL CONFIG FUNCTION (compatible with signal-bot.js)
+// ─────────────────────────────────────────────────────────────
+export function novaSymbolConfig(symbol) {
+    return NOVA_SYMBOLS_V3[symbol] || null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// EXPORTED SPIKE DETECTION (compatible with signal-bot.js)
+// ─────────────────────────────────────────────────────────────
+export function detectSpike(candles, atr) {
+    return _detectLiveSpike(candles, atr);
+}
+
 // Improved spike detection — detects spike ON CURRENT CANDLE
 function _detectLiveSpike(candles, atr) {
     if (!candles || candles.length < 2 || !atr || atr <= 0) return null;
@@ -99,7 +113,34 @@ function _signalAfterSpike(candles, tfLabel, bias, spike) {
     };
 }
 
-// Enhanced strategy with fixed logic
+// ─────────────────────────────────────────────────────────────
+// INDICATOR FUNCTIONS
+// ─────────────────────────────────────────────────────────────
+function _atr(candles, period = 14) {
+    if (candles.length < period + 1) return null;
+    const trs = [];
+    for (let i = 1; i < candles.length; i++) {
+        const c = candles[i], p = candles[i - 1];
+        trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+    }
+    return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function _rsi(candles, period = 14) {
+    if (candles.length < period + 2) return null;
+    const cl = candles.slice(-period - 1).map(c => c.close);
+    let g = 0, l = 0;
+    for (let i = 1; i < cl.length; i++) {
+        const d = cl[i] - cl[i - 1];
+        if (d >= 0) g += d; else l -= d;
+    }
+    const ag = g / period, al = l / period;
+    return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+}
+
+// ─────────────────────────────────────────────────────────────
+// NOVA STRATEGY V3 — Enhanced with fixed logic
+// ─────────────────────────────────────────────────────────────
 export const NovaStrategyV3 = {
     
     _spikeState: {},
@@ -140,8 +181,16 @@ export const NovaStrategyV3 = {
         }
     },
     
+    inCooldown(botId) {
+        const state = this._spikeState[botId];
+        if (!state || !state.recordedAt) return false;
+        // 3 candle cooldown on M5 = 15 minutes
+        const cooldownMs = 15 * 60 * 1000;
+        return Date.now() - state.recordedAt < cooldownMs;
+    },
+    
     checkEntry(symbol, m1Candles, m5Candles, m15Candles, botId) {
-        const cfg = NOVA_SYMBOLS_V3[symbol];
+        const cfg = novaSymbolConfig(symbol);
         if (!cfg) return null;
         
         const bias = cfg.bias;
@@ -164,6 +213,9 @@ export const NovaStrategyV3 = {
         
         // Don't trade the same spike twice
         if (this.hasTradedSpike(botId, spike)) return null;
+        
+        // Don't trade if in cooldown
+        if (this.inCooldown(botId)) return null;
         
         // Get signals from timeframes (M1 and M5 only — M15 is too slow)
         const results = [];
@@ -217,10 +269,11 @@ export const NovaStrategyV3 = {
         
         return {
             type: bias,
-            label: `NOVA V3 ${bias} [spike ${spike.magnitude.toFixed(1)}x]`,
+            label: `NOVA ${bias} [spike ${spike.magnitude.toFixed(1)}x]`,
             score: confidence,
             factors: [`Spike: ${spike.direction} ${spike.magnitude.toFixed(1)}x ATR`, ...results.flatMap(r => r.factors)],
             tfNames,
+            tfCount: results.length,
             tpMultiplier: tpPoints / m5ATR,  // Return as ATR multiple for consistent interface
             slMultiplier: slPoints / m5ATR,
             isNova: true,
@@ -232,28 +285,9 @@ export const NovaStrategyV3 = {
     },
 };
 
-// Reuse indicator functions from original (or import)
-function _atr(candles, period = 14) {
-    if (candles.length < period + 1) return null;
-    const trs = [];
-    for (let i = 1; i < candles.length; i++) {
-        const c = candles[i], p = candles[i - 1];
-        trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
-    }
-    return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
-
-function _rsi(candles, period = 14) {
-    if (candles.length < period + 2) return null;
-    const cl = candles.slice(-period - 1).map(c => c.close);
-    let g = 0, l = 0;
-    for (let i = 1; i < cl.length; i++) {
-        const d = cl[i] - cl[i - 1];
-        if (d >= 0) g += d; else l -= d;
-    }
-    const ag = g / period, al = l / period;
-    return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
-}
-// At the bottom of the improved nova.js
-export const NovaStrategy = NovaStrategyV3;  // Alias for compatibility
-export { novaSymbolConfig, detectSpike };     // Keep original helpers
+// ─────────────────────────────────────────────────────────────
+// EXPORTS — Compatible with signal-bot.js
+// signal-bot.js expects: NovaStrategy, novaSymbolConfig, detectSpike
+// ─────────────────────────────────────────────────────────────
+export const NovaStrategy = NovaStrategyV3;
+// novaSymbolConfig and detectSpike are already exported above
