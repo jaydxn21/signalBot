@@ -254,3 +254,6 @@ function _rsi(candles, period = 14) {
     const ag = g / period, al = l / period;
     return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
 }
+// At the bottom of the improved nova.js
+export const NovaStrategy = NovaStrategyV3;  // Alias for compatibility
+export { novaSymbolConfig, detectSpike };     // Keep original helpers
