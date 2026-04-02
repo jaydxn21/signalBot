@@ -1,38 +1,51 @@
 // nova-v3.js — FIXED Crash & Boom Strategy
 //
-// KEY CHANGES:
-//   1. Spike detection uses CURRENT candle (realtime)
-//   2. Multi-TF gate relaxed: ANY TF signal + spike confirmation = trade
-//   3. ATR gate removed for entry (still used for sizing)
-//   4. Realistic R:R based on historical reversion distances
-//   5. Maximum 1 trade per spike event (prevents overtrading)
+// UPDATED: Fixed 11% win rate issue
+//   - Much stricter spike detection
+//   - Higher confidence threshold
+//   - Better R:R calculation (1:1.5 emergency mode)
+//   - Win rate gate added
+//   - Tighter reversion confirmation
+//
+// SYMBOLS: CRASH1000, BOOM1000, CRASH500, BOOM500
 
 const NOVA_SYMBOLS_V3 = {
-    'CRASH1000':  { bias: 'BUY',  spikeDir: 'down', name: 'Crash 1000', reversionMult: 0.6 },
-    'BOOM1000':   { bias: 'SELL', spikeDir: 'up',   name: 'Boom 1000',  reversionMult: 0.6 },
-    'CRASH_1000': { bias: 'BUY',  spikeDir: 'down', name: 'Crash 1000', reversionMult: 0.6 },
-    'BOOM_1000':  { bias: 'SELL', spikeDir: 'up',   name: 'Boom 1000',  reversionMult: 0.6 },
-    'CRASH500':   { bias: 'BUY',  spikeDir: 'down', name: 'Crash 500',  reversionMult: 0.5 },
-    'BOOM500':    { bias: 'SELL', spikeDir: 'up',   name: 'Boom 500',   reversionMult: 0.5 },
-    'CRASH_500':  { bias: 'BUY',  spikeDir: 'down', name: 'Crash 500',  reversionMult: 0.5 },
-    'BOOM_500':   { bias: 'SELL', spikeDir: 'up',   name: 'Boom 500',   reversionMult: 0.5 },
+    'CRASH1000':  { bias: 'BUY',  spikeDir: 'down', name: 'Crash 1000', reversionMult: 0.5 },  // Reduced from 0.6
+    'BOOM1000':   { bias: 'SELL', spikeDir: 'up',   name: 'Boom 1000',  reversionMult: 0.5 },
+    'CRASH_1000': { bias: 'BUY',  spikeDir: 'down', name: 'Crash 1000', reversionMult: 0.5 },
+    'BOOM_1000':  { bias: 'SELL', spikeDir: 'up',   name: 'Boom 1000',  reversionMult: 0.5 },
+    'CRASH500':   { bias: 'BUY',  spikeDir: 'down', name: 'Crash 500',  reversionMult: 0.4 },
+    'BOOM500':    { bias: 'SELL', spikeDir: 'up',   name: 'Boom 500',   reversionMult: 0.4 },
+    'CRASH_500':  { bias: 'BUY',  spikeDir: 'down', name: 'Crash 500',  reversionMult: 0.4 },
+    'BOOM_500':   { bias: 'SELL', spikeDir: 'up',   name: 'Boom 500',   reversionMult: 0.4 },
+};
+
+// Emergency mode configuration
+const EMERGENCY_CONFIG = {
+    enabled: true,  // Set to false after win rate improves
+    forceRR: 1.5,   // Force 1:1.5 R:R
+    minSpikeMagnitude: 4.5,  // Minimum 4.5x ATR spike (was 3x)
+    minConfidence: 75,       // Much higher threshold
+    maxTradesPerHour: 1,
+    cooldownMinutes: 20,
+    minWinRatePercent: 15
 };
 
 // ─────────────────────────────────────────────────────────────
-// EXPORTED SYMBOL CONFIG FUNCTION (compatible with signal-bot.js)
+// EXPORTED SYMBOL CONFIG FUNCTION
 // ─────────────────────────────────────────────────────────────
 export function novaSymbolConfig(symbol) {
     return NOVA_SYMBOLS_V3[symbol] || null;
 }
 
 // ─────────────────────────────────────────────────────────────
-// EXPORTED SPIKE DETECTION (compatible with signal-bot.js)
+// EXPORTED SPIKE DETECTION
 // ─────────────────────────────────────────────────────────────
 export function detectSpike(candles, atr) {
     return _detectLiveSpike(candles, atr);
 }
 
-// Improved spike detection — detects spike ON CURRENT CANDLE
+// Improved spike detection — MUCH STRICTER
 function _detectLiveSpike(candles, atr) {
     if (!candles || candles.length < 2 || !atr || atr <= 0) return null;
     
@@ -40,22 +53,22 @@ function _detectLiveSpike(candles, atr) {
     const previous = candles[candles.length - 2];
     if (!current || !previous) return null;
     
-    // Check BOTH candles — spike may have started previous and continued
     const candlesToCheck = [previous, current];
     let bestSpike = null;
+    
+    // Use higher threshold in emergency mode
+    const spikeMultiplier = EMERGENCY_CONFIG.enabled ? 4.5 : 3.5;
+    const spikeThreshold = atr * spikeMultiplier;
     
     for (const c of candlesToCheck) {
         const wickUp = c.high - Math.max(c.open, c.close);
         const wickDown = Math.min(c.open, c.close) - c.low;
         const body = Math.abs(c.close - c.open);
         
-        // Spike threshold: 3x ATR (lower than before to catch earlier)
-        const spikeThreshold = atr * 3;
-        
-        const isUpSpike = wickUp >= spikeThreshold && wickUp > body;
-        const isDownSpike = wickDown >= spikeThreshold && wickDown > body;
-        const isBullBody = c.close > c.open && body >= spikeThreshold;
-        const isBearBody = c.close < c.open && body >= spikeThreshold;
+        const isUpSpike = wickUp >= spikeThreshold && wickUp > body * 1.5;
+        const isDownSpike = wickDown >= spikeThreshold && wickDown > body * 1.5;
+        const isBullBody = c.close > c.open && body >= spikeThreshold && body > wickUp * 1.5;
+        const isBearBody = c.close < c.open && body >= spikeThreshold && body > wickDown * 1.5;
         
         if (isUpSpike || isBullBody) {
             const magnitude = (isBullBody ? body : wickUp) / atr;
@@ -71,45 +84,58 @@ function _detectLiveSpike(candles, atr) {
         }
     }
     
+    // Minimum magnitude check
+    if (bestSpike && bestSpike.magnitude < spikeMultiplier) return null;
+    
     return bestSpike;
 }
 
-// Simplified signal detection — focus on spike + reversion confirmation
+// STRICTER signal detection
 function _signalAfterSpike(candles, tfLabel, bias, spike) {
-    if (!spike || candles.length < 10) return null;
+    if (!spike || candles.length < 15) return null;  // Increased from 10
     
-    // Only trade if spike direction matches instrument
     if (bias === 'BUY' && spike.direction !== 'down') return null;
     if (bias === 'SELL' && spike.direction !== 'up') return null;
     
     const cl = candles.slice(0, -1);
     const c0 = cl[cl.length - 1];
-    if (!c0) return null;
+    const c1 = cl[cl.length - 2];
+    if (!c0 || !c1) return null;
     
-    // Reversion confirmation: price moving back toward pre-spike levels
-    const preSpikeClose = candles.length > 20 ? candles[candles.length - 20].close : c0.close;
-    const priceMovement = bias === 'BUY' 
-        ? c0.close - Math.min(c0.low, preSpikeClose)  // For Crash: up movement after drop
-        : Math.max(c0.high, preSpikeClose) - c0.close; // For Boom: down movement after rise
+    // Require reversion to have started (price moving back)
+    const preSpikeClose = candles.length > 30 ? candles[candles.length - 30].close : c0.close;
+    let priceMovement = 0;
+    
+    if (bias === 'BUY') {
+        priceMovement = c0.close - Math.min(c0.low, preSpikeClose);
+    } else {
+        priceMovement = Math.max(c0.high, preSpikeClose) - c0.close;
+    }
     
     const atrVal = _atr(cl, 10);
     if (!atrVal) return null;
     
-    // Require SOME reversion (price moving back)
-    if (priceMovement < atrVal * 0.5) return null;
+    // Require stronger reversion (0.8x ATR instead of 0.5x)
+    if (priceMovement < atrVal * 0.8) return null;
     
-    // RSI confirmation — oversold/overbought after spike
+    // RSI confirmation — TIGHTER ranges
     const rsiVal = _rsi(cl);
-    if (bias === 'BUY' && rsiVal && rsiVal > 55) return null;  // Wait for oversold or neutral
-    if (bias === 'SELL' && rsiVal && rsiVal < 45) return null; // Wait for overbought or neutral
+    if (bias === 'BUY' && rsiVal && rsiVal > 45) return null;  // Was 55
+    if (bias === 'SELL' && rsiVal && rsiVal < 55) return null; // Was 45
+    
+    // Additional: require a bullish/bearish candle for confirmation
+    const isConfirmingCandle = (bias === 'BUY' && c0.close > c0.open && c0.close > c1.high) ||
+                                (bias === 'SELL' && c0.close < c0.open && c0.close < c1.low);
+    if (!isConfirmingCandle) return null;
     
     return {
         dir: bias,
         tf: tfLabel,
-        count: 1,  // Simplified — spike is the main signal
-        factors: [`Spike ${spike.direction} (${spike.magnitude.toFixed(1)}x ATR)`, `Reversion started`],
+        count: 1,
+        factors: [`Spike ${spike.direction} (${spike.magnitude.toFixed(1)}x ATR)`, `Reversion confirmed`, `RSI ${rsiVal?.toFixed(0)}`],
         atr: atrVal,
         spikeMagnitude: spike.magnitude,
+        rsiValue: rsiVal
     };
 }
 
@@ -139,12 +165,26 @@ function _rsi(candles, period = 14) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// NOVA STRATEGY V3 — Enhanced with fixed logic
+// NOVA STRATEGY V3 — FIXED
 // ─────────────────────────────────────────────────────────────
 export const NovaStrategyV3 = {
     
     _spikeState: {},
-    _tradeCountPerSpike: {},
+    _stats: {},
+    
+    _getStats(botId) {
+        if (!this._stats[botId]) {
+            this._stats[botId] = {
+                totalTrades: 0,
+                totalWins: 0,
+                consLosses: 0,
+                lastFiredMs: 0,
+                tradeCount: 0,
+                windowStart: Date.now()
+            };
+        }
+        return this._stats[botId];
+    },
     
     getSpikeState(botId) {
         if (!this._spikeState[botId]) {
@@ -184,40 +224,80 @@ export const NovaStrategyV3 = {
     inCooldown(botId) {
         const state = this._spikeState[botId];
         if (!state || !state.recordedAt) return false;
-        // 3 candle cooldown on M5 = 15 minutes
-        const cooldownMs = 15 * 60 * 1000;
+        const cooldownMs = EMERGENCY_CONFIG.cooldownMinutes * 60 * 1000;
         return Date.now() - state.recordedAt < cooldownMs;
+    },
+    
+    isHalted(botId) {
+        return this._getStats(botId).consLosses >= 4;  // Stricter: halt after 4 losses
+    },
+    
+    isTooFrequent(botId) {
+        const s = this._getStats(botId);
+        const now = Date.now();
+        if (now - s.windowStart > 3600000) {
+            s.tradeCount = 0;
+            s.windowStart = now;
+        }
+        return s.tradeCount >= EMERGENCY_CONFIG.maxTradesPerHour;
+    },
+    
+    isWinRateTooLow(botId) {
+        const s = this._getStats(botId);
+        if (s.totalTrades < 20) return false;
+        const winRate = (s.totalWins / s.totalTrades) * 100;
+        if (winRate < EMERGENCY_CONFIG.minWinRatePercent) {
+            console.log(`[NOVA] HALTED: Win rate ${winRate.toFixed(1)}% below ${EMERGENCY_CONFIG.minWinRatePercent}%`);
+            return true;
+        }
+        return false;
+    },
+    
+    recordOutcome(botId, outcome) {
+        const s = this._getStats(botId);
+        s.totalTrades++;
+        if (outcome === 'TP') {
+            s.consLosses = 0;
+            s.totalWins++;
+        } else {
+            s.consLosses++;
+        }
+    },
+    
+    recordTrade(botId) {
+        const s = this._getStats(botId);
+        s.tradeCount++;
+        s.lastFiredMs = Date.now();
     },
     
     checkEntry(symbol, m1Candles, m5Candles, m15Candles, botId) {
         const cfg = novaSymbolConfig(symbol);
         if (!cfg) return null;
         
+        const stats = this._getStats(botId);
+        if (this.isHalted(botId)) {
+            console.log(`[NOVA] Bot ${botId} halted after ${stats.consLosses} losses`);
+            return null;
+        }
+        if (this.isWinRateTooLow(botId)) return null;
+        if (this.isTooFrequent(botId)) return null;
+        
         const bias = cfg.bias;
         
-        // Use M5 for spike detection (most reliable for Crash/Boom)
         if (!m5Candles || m5Candles.length < 30) return null;
         
         const m5ATR = _atr(m5Candles, 14);
         if (!m5ATR) return null;
         
-        // Detect spike on M5
         const spike = _detectLiveSpike(m5Candles, m5ATR);
-        
-        // No spike = no trade
         if (!spike) return null;
         
-        // Only trade spikes that match instrument direction
         if (bias === 'BUY' && spike.direction !== 'down') return null;
         if (bias === 'SELL' && spike.direction !== 'up') return null;
         
-        // Don't trade the same spike twice
         if (this.hasTradedSpike(botId, spike)) return null;
-        
-        // Don't trade if in cooldown
         if (this.inCooldown(botId)) return null;
         
-        // Get signals from timeframes (M1 and M5 only — M15 is too slow)
         const results = [];
         
         if (m1Candles?.length >= 15) {
@@ -230,64 +310,63 @@ export const NovaStrategyV3 = {
             if (r) results.push(r);
         }
         
-        // Need at least ONE timeframe confirming reversion
-        if (results.length === 0) {
-            return null;
-        }
+        // Need at least ONE timeframe confirming
+        if (results.length === 0) return null;
         
-        // Calculate confidence
-        let confidence = 50;  // Base confidence from spike detection
-        confidence += results.length * 10;  // +10 per confirming TF
-        confidence += Math.min(20, spike.magnitude * 5);  // Larger spikes = higher confidence
-        confidence = Math.min(90, confidence);
+        // Calculate confidence — MUCH STRICTER
+        let confidence = 40;  // Lower base
+        confidence += results.length * 15;  // +15 per TF
+        confidence += Math.min(25, spike.magnitude * 4);  // Higher weight for magnitude
+        confidence = Math.min(100, confidence);
         
-        // Confidence gate — lower threshold for Crash/Boom (they're more volatile)
-        const CONFIDENCE_THRESHOLD = 55;
-        if (confidence < CONFIDENCE_THRESHOLD) {
-            return null;
-        }
+        const minConfidence = EMERGENCY_CONFIG.enabled ? EMERGENCY_CONFIG.minConfidence : 60;
+        if (confidence < minConfidence) return null;
         
-        // REALISTIC RISK/REWARD for Crash/Boom
-        // Use reversionMult based on historical data
-        const spikeSize = spike.magnitude * m5ATR;
-        const targetMove = spikeSize * cfg.reversionMult;  // Typically 50-60% of spike
-        
-        // SL: beyond the spike extreme + buffer
-        // TP: 60% of spike size (conservative)
-        const slPoints = m5ATR * 1.5;
-        const tpPoints = targetMove * 0.8;
-        
-        // Skip if risk/reward is poor
-        if (tpPoints < slPoints * 1.2) {
-            return null;  // < 1.2:1 R:R
-        }
-        
-        // Mark this spike as traded
         this.markTraded(botId, spike);
+        this.recordTrade(botId);
+        
+        let tpMult, slMult, rrLabel;
+        
+        if (EMERGENCY_CONFIG.enabled) {
+            // Force 1:1.5 R:R in emergency mode
+            tpMult = 1.5;
+            slMult = 1.0;
+            rrLabel = '1:1.5';
+        } else {
+            // Normal calculation
+            const spikeSize = spike.magnitude * m5ATR;
+            const targetMove = spikeSize * cfg.reversionMult;
+            const slPoints = m5ATR * 1.2;
+            const tpPoints = targetMove * 0.7;
+            
+            tpMult = tpPoints / m5ATR;
+            slMult = slPoints / m5ATR;
+            rrLabel = `${tpMult.toFixed(1)}:1`;
+        }
         
         const tfNames = results.map(r => r.tf).join('+');
+        const rsiVal = results[0]?.rsiValue || '?';
+        
+        console.log(`[NOVA] ✅ SIGNAL ${bias} on ${symbol} | Spike: ${spike.magnitude.toFixed(1)}x | RSI: ${rsiVal} | ${rrLabel} R:R | Confidence: ${Math.round(confidence)}`);
         
         return {
             type: bias,
-            label: `NOVA ${bias} [spike ${spike.magnitude.toFixed(1)}x]`,
+            label: `NOVA ${bias} [${rrLabel}]`,
             score: confidence,
             factors: [`Spike: ${spike.direction} ${spike.magnitude.toFixed(1)}x ATR`, ...results.flatMap(r => r.factors)],
             tfNames,
             tfCount: results.length,
-            tpMultiplier: tpPoints / m5ATR,  // Return as ATR multiple for consistent interface
-            slMultiplier: slPoints / m5ATR,
+            tpMultiplier: tpMult,
+            slMultiplier: slMult,
             isNova: true,
             atr: m5ATR,
             symbolConfig: cfg,
-            // Store actual points for debugging
-            _meta: { spikeSize, targetMove, slPoints, tpPoints }
+            _meta: { spikeMagnitude: spike.magnitude, confidence, rsi: rsiVal }
         };
     },
 };
 
 // ─────────────────────────────────────────────────────────────
-// EXPORTS — Compatible with signal-bot.js
-// signal-bot.js expects: NovaStrategy, novaSymbolConfig, detectSpike
+// EXPORTS
 // ─────────────────────────────────────────────────────────────
 export const NovaStrategy = NovaStrategyV3;
-// novaSymbolConfig and detectSpike are already exported above

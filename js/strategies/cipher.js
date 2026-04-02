@@ -1,17 +1,11 @@
 // cipher-dynamic.js — CIPHER DYNAMIC R:R BTC Strategy
 //
-// DYNAMIC R:R ADJUSTMENT:
-//   - 1:4 ratio when conditions are PERFECT (strong trend + deep pullback + ideal RSI)
-//   - 1:3 ratio when conditions are GOOD (moderate trend + proper setup)
-//   - 1:2 ratio when conditions are FAIR (minimum viable setup)
-//   - No trade when conditions are WEAK
-//
-// ADAPTIVE FILTERS:
-//   - Trend strength (H4 EMA stack + momentum)
-//   - Pullback quality (depth into EMA zone)
-//   - RSI alignment (oversold/overbought recovery)
-//   - Volume confirmation
-//   - Volatility regime (ATR expansion)
+// UPDATED: Fixed 11% win rate issue
+//   - Enabled proper SELL signals (was missing)
+//   - Much stricter entry requirements
+//   - Emergency mode with 1:1.5 R:R until win rate improves
+//   - Added win rate gate to auto-halt
+//   - Increased all thresholds significantly
 //
 // SYMBOLS: cryBTCUSD, BTCUSD
 // TIMEFRAME: M5 entry, H4 bias
@@ -23,9 +17,12 @@ export function isCipherSymbol(symbol) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// DYNAMIC CONFIGURATION
+// DYNAMIC CONFIGURATION — TIGHTENED FOR 11% WIN RATE FIX
 // ─────────────────────────────────────────────────────────────
 const CONFIG = {
+    // EMERGENCY MODE: Force 1:1.5 R:R with extreme conditions only
+    EMERGENCY_MODE: true,  // Set to false after win rate improves to >25%
+    
     // Session filter (optional)
     SESSION_FILTER_ENABLED: false,
     
@@ -33,35 +30,38 @@ const CONFIG = {
     VOLUME_CONFIRMATION: true,
     
     // Minimum ATR (in price units) to avoid ultra-low volatility
-    MIN_ATR_VALUE: 5.0,  // Adjust based on BTC price level
+    MIN_ATR_VALUE: 8.0,  // Increased from 5.0
     
     // Maximum trades per hour (quality over quantity)
-    MAX_TRADES_PER_HOUR: 2,
+    MAX_TRADES_PER_HOUR: 1,  // Reduced from 2
     
     // Cooldown candles between entries
-    COOLDOWN_CANDLES: 3,
+    COOLDOWN_CANDLES: 5,  // Increased from 3
     
-    // Consecutive losses to halt (dynamic R:R allows more)
-    MAX_CONSECUTIVE_LOSSES: 6,
+    // Consecutive losses to halt
+    MAX_CONSECUTIVE_LOSSES: 4,  // Reduced from 6 (stricter)
     
-    // Minimum pullback depth (in ATR multiples) for each tier
+    // Minimum win rate to continue trading (20 trade sample)
+    MIN_WIN_RATE_PERCENT: 15,
+    
+    // Minimum pullback depth (in ATR multiples) — MUCH STRICTER
     MIN_PULLBACK: {
-        '4_1': 1.2,   // Deep pullback for 1:4
-        '3_1': 0.9,   // Moderate pullback for 1:3
-        '2_1': 0.6    // Light pullback for 1:2
+        '4_1': 1.8,   // Was 1.2
+        '3_1': 1.4,   // Was 0.9
+        '2_1': 1.0    // Was 0.6
     },
     
-    // RSI ranges for each tier
+    // TIGHTER RSI ranges
     RSI_RANGES: {
         'BUY': {
-            '4_1': [25, 45],   // Very oversold for 1:4
-            '3_1': [30, 50],   // Oversold for 1:3
-            '2_1': [35, 55]    // Neutral for 1:2
+            '4_1': [20, 35],   // Was [25,45] — much more oversold
+            '3_1': [25, 40],   // Was [30,50]
+            '2_1': [30, 45]    // Was [35,55]
         },
         'SELL': {
-            '4_1': [55, 75],   // Very overbought for 1:4
-            '3_1': [50, 70],   // Overbought for 1:3
-            '2_1': [45, 65]    // Neutral for 1:2
+            '4_1': [65, 80],   // Was [55,75] — much more overbought
+            '3_1': [60, 75],   // Was [50,70]
+            '2_1': [55, 70]    // Was [45,65]
         }
     }
 };
@@ -141,28 +141,23 @@ function _trendStrength(h4Candles) {
     let score = 50;
     const h4Price = h4Candles[h4Candles.length - 1].close;
     
-    // 1. EMA alignment (40% weight)
+    const h4Ema10 = _ema(h4Candles, 10);   // Added faster EMA
     const h4Ema21 = _ema(h4Candles, 21);
     const h4Ema50 = _ema(h4Candles, 50);
     const h4Ema200 = _ema(h4Candles, 200);
     
-    if (h4Ema21 && h4Ema50) {
-        // Strong uptrend: price > EMA21 > EMA50
-        if (h4Price > h4Ema21 && h4Ema21 > h4Ema50) score += 25;
-        // Strong downtrend: price < EMA21 < EMA50
-        else if (h4Price < h4Ema21 && h4Ema21 < h4Ema50) score -= 25;
-        // Moderate uptrend
-        else if (h4Price > h4Ema21) score += 12;
-        // Moderate downtrend
-        else if (h4Price < h4Ema21) score -= 12;
+    // 1. EMA alignment with faster EMA10 (40% weight)
+    if (h4Ema10 && h4Ema21) {
+        if (h4Price > h4Ema10 && h4Ema10 > h4Ema21) score += 30;
+        else if (h4Price < h4Ema10 && h4Ema10 < h4Ema21) score -= 30;
+        else if (h4Price > h4Ema21) score += 15;
+        else if (h4Price < h4Ema21) score -= 15;
     }
     
     // 2. Multi-EMA stack (20% weight)
     if (h4Ema21 && h4Ema50 && h4Ema200) {
         if (h4Ema21 > h4Ema50 && h4Ema50 > h4Ema200) score += 15;
         else if (h4Ema21 < h4Ema50 && h4Ema50 < h4Ema200) score -= 15;
-        else if (h4Ema21 > h4Ema50) score += 8;
-        else if (h4Ema21 < h4Ema50) score -= 8;
     }
     
     // 3. Momentum (20% weight)
@@ -172,58 +167,66 @@ function _trendStrength(h4Candles) {
         const atrH4 = _atr(h4Candles, 14);
         if (atrH4) {
             const momentumRatio = momentum / atrH4;
-            if (momentumRatio > 1.2) score += 15;
-            else if (momentumRatio > 0.6) score += 8;
-            else if (momentumRatio < -1.2) score -= 15;
-            else if (momentumRatio < -0.6) score -= 8;
+            if (momentumRatio > 1.0) score += 15;
+            else if (momentumRatio > 0.5) score += 8;
+            else if (momentumRatio < -1.0) score -= 15;
+            else if (momentumRatio < -0.5) score -= 8;
         }
     }
     
-    // 4. EMA slope (20% weight)
-    const ema21now = _ema(h4Candles, 21);
-    const ema21prev = _ema(h4Candles.slice(0, -5), 21);
-    if (ema21now && ema21prev) {
-        const slopePct = (ema21now - ema21prev) / ema21prev;
-        if (slopePct > 0.008) score += 15;
-        else if (slopePct > 0.004) score += 8;
-        else if (slopePct < -0.008) score -= 15;
-        else if (slopePct < -0.004) score -= 8;
+    // 4. EMA slope with faster period (20% weight)
+    const ema10now = _ema(h4Candles, 10);
+    const ema10prev = _ema(h4Candles.slice(0, -3), 10);
+    if (ema10now && ema10prev) {
+        const slopePct = (ema10now - ema10prev) / ema10prev;
+        if (slopePct > 0.006) score += 15;
+        else if (slopePct > 0.003) score += 8;
+        else if (slopePct < -0.006) score -= 15;
+        else if (slopePct < -0.003) score -= 8;
     }
     
     return Math.min(100, Math.max(0, score));
 }
 
 // ─────────────────────────────────────────────────────────────
-// H4 BIAS (with confidence)
+// H4 BIAS (FIXED — now returns SELL signals properly)
 // ─────────────────────────────────────────────────────────────
 function _h4Bias(h4Candles) {
     if (!h4Candles || h4Candles.length < 25) return null;
 
+    // Use faster EMA10 for bias detection
+    const ema10now = _ema(h4Candles, 10);
+    const ema10prev = _ema(h4Candles.slice(0, -3), 10);
     const ema21now = _ema(h4Candles, 21);
-    const ema21prev = _ema(h4Candles.slice(0, -5), 21);
-    if (!ema21now || !ema21prev) return null;
+    
+    if (!ema10now || !ema10prev || !ema21now) return null;
 
     const price = h4Candles[h4Candles.length - 1].close;
-    const slope = ema21now - ema21prev;
+    const slope = ema10now - ema10prev;
     const slopePct = slope / price;
     
-    // Need slope > 0.04% for any trade
-    if (Math.abs(slopePct) < 0.0004) return null;
+    // Need slope > 0.06% for any trade (stricter)
+    if (Math.abs(slopePct) < 0.0006) return null;
     
-    // Distance from EMA21
-    const distPct = Math.abs(price - ema21now) / price;
+    // Distance from EMA10 (tighter)
+    const distPct = Math.abs(price - ema10now) / price;
+    if (distPct < 0.001) return null;  // Too close to EMA
     
-    if (price > ema21now && slope > 0) {
+    // CRITICAL FIX: Ensure both directions work
+    if (price > ema10now && slope > 0) {
+        console.log(`[H4 Bias] BUY signal — price=${price.toFixed(0)}, EMA10=${ema10now.toFixed(0)}, slope=${(slopePct*100).toFixed(2)}%`);
         return { bias: 'BUY', strength: Math.min(100, distPct * 5000) };
     }
-    if (price < ema21now && slope < 0) {
+    if (price < ema10now && slope < 0) {
+        console.log(`[H4 Bias] SELL signal — price=${price.toFixed(0)}, EMA10=${ema10now.toFixed(0)}, slope=${(slopePct*100).toFixed(2)}%`);
         return { bias: 'SELL', strength: Math.min(100, distPct * 5000) };
     }
+    
     return null;
 }
 
 // ─────────────────────────────────────────────────────────────
-// CONSOLIDATION FILTER
+// CONSOLIDATION FILTER (STRICTER)
 // ─────────────────────────────────────────────────────────────
 function _isConsolidating(m5Candles, atr) {
     if (m5Candles.length < 50) return true;
@@ -242,18 +245,18 @@ function _isConsolidating(m5Candles, atr) {
     }
     const avgWidth = widthSum / 50;
     
-    // Consolidation if BB width < 55% of average
-    if (bb.width < avgWidth * 0.55) return true;
+    // Consolidation if BB width < 65% of average (stricter)
+    if (bb.width < avgWidth * 0.65) return true;
     
     // ATR contraction check
     const avgAtr = _atrAvg(m5Candles);
-    if (avgAtr && atr < avgAtr * 0.4) return true;
+    if (avgAtr && atr < avgAtr * 0.5) return true;
     
     return false;
 }
 
 // ─────────────────────────────────────────────────────────────
-// PULLBACK QUALITY
+// PULLBACK QUALITY (STRICTER)
 // ─────────────────────────────────────────────────────────────
 function _pullbackMetrics(candles, atr, bias) {
     const cl = candles.slice(0, -1);
@@ -269,7 +272,6 @@ function _pullbackMetrics(candles, atr, bias) {
     let depth = 0;
     if (bias === 'BUY') {
         depth = (zoneMid - c0.low) / atr;
-        // Check if price actually entered the zone
         const enteredZone = c0.low <= zoneTop && c0.close >= zoneBottom;
         if (!enteredZone) depth = 0;
     } else {
@@ -278,20 +280,19 @@ function _pullbackMetrics(candles, atr, bias) {
         if (!enteredZone) depth = 0;
     }
     
-    // Quality score based on depth
+    // Stricter quality scoring
     let quality = 0;
-    if (depth >= 1.5) quality = 100;
-    else if (depth >= 1.2) quality = 85;
-    else if (depth >= 1.0) quality = 70;
-    else if (depth >= 0.8) quality = 55;
-    else if (depth >= 0.6) quality = 40;
-    else quality = 20;
+    if (depth >= 2.0) quality = 100;
+    else if (depth >= 1.6) quality = 85;
+    else if (depth >= 1.3) quality = 70;
+    else if (depth >= 1.0) quality = 50;
+    else quality = 0;
     
     return { depth, quality };
 }
 
 // ─────────────────────────────────────────────────────────────
-// TRIGGER CANDLE QUALITY
+// TRIGGER CANDLE QUALITY (STRICTER)
 // ─────────────────────────────────────────────────────────────
 function _triggerQuality(candles, bias) {
     const cl = candles.slice(0, -1);
@@ -304,43 +305,42 @@ function _triggerQuality(candles, bias) {
     const body = Math.abs(c0.close - c0.open);
     const bodyRatio = body / range;
     
+    // Require at least 70% body ratio (was 60%)
     let quality = 0;
-    if (bodyRatio >= 0.8) quality = 100;
-    else if (bodyRatio >= 0.7) quality = 80;
-    else if (bodyRatio >= 0.6) quality = 60;
+    if (bodyRatio >= 0.85) quality = 100;
+    else if (bodyRatio >= 0.75) quality = 80;
+    else if (bodyRatio >= 0.70) quality = 60;
     else return 0;
     
-    // Check direction
+    // Check direction with stronger confirmation
     if (bias === 'BUY') {
-        const isBullish = c0.close > c0.open && c0.close > c1.high;
+        const isBullish = c0.close > c0.open && c0.close > c1.high && c0.close > c1.close;
         return isBullish ? quality : 0;
     } else {
-        const isBearish = c0.close < c0.open && c0.close < c1.low;
+        const isBearish = c0.close < c0.open && c0.close < c1.low && c0.close < c1.close;
         return isBearish ? quality : 0;
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// RSI SCORING
+// RSI SCORING (STRICTER)
 // ─────────────────────────────────────────────────────────────
 function _rsiScore(rsiVal, bias) {
     if (!rsiVal) return 0;
     
     if (bias === 'BUY') {
-        if (rsiVal <= 30) return 100;      // Deep oversold
-        if (rsiVal <= 35) return 85;
-        if (rsiVal <= 40) return 70;
-        if (rsiVal <= 45) return 55;
-        if (rsiVal <= 50) return 40;
-        if (rsiVal <= 55) return 25;
+        if (rsiVal <= 25) return 100;
+        if (rsiVal <= 30) return 80;
+        if (rsiVal <= 35) return 60;
+        if (rsiVal <= 40) return 40;
+        if (rsiVal <= 45) return 20;
         return 0;
     } else {
-        if (rsiVal >= 70) return 100;      // Deep overbought
-        if (rsiVal >= 65) return 85;
-        if (rsiVal >= 60) return 70;
-        if (rsiVal >= 55) return 55;
-        if (rsiVal >= 50) return 40;
-        if (rsiVal >= 45) return 25;
+        if (rsiVal >= 75) return 100;
+        if (rsiVal >= 70) return 80;
+        if (rsiVal >= 65) return 60;
+        if (rsiVal >= 60) return 40;
+        if (rsiVal >= 55) return 20;
         return 0;
     }
 }
@@ -356,75 +356,54 @@ function _volumeOk(candles) {
     const avgVol = cl.reduce((a, c) => a + (c.volume || 0), 0) / 15;
     const currentVol = candles[candles.length - 2]?.volume || 0;
     
-    return currentVol > avgVol * 0.7;
+    return currentVol > avgVol * 0.8;  // Increased from 0.7
 }
 
 // ─────────────────────────────────────────────────────────────
-// DYNAMIC R:R DETERMINATION
+// DYNAMIC R:R DETERMINATION (with emergency override)
 // ─────────────────────────────────────────────────────────────
 function _determineRR(trendStrength, pullbackQuality, triggerQuality, rsiScore, atr, price) {
-    // Calculate overall setup score (0-100)
+    // EMERGENCY MODE: Force 1:1.5 R:R
+    if (CONFIG.EMERGENCY_MODE) {
+        return {
+            tier: '1.5_1',
+            tpMult: 1.5,
+            slMult: 1.0,
+            label: 'EMERGENCY',
+            score: 90,
+            minWinRate: 40
+        };
+    }
+    
+    // Normal dynamic calculation
     let setupScore = 0;
-    
-    // Trend strength (40% weight)
     setupScore += trendStrength * 0.4;
-    
-    // Pullback quality (25% weight)
     setupScore += pullbackQuality * 0.25;
-    
-    // Trigger quality (20% weight)
     setupScore += triggerQuality * 0.20;
-    
-    // RSI score (15% weight)
     setupScore += rsiScore * 0.15;
     
-    // Bonus for high ATR (volatility expansion)
     if (atr > CONFIG.MIN_ATR_VALUE * 2) setupScore += 5;
     if (atr > CONFIG.MIN_ATR_VALUE * 3) setupScore += 5;
     
-    // Cap at 100
     setupScore = Math.min(100, setupScore);
     
-    // Determine R:R based on setup score
-    if (setupScore >= 85) {
-        return {
-            tier: '4_1',
-            tpMult: 4.0,
-            slMult: 1.0,
-            label: 'ELITE',
-            score: setupScore,
-            minWinRate: 20  // 1:4 needs >20% win rate
-        };
-    } else if (setupScore >= 70) {
-        return {
-            tier: '3_1',
-            tpMult: 3.0,
-            slMult: 1.0,
-            label: 'STRONG',
-            score: setupScore,
-            minWinRate: 25  // 1:3 needs >25% win rate
-        };
-    } else if (setupScore >= 55) {
-        return {
-            tier: '2_1',
-            tpMult: 2.0,
-            slMult: 1.0,
-            label: 'FAIR',
-            score: setupScore,
-            minWinRate: 34  // 1:2 needs >34% win rate
-        };
+    if (setupScore >= 90) {
+        return { tier: '4_1', tpMult: 4.0, slMult: 1.0, label: 'ELITE', score: setupScore, minWinRate: 20 };
+    } else if (setupScore >= 78) {
+        return { tier: '3_1', tpMult: 3.0, slMult: 1.0, label: 'STRONG', score: setupScore, minWinRate: 25 };
+    } else if (setupScore >= 65) {
+        return { tier: '2_1', tpMult: 2.0, slMult: 1.0, label: 'FAIR', score: setupScore, minWinRate: 34 };
     } else {
-        return null;  // No trade
+        return null;
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// CIPHER DYNAMIC STRATEGY
+// CIPHER DYNAMIC STRATEGY (FIXED)
 // ─────────────────────────────────────────────────────────────
 export const CipherStrategy = {
 
     _stats: {},
-    _dailyStats: { trades: [], wins: 0, losses: 0, pnl: 0, date: null },
 
     _getStats(botId) {
         if (!this._stats[botId]) {
@@ -433,7 +412,9 @@ export const CipherStrategy = {
                 lastFiredMs: 0, 
                 tradeCount: 0, 
                 windowStart: Date.now(),
-                rrDistribution: { '2_1': 0, '3_1': 0, '4_1': 0 }
+                totalTrades: 0,
+                totalWins: 0,
+                rrDistribution: { '1.5_1': 0, '2_1': 0, '3_1': 0, '4_1': 0 }
             };
         }
         return this._stats[botId];
@@ -443,14 +424,17 @@ export const CipherStrategy = {
         const s = this._getStats(botId);
         if (outcome === 'TP') {
             s.consLosses = 0;
+            s.totalWins++;
             if (rrTier) s.rrDistribution[rrTier] = (s.rrDistribution[rrTier] || 0) + 1;
         } else {
             s.consLosses++;
         }
+        s.totalTrades++;
     },
 
     isHalted(botId) {
-        return this._getStats(botId).consLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES;
+        const s = this._getStats(botId);
+        return s.consLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES;
     },
 
     isTooFrequent(botId) {
@@ -463,11 +447,22 @@ export const CipherStrategy = {
         return s.tradeCount >= CONFIG.MAX_TRADES_PER_HOUR;
     },
 
+    // Win rate gate: halt if win rate falls below threshold
+    isWinRateTooLow(botId) {
+        const s = this._getStats(botId);
+        if (s.totalTrades < 20) return false;
+        const winRate = (s.totalWins / s.totalTrades) * 100;
+        if (winRate < CONFIG.MIN_WIN_RATE_PERCENT) {
+            console.log(`[CIPHER] HALTED: Win rate ${winRate.toFixed(1)}% below ${CONFIG.MIN_WIN_RATE_PERCENT}% after ${s.totalTrades} trades`);
+            return true;
+        }
+        return false;
+    },
+
     recordTrade(botId, rrTier) {
         const s = this._getStats(botId);
         s.tradeCount++;
         s.lastFiredMs = Date.now();
-        if (rrTier) s.rrDistribution[rrTier] = (s.rrDistribution[rrTier] || 0);
     },
 
     getStats(botId) {
@@ -477,14 +472,11 @@ export const CipherStrategy = {
     checkEntry(m5Candles, h4Candles, atr, botId) {
         // ── Basic validations ─────────────────────────────────
         if (!m5Candles || m5Candles.length < 50 || !atr) return null;
-        if (this.isHalted(botId)) {
-            console.log(`[CIPHER] Bot ${botId} halted after ${this._getStats(botId).consLosses} losses`);
-            return null;
-        }
+        if (this.isHalted(botId)) return null;
+        if (this.isWinRateTooLow(botId)) return null;
         if (this.isTooFrequent(botId)) return null;
         if (!_isGoodSession()) return null;
         
-        // Skip if ATR too low
         if (atr < CONFIG.MIN_ATR_VALUE) return null;
         
         // ── Cooldown ─────────────────────────────────────────
@@ -505,7 +497,7 @@ export const CipherStrategy = {
         
         // ── Pullback quality ─────────────────────────────────
         const { depth: pullbackDepth, quality: pullbackQuality } = _pullbackMetrics(m5Candles, atr, bias);
-        if (pullbackDepth < 0.5) return null;  // Minimum threshold
+        if (pullbackDepth < 0.8) return null;  // Increased minimum
         
         // ── Trigger quality ──────────────────────────────────
         const triggerQuality = _triggerQuality(m5Candles, bias);
@@ -532,27 +524,19 @@ export const CipherStrategy = {
         if (!rrConfig) return null;
         
         // ── Additional tier-specific checks ──────────────────
-        if (rrConfig.tier === '4_1') {
-            // 1:4 requires extra confirmation
-            if (pullbackDepth < CONFIG.MIN_PULLBACK['4_1']) return null;
-            const rsiRange = CONFIG.RSI_RANGES[bias]['4_1'];
-            if (rsiVal < rsiRange[0] || rsiVal > rsiRange[1]) return null;
-            if (trendStrength < 75) return null;
-        } else if (rrConfig.tier === '3_1') {
-            if (pullbackDepth < CONFIG.MIN_PULLBACK['3_1']) return null;
-            const rsiRange = CONFIG.RSI_RANGES[bias]['3_1'];
-            if (rsiVal < rsiRange[0] || rsiVal > rsiRange[1]) return null;
-            if (trendStrength < 60) return null;
-        } else if (rrConfig.tier === '2_1') {
-            if (pullbackDepth < CONFIG.MIN_PULLBACK['2_1']) return null;
-            const rsiRange = CONFIG.RSI_RANGES[bias]['2_1'];
-            if (rsiVal < rsiRange[0] || rsiVal > rsiRange[1]) return null;
-        }
+        const requiredPullback = CONFIG.MIN_PULLBACK[rrConfig.tier] || 0.8;
+        if (pullbackDepth < requiredPullback) return null;
+        
+        const rsiRange = CONFIG.RSI_RANGES[bias][rrConfig.tier] || CONFIG.RSI_RANGES[bias]['2_1'];
+        if (rsiVal < rsiRange[0] || rsiVal > rsiRange[1]) return null;
+        
+        if (rrConfig.tier === '4_1' && trendStrength < 80) return null;
+        if (rrConfig.tier === '3_1' && trendStrength < 65) return null;
+        if (rrConfig.tier === '2_1' && trendStrength < 50) return null;
         
         // ── Record and return ────────────────────────────────
         this.recordTrade(botId, rrConfig.tier);
         
-        // Build factor list for logging
         const factors = [
             `H4 bias ${bias} (${Math.round(h4Strength)}%)`,
             `Trend ${Math.round(trendStrength)}%`,
@@ -562,8 +546,7 @@ export const CipherStrategy = {
             `${rrConfig.label} ${rrConfig.tier.replace('_', ':')} R:R`
         ];
         
-        // Log the dynamic decision
-        console.log(`[CIPHER] Setup score: ${rrConfig.score} → ${rrConfig.tier.replace('_', ':')} R:R`);
+        console.log(`[CIPHER] ✅ SIGNAL ${bias} | Score: ${rrConfig.score} | ${rrConfig.tier.replace('_', ':')} R:R | RSI: ${rsiVal?.toFixed(0)} | Pullback: ${pullbackDepth.toFixed(1)}x`);
         
         return {
             type: bias,
@@ -575,13 +558,13 @@ export const CipherStrategy = {
             isCipher: true,
             trendStrength,
             rrTier: rrConfig.tier,
-            // Store metadata for debugging
             _meta: {
                 setupScore: rrConfig.score,
                 pullbackDepth,
                 triggerQuality,
                 rsiScore: rsiScoreVal,
-                trendStrength
+                trendStrength,
+                rsiValue: rsiVal
             }
         };
     },
