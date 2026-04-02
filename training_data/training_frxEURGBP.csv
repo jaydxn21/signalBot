@@ -1,0 +1,2 @@
+timestamp,unix,symbol,timeframe,type,entry,open,high,low,atr,rsi,ema8,ema21,ema_diff,is_trending,is_volatile,bull_score,bear_score,outcome,pnl,sl,tp,hold_candles
+2026-04-02T14:15:00.000Z,1775139300,frxEURGBP,300,BUY,0.87272,0.87271,0.87272,0.87271,0.00023,100,0.87246,0.87245,0.00001,1,1,2,0,SL,-0.00023,0.87249,0.87307,300

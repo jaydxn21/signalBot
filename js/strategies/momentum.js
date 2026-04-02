@@ -1,148 +1,35 @@
-// momentum-swing.js — HIGH WIN RATE Swing Strategy
+// momentum.js — Momentum Strategy with Structure Integration
 //
-// MIMICS: Kimali Bowen's 80% win rate manual trading
+// ENTRY RULES:
+//   - MUST be at daily support for BUY, or daily resistance for SELL
+//   - Structure score must be ≥ 65
+//   - Trend confirmation (EMA alignment)
+//   - Engulfing or strong momentum candle
 //
-// KEY FEATURES:
-//   - Extremely selective (target 5-10 trades per month)
-//   - Pair-specific filters (EURGBP, CADCHF optimized)
-//   - Short bias (higher win rate on sells)
-//   - Daily timeframe bias, H4 entry
-//   - Minimum 2:1 risk/reward
-//   - 1-day minimum hold time expectation
-//
-// SYMBOLS: Forex pairs (EURGBP, CADCHF, GBPUSD, etc.)
-// TIMEFRAME: H4 entry, Daily bias
+// EXIT RULES:
+//   - TP at nearest supply/demand zone or daily mid
+//   - Trailing stop after 1x ATR profit
+
+import { StructureEngine } from '../structure-engine.js';
 
 export const MomentumStrategy = {
     
-    // Strategy stats per bot
-    _stats: {},
+    _cooldownCandles: 0,
     _lastTradeTime: 0,
-    _weeklyTradeCount: 0,
+    _tradeCount: 0,
     _weekStart: null,
     
     // ─────────────────────────────────────────────────────────────
-    // PAIR-SPECIFIC CONFIGURATIONS (based on Kimali's results)
+    // PAIR-SPECIFIC CONFIGURATIONS
     // ─────────────────────────────────────────────────────────────
     _pairConfig: {
-        // Star performer — high win rate, tight spreads
-        'EURGBP': {
-            enabled: true,
-            bias: 'BOTH',           // Works for both directions
-            minATR: 0.0008,         // 8 pips minimum volatility
-            maxSpread: 2.0,         // Max spread in pips
-            session: 'LONDON',      // Best during London session
-            stopATR: 1.5,           // SL = 1.5x ATR
-            targetATR: 3.0,         // TP = 3.0x ATR (2:1 R:R)
-            winRateHistory: 0.80    // Historical win rate on this pair
-        },
-        
-        // Second best performer
-        'CADCHF': {
-            enabled: true,
-            bias: 'SHORT',          // Only take shorts (100% win rate on shorts)
-            minATR: 0.0006,
-            maxSpread: 2.5,
-            session: 'NY',          // Best during NY session
-            stopATR: 1.2,
-            targetATR: 2.4,
-            winRateHistory: 0.90
-        },
-        
-        // AVOID — single trade wiped gains
-        'CHFJPY': {
-            enabled: false,         // DISABLED — losing pair
-            bias: 'NONE',
-            minATR: 0,
-            maxSpread: 10,
-            session: null,
-            stopATR: 1.0,
-            targetATR: 2.0,
-            winRateHistory: 0.00
-        },
-        
-        // Default for other pairs
-        'default': {
-            enabled: true,
-            bias: 'SHORT',          // Default to short bias (higher win rate)
-            minATR: 0.0007,
-            maxSpread: 2.0,
-            session: 'LONDON_NY',   // London-NY overlap (best liquidity)
-            stopATR: 1.5,
-            targetATR: 3.0,
-            winRateHistory: 0.60
-        }
-    },
-    
-    // ─────────────────────────────────────────────────────────────
-    // SESSION DEFINITIONS
-    // ─────────────────────────────────────────────────────────────
-    _sessions: {
-        'LONDON': { start: 7, end: 16 },      // 7-16 UTC
-        'NY': { start: 12, end: 20 },         // 12-20 UTC
-        'LONDON_NY': { start: 12, end: 16 },  // Overlap (best)
-        'ASIAN': { start: 0, end: 6 }         // Avoid
-    },
-    
-    // ─────────────────────────────────────────────────────────────
-    // GET/UPDATE STATS
-    // ─────────────────────────────────────────────────────────────
-    _getStats(botId) {
-        if (!this._stats[botId]) {
-            this._stats[botId] = {
-                trades: 0,
-                wins: 0,
-                losses: 0,
-                pairPerformance: {},
-                lastTradeTime: 0,
-                weeklyTrades: 0,
-                weekStart: this._getWeekStart()
-            };
-        }
-        return this._stats[botId];
-    },
-    
-    _getWeekStart() {
-        const now = new Date();
-        const day = now.getUTCDay();
-        const diff = (day === 0 ? 6 : day - 1);
-        const monday = new Date(now);
-        monday.setUTCDate(now.getUTCDate() - diff);
-        monday.setUTCHours(0, 0, 0, 0);
-        return monday.getTime();
-    },
-    
-    recordOutcome(botId, symbol, outcome, pnl) {
-        const stats = this._getStats(botId);
-        stats.trades++;
-        if (outcome === 'TP') {
-            stats.wins++;
-        } else {
-            stats.losses++;
-        }
-        
-        if (!stats.pairPerformance[symbol]) {
-            stats.pairPerformance[symbol] = { wins: 0, losses: 0, pnl: 0 };
-        }
-        if (outcome === 'TP') {
-            stats.pairPerformance[symbol].wins++;
-        } else {
-            stats.pairPerformance[symbol].losses++;
-        }
-        stats.pairPerformance[symbol].pnl += pnl;
-        stats.lastTradeTime = Date.now();
-    },
-    
-    getWinRate(botId, symbol) {
-        const stats = this._getStats(botId);
-        const pairStats = stats.pairPerformance[symbol];
-        if (!pairStats || pairStats.wins + pairStats.losses < 3) {
-            // Use historical default
-            const cfg = this._pairConfig[symbol] || this._pairConfig['default'];
-            return cfg.winRateHistory;
-        }
-        const total = pairStats.wins + pairStats.losses;
-        return pairStats.wins / total;
+        'EURGBP': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.75 },
+        'CADCHF': { enabled: true, bias: 'SHORT', minStructureScore: 60, riskPercent: 0.7 },
+        'GBPUSD': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.75 },
+        'EURUSD': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.75 },
+        'USDJPY': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.7 },
+        'CHFJPY': { enabled: false, bias: 'NONE', minStructureScore: 0, riskPercent: 0 },
+        'default': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.7 }
     },
     
     // ─────────────────────────────────────────────────────────────
@@ -168,235 +55,198 @@ export const MomentumStrategy = {
         return trs.reduce((a, b) => a + b, 0) / period;
     },
     
-    _rsi(candles, period = 14) {
-        if (candles.length < period + 2) return null;
-        const cl = candles.slice(-period - 1).map(c => c.close);
-        let g = 0, l = 0;
-        for (let i = 1; i < cl.length; i++) {
-            const d = cl[i] - cl[i - 1];
-            if (d >= 0) g += d; else l -= d;
-        }
-        const ag = g / period, al = l / period;
-        return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+    _isBigBody(candle, atr) {
+        const body = Math.abs(candle.close - candle.open);
+        return body > atr * 0.5;
     },
     
-    // ─────────────────────────────────────────────────────────────
-    // DAILY TIMEFRAME BIAS (like H4 but slower)
-    // ─────────────────────────────────────────────────────────────
-    _dailyBias(dailyCandles) {
-        if (!dailyCandles || dailyCandles.length < 20) return null;
-        
-        const ema20 = this._ema(dailyCandles, 20);
-        const ema50 = this._ema(dailyCandles, 50);
-        const price = dailyCandles[dailyCandles.length - 1].close;
-        
-        if (!ema20 || !ema50) return null;
-        
-        // Strong uptrend: price > EMA20 > EMA50
-        if (price > ema20 && ema20 > ema50) return 'BULL';
-        // Strong downtrend: price < EMA20 < EMA50
-        if (price < ema20 && ema20 < ema50) return 'BEAR';
-        // Weak/neutral
+    _isEngulfing(prev, curr) {
+        const bullEngulf = curr.close > curr.open &&
+                           curr.open < prev.close &&
+                           curr.close > prev.open &&
+                           prev.close < prev.open;
+        const bearEngulf = curr.close < curr.open &&
+                           curr.open > prev.close &&
+                           curr.close < prev.open &&
+                           prev.close > prev.open;
+        return { bullEngulf, bearEngulf };
+    },
+    
+    _isThreeConsecutive(c1, c2, c3) {
+        const allBull = c1.close > c1.open && c2.close > c2.open && c3.close > c3.open;
+        const allBear = c1.close < c1.open && c2.close < c2.open && c3.close < c3.open;
+        return { allBull, allBear };
+    },
+    
+    _getTrendDirection(candles) {
+        const fast = this._ema(candles, 8);
+        const slow = this._ema(candles, 21);
+        if (!fast || !slow) return null;
+        if (fast > slow) return 'BULL';
+        if (fast < slow) return 'BEAR';
         return null;
     },
     
     // ─────────────────────────────────────────────────────────────
-    // H4 ENTRY SIGNAL (high quality only)
+    // STRUCTURE-BASED ENTRY
     // ─────────────────────────────────────────────────────────────
-    _h4Signal(candles, atr, biasPreference) {
-        if (candles.length < 30) return null;
-        
-        const c0 = candles[candles.length - 1];  // Current (almost closed)
-        const c1 = candles[candles.length - 2];  // Previous
-        const c2 = candles[candles.length - 3];  // 2 bars ago
-        const c3 = candles[candles.length - 4];  // 3 bars ago
-        
-        const ema8 = this._ema(candles.slice(0, -1), 8);
-        const ema21 = this._ema(candles.slice(0, -1), 21);
-        const rsi = this._rsi(candles.slice(0, -1));
-        
-        if (!ema8 || !ema21 || !rsi) return null;
-        
-        // ── BULLISH SIGNAL (only if bias allows) ────────────────
-        if (biasPreference !== 'SHORT') {
-            let bullScore = 0;
-            
-            // Price above EMAs
-            if (c0.close > ema8 && ema8 > ema21) bullScore++;
-            
-            // RSI oversold recovery
-            if (rsi < 35 && candles[candles.length - 2].close < candles[candles.length - 3].close) bullScore++;
-            
-            // Bullish engulfing on H4
-            const isBullEngulf = c1.close > c1.open && 
-                                 c1.open < c2.close && 
-                                 c1.close > c2.open &&
-                                 c2.close < c2.open;
-            if (isBullEngulf) bullScore += 2;
-            
-            // 3-bar compression then expansion
-            const compression = Math.max(c3.high - c3.low, c2.high - c2.low) < atr * 0.8;
-            const expansion = (c1.high - c1.low) > atr * 1.2;
-            if (compression && expansion && c1.close > c1.open) bullScore += 2;
-            
-            if (bullScore >= 2) {
-                return { type: 'BUY', score: bullScore, rsi: rsi };
-            }
-        }
-        
-        // ── BEARISH SIGNAL (preferred — higher win rate) ────────
-        if (biasPreference !== 'BULL') {
-            let bearScore = 0;
-            
-            // Price below EMAs
-            if (c0.close < ema8 && ema8 < ema21) bearScore++;
-            
-            // RSI overbought reversal
-            if (rsi > 65 && candles[candles.length - 2].close > candles[candles.length - 3].close) bearScore++;
-            
-            // Bearish engulfing on H4
-            const isBearEngulf = c1.close < c1.open && 
-                                 c1.open > c2.close && 
-                                 c1.close < c2.open &&
-                                 c2.close > c2.open;
-            if (isBearEngulf) bearScore += 2;
-            
-            // 3-bar compression then expansion (down)
-            const compression = Math.max(c3.high - c3.low, c2.high - c2.low) < atr * 0.8;
-            const expansion = (c1.high - c1.low) > atr * 1.2;
-            if (compression && expansion && c1.close < c1.open) bearScore += 2;
-            
-            if (bearScore >= 2) {
-                return { type: 'SELL', score: bearScore, rsi: rsi };
-            }
-        }
-        
-        return null;
-    },
-    
-    // ─────────────────────────────────────────────────────────────
-    // SESSION CHECK
-    // ─────────────────────────────────────────────────────────────
-    _isActiveSession(sessionName, timestamp) {
-        if (!sessionName) return true;
-        
-        const hourUTC = new Date(timestamp * 1000).getUTCHours();
-        const session = this._sessions[sessionName];
-        if (!session) return true;
-        
-        return hourUTC >= session.start && hourUTC < session.end;
-    },
-    
-    // ─────────────────────────────────────────────────────────────
-    // SPREAD CHECK (approximate — requires external data)
-    // ─────────────────────────────────────────────────────────────
-    _isSpreadOk(maxSpread) {
-        // This requires access to live spreads from Deriv API
-        // For now, assume OK — implement when you have spread data
-        return true;
-    },
-    
-    // ─────────────────────────────────────────────────────────────
-    // TRADE FREQUENCY LIMITS (5-10 trades per month)
-    // ─────────────────────────────────────────────────────────────
-    _canTrade(botId) {
-        const stats = this._getStats(botId);
-        const now = Date.now();
-        
-        // Max 1 trade per day
-        if (now - stats.lastTradeTime < 24 * 60 * 60 * 1000) {
-            return false;
-        }
-        
-        // Max 3 trades per week
-        const currentWeek = this._getWeekStart();
-        if (currentWeek !== stats.weekStart) {
-            stats.weeklyTrades = 0;
-            stats.weekStart = currentWeek;
-        }
-        if (stats.weeklyTrades >= 3) {
-            return false;
-        }
-        
-        return true;
-    },
-    
-    // ─────────────────────────────────────────────────────────────
-    // MAIN ENTRY CHECK
-    // ─────────────────────────────────────────────────────────────
-    checkEntry(candles, atr, symbol = '', h4Candles = [], dailyCandles = []) {
+    checkEntry(candles, atr, symbol = '', dailyCandles = [], weeklyCandles = []) {
         if (!atr || candles.length < 30) return null;
         
-        // ── Get pair configuration ──────────────────────────────
+        // Get pair config
         const cfg = this._pairConfig[symbol] || this._pairConfig['default'];
-        if (!cfg.enabled) {
-            console.log(`[Momentum] ${symbol} is disabled (losing pair)`);
-            return null;
+        if (!cfg.enabled) return null;
+        
+        // ── COOLDOWN (max 3 trades per week, 1 per day) ─────────
+        const now = Date.now();
+        if (now - this._lastTradeTime < 24 * 60 * 60 * 1000) return null;
+        
+        const currentWeek = this._getWeekStart();
+        if (currentWeek !== this._weekStart) {
+            this._tradeCount = 0;
+            this._weekStart = currentWeek;
+        }
+        if (this._tradeCount >= 3) return null;
+        
+        // ── GET STRUCTURE MAP ───────────────────────────────────
+        const structureMap = StructureEngine.getStructureMap(candles, dailyCandles, weeklyCandles);
+        if (!structureMap.dailyLevels) return null;
+        
+        const price = candles[candles.length - 1].close;
+        const position = structureMap.getPricePosition(price);
+        const structureScore = structureMap.getStructureScore(price, 'BUY'); // Will check both
+        
+        // ── STRUCTURE FILTER ────────────────────────────────────
+        // Determine if we should look for BUY or SELL based on structure
+        let allowedBias = null;
+        
+        if (cfg.bias === 'BOTH') {
+            if (position === 'SUPPORT') allowedBias = 'BUY';
+            else if (position === 'RESISTANCE') allowedBias = 'SELL';
+            else if (position === 'BREAKOUT_UP') allowedBias = 'BUY';
+            else if (position === 'BREAKOUT_DOWN') allowedBias = 'SELL';
+            else return null; // No clear structure bias
+        } else if (cfg.bias === 'SHORT') {
+            if (position !== 'RESISTANCE' && position !== 'BREAKOUT_DOWN') return null;
+            allowedBias = 'SELL';
+        } else if (cfg.bias === 'LONG') {
+            if (position !== 'SUPPORT' && position !== 'BREAKOUT_UP') return null;
+            allowedBias = 'BUY';
         }
         
-        // ── Frequency limits (5-10 trades per month) ────────────
-        if (!this._canTrade()) return null;
+        if (!allowedBias) return null;
         
-        // ── Minimum volatility check ────────────────────────────
-        if (atr < cfg.minATR) return null;
+        // Structure score check
+        const biasScore = structureMap.getStructureScore(price, allowedBias);
+        if (biasScore < cfg.minStructureScore) return null;
         
-        // ── Session check ───────────────────────────────────────
-        const lastCandle = candles[candles.length - 1];
-        if (!this._isActiveSession(cfg.session, lastCandle.time)) return null;
+        // ── MOMENTUM CONFIRMATION ───────────────────────────────
+        const c1 = candles[candles.length - 4];
+        const c2 = candles[candles.length - 3];
+        const c3 = candles[candles.length - 2];
         
-        // ── Spread check (if data available) ────────────────────
-        if (!this._isSpreadOk(cfg.maxSpread)) return null;
+        if (!c1 || !c2 || !c3) return null;
         
-        // ── Daily bias (higher timeframe confluence) ────────────
-        const dailyBias = this._dailyBias(dailyCandles);
-        // If daily bias is strong opposite, skip (but don't require alignment)
+        const { bullEngulf, bearEngulf } = this._isEngulfing(c2, c3);
+        const { allBull, allBear } = this._isThreeConsecutive(c1, c2, c3);
+        const bigBullBody = c3.close > c3.open && this._isBigBody(c3, atr);
+        const bigBearBody = c3.close < c3.open && this._isBigBody(c3, atr);
         
-        // ── H4 signal ───────────────────────────────────────────
-        const signal = this._h4Signal(h4Candles.length ? h4Candles : candles, atr, cfg.bias);
-        if (!signal) return null;
+        const bullScore = (bullEngulf ? 1 : 0) + (allBull ? 1 : 0) + (bigBullBody ? 1 : 0);
+        const bearScore = (bearEngulf ? 1 : 0) + (allBear ? 1 : 0) + (bigBearBody ? 1 : 0);
         
-        // ── Win rate gate — only trade if pair historically performs ──
-        const pairWinRate = this.getWinRate(null, symbol);
-        if (pairWinRate < 0.50) {
-            console.log(`[Momentum] ${symbol} win rate ${(pairWinRate*100).toFixed(0)}% — below threshold`);
-            return null;
+        // Need at least 2 confirmations
+        if (allowedBias === 'BUY' && bullScore < 2) return null;
+        if (allowedBias === 'SELL' && bearScore < 2) return null;
+        
+        // ── TREND CONFIRMATION (optional, not required at support/resistance) ──
+        const trend = this._getTrendDirection(candles.slice(0, -1));
+        
+        // ── SET TP/SL BASED ON STRUCTURE ────────────────────────
+        let sl, tp;
+        const nearest = structureMap.getDistanceToNearestLevel(price);
+        
+        if (allowedBias === 'BUY') {
+            // Find nearest support below for SL
+            let supportLevel = structureMap.dailyLevels.dailyLow;
+            if (structureMap.demandZones.length > 0) {
+                supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+            }
+            sl = supportLevel * 0.998; // Just below support
+            
+            // Find nearest resistance above for TP
+            let resistanceLevel = structureMap.dailyLevels.dailyMid;
+            if (structureMap.supplyZones.length > 0) {
+                resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+            }
+            tp = resistanceLevel;
+        } else {
+            // Find nearest resistance above for SL
+            let resistanceLevel = structureMap.dailyLevels.dailyHigh;
+            if (structureMap.supplyZones.length > 0) {
+                resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+            }
+            sl = resistanceLevel * 1.002; // Just above resistance
+            
+            // Find nearest support below for TP
+            let supportLevel = structureMap.dailyLevels.dailyMid;
+            if (structureMap.demandZones.length > 0) {
+                supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+            }
+            tp = supportLevel;
         }
         
-        // ── Record trade attempt ────────────────────────────────
-        const stats = this._getStats();
-        stats.weeklyTrades++;
-        stats.lastTradeTime = Date.now();
+        // Calculate R:R
+        const risk = Math.abs(price - sl);
+        const reward = Math.abs(tp - price);
+        const rr = reward / risk;
         
-        // ── Calculate R:R based on pair config ──────────────────
-        const tpMultiplier = cfg.targetATR / cfg.stopATR;  // e.g., 3.0 / 1.5 = 2.0 (2:1)
-        const slMultiplier = cfg.stopATR;
+        if (rr < 1.5) return null; // Minimum 1.5:1 R:R
+        
+        // ── RECORD TRADE ────────────────────────────────────────
+        this._lastTradeTime = now;
+        this._tradeCount++;
         
         const factors = [
-            `${symbol} ${signal.type}`,
-            `Score ${signal.score}/3`,
-            `RSI ${signal.rsi?.toFixed(0)}`,
-            `${cfg.bias === 'SHORT' ? 'Short bias' : 'Balanced'}`,
-            `${tpMultiplier.toFixed(1)}:1 R:R`
+            `${position} (score ${biasScore})`,
+            `${allowedBias === 'BUY' ? 'Bull' : 'Bear'} score ${allowedBias === 'BUY' ? bullScore : bearScore}/3`,
+            `R:R ${rr.toFixed(1)}:1`,
+            `Nearest: ${nearest.type || 'none'}`
         ];
         
-        console.log(`[Momentum] 📈 SIGNAL ${signal.type} on ${symbol} | Score: ${signal.score} | RSI: ${signal.rsi?.toFixed(0)} | Win rate: ${(pairWinRate*100).toFixed(0)}%`);
+        console.log(`[Momentum] 📍 ${allowedBias} on ${symbol} | ${factors.join(' · ')}`);
         
         return {
-            type: signal.type,
-            label: `MOMENTUM ${signal.type} [${symbol}]`,
-            score: 70 + (signal.score * 10),
+            type: allowedBias,
+            label: `MOMENTUM ${allowedBias} [${position}]`,
+            score: biasScore,
             factors: factors,
-            tpMultiplier: tpMultiplier,
-            slMultiplier: slMultiplier,
+            tpMultiplier: reward / atr,
+            slMultiplier: risk / atr,
             isMomentum: true,
-            pairConfig: cfg
+            pairConfig: cfg,
+            _meta: { position, structureScore: biasScore, rr, sl, tp, price }
         };
     },
     
-    // ─────────────────────────────────────────────────────────────
-    // HELPER: Register loss for cooldown
-    // ─────────────────────────────────────────────────────────────
+    _getWeekStart() {
+        const now = new Date();
+        const day = now.getUTCDay();
+        const diff = (day === 0 ? 6 : day - 1);
+        const monday = new Date(now);
+        monday.setUTCDate(now.getUTCDate() - diff);
+        monday.setUTCHours(0, 0, 0, 0);
+        return monday.getTime();
+    },
+    
     registerLoss() {
-        // Cooldown not needed — frequency limits handle it
-    }
+        this._cooldownCandles = 3;
+    },
+    
+    // Legacy methods for compatibility
+    _isVolatileEnough() { return true; },
+    _isTrending() { return true; },
+    _isActiveSession() { return true; },
+    _isConfirmed() { return true; },
+    analyze() { return null; }
 };
