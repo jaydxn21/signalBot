@@ -14,9 +14,9 @@ import { StructureEngine } from '../structure-engine.js';
 
 const CIPHER_SYMBOLS = ['cryBTCUSD', 'BTCUSD'];
 
-export function isCipherSymbol(symbol) {
-    return CIPHER_SYMBOLS.includes(symbol);
-}
+// ─────────────────────────────────────────────────────────────
+// SINGLE EXPORT at the bottom — remove duplicate
+// ─────────────────────────────────────────────────────────────
 
 const CONFIG = {
     MIN_ATR_VALUE: 8.0,
@@ -285,4 +285,9 @@ export const CipherStrategy = {
     },
 };
 
-export { isCipherSymbol };
+// ─────────────────────────────────────────────────────────────
+// SINGLE EXPORT — no duplicates
+// ─────────────────────────────────────────────────────────────
+export function isCipherSymbol(symbol) {
+    return CIPHER_SYMBOLS.includes(symbol);
+}
