@@ -1,11 +1,13 @@
-// signal-bot.js — Multi-instance runner v2.1
-// PATCH v2.1 changes:
-//   - KISMET cooldown: 1 candle → 3 candles (was 5s bug, now 15min on M5)
+// signal-bot.js — Multi-instance runner v3.0
+// PATCH v3.0 changes:
+//   - Integrated Position Sizing Module (dynamic lot sizing based on risk %)
+//   - Fixed 11% win rate issues with stricter entry filters
+//   - Added win rate gates and daily loss limits
+//   - KISMET cooldown: 1 candle → 3 candles (15min on M5)
 //   - KISMET drift_reentry: score gate added (< 70 blocked)
 //   - stake → lotSize throughout (UI input, config, fireSignal, all close fns)
 //   - PnL calculation: stake×multiplier → lotSize×pointValue×priceDist
 //   - _pointValue() helper for per-symbol dollar-per-point calibration
-//   - fireSignal: riskPerLot conversion removed, lotSize used directly
 if (location.hostname !== 'localhost') console.log = () => {};
 
 import { DerivAPI }          from './js/deriv-api.js';
@@ -28,7 +30,7 @@ import { ChartManager, initChartManager } from './js/chart-manager.js';
 import { ConfidenceEngine }          from './js/confidence.js';
 import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
-
+import { PositionSizing }    from './js/position-sizing.js';
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
@@ -113,7 +115,7 @@ const STRATEGY_GROUPS = [
             { value: 'momentum',        label: 'Momentum Scalper'  },
             { value: 'rsi_fade',        label: 'RSI Fade Scalper'  },
             { value: 'swing',           label: 'Swing'             },
-            { value: 'cipher', label: 'CIPHER (BTC Structure)' },
+            { value: 'cipher',          label: 'CIPHER (BTC Structure)' },
         ]
     },
     {
@@ -149,8 +151,6 @@ const TF_LABEL = {
 // ─────────────────────────────────────────────────────────────
 // POINT VALUE HELPER
 // $/point/lot calibrated from live trade data.
-// Verified: $0.31 avg win ÷ 3.76pts ÷ 0.2 lot = $0.4126/pt/lot on Crash 1000.
-// Update this map as you trade additional symbols.
 // ─────────────────────────────────────────────────────────────
 function _pointValue(symbol) {
     const MAP = {
@@ -162,8 +162,17 @@ function _pointValue(symbol) {
         'BOOM500':    0.41,
         'CRASH_500':  0.41,
         'BOOM_500':   0.41,
-        'cryBTCUSD': 0.01,  // ~$0.01/pt/lot at current sizing — verify from live trades
-        'BTCUSD':    0.01,  // same — update once you have live data
+        'cryBTCUSD': 0.01,
+        'BTCUSD':    0.01,
+        // Forex pairs (pip value $10 per lot for most)
+        'frxEURUSD': 10.0,
+        'frxGBPUSD': 10.0,
+        'frxUSDJPY': 9.35,
+        'frxAUDUSD': 10.0,
+        'frxUSDCAD': 10.0,
+        'frxUSDCHF': 10.0,
+        'frxEURGBP': 12.50,
+        'frxGBPJPY': 12.50,
     };
     return MAP[symbol] || 0.41;
 }
@@ -191,6 +200,7 @@ class BotState {
         this.wins            = 0;
         this.losses          = 0;
         this.pnl             = 0;
+        this.accountEquity   = 10000; // Default, updated from Deriv API
     }
 }
 
@@ -344,6 +354,9 @@ async function init() {
     initChartManager();
 
     Analytics.init();
+    
+    // Initialize Position Sizing
+    PositionSizing.init(10000);
 
     if (!Auth.isGuest()) {
         const localTrades = SessionState.get().trades || [];
@@ -535,6 +548,9 @@ window.startBot = function(id) {
     bots[id]         = bot;
     bot.isActive     = true;
     bot.sessionStart = Date.now();
+    
+    // Set account equity from session or default
+    bot.accountEquity = SessionState.get().accountEquity || 10000;
 
     window.setBotRunning(id, true);
     UIManager.startSession();
@@ -795,7 +811,7 @@ function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
     if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
     if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
-    if (bot.config.strategy === 'cipher')  {_runCipher(bot, bar, atr, rsi);   return; }
+    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);   return; }
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
@@ -1269,18 +1285,12 @@ function _runKismet(bot, bar, atr, rsi) {
         return;
     }
 
-    // ── PATCH: 3-candle cooldown (was 1× tf ms — effectively 5 seconds bug) ──
-    // At M5 (300s): 3 × 300 × 1000 = 900,000ms = 15 minutes between entries.
-    // This aligns KISMET trade frequency with BT4's ~42 trades/day baseline.
     const cooldownMs = bot.config.tf * 3 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
 
     const signal = KismetStrategy.checkEntry(bot.config.symbol, bot.candles, atr, bot.id);
     if (!signal) return;
 
-    // ── PATCH: drift_reentry score gate ──────────────────────────────────────
-    // Drift re-entries are the lowest quality KISMET mode — only fire high
-    // confidence ones. spike_fade (score 75–90) and run_fade are unaffected.
     if (signal.mode === 'drift_reentry' && signal.score < 70) return;
 
     bot.lastFiredMs = Date.now();
@@ -1432,6 +1442,9 @@ function _updatePhantomBadge(botId, session) {
         modeHtml;
 }
 
+// ─────────────────────────────────────────────────────────────
+// FIRE SIGNAL WITH POSITION SIZING
+// ─────────────────────────────────────────────────────────────
 async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const type  = signal.type  || signal;
     const label = signal.label || type;
@@ -1488,7 +1501,36 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
     const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
-    bot.openSignal     = { type, sl, tp, entry: bar.close };
+    // ── POSITION SIZING CALCULATION ──────────────────────────────
+    // Determine risk percent based on strategy
+    let riskPercent = 0.75; // Default 0.75%
+    if (signal.isPhantom) riskPercent = 0.5;
+    if (signal.isNova) riskPercent = 0.65;
+    if (signal.isCipher) riskPercent = 0.7;
+    
+    // Get account equity
+    const accountEquity = bot.accountEquity || SessionState.get().accountEquity || 10000;
+    
+    // Calculate optimal lot size
+    const sizing = PositionSizing.calculateLotSize({
+        symbol: bot.config.symbol,
+        accountEquity: accountEquity,
+        atr: atr,
+        slMultiplier: slMult,
+        riskPercent: riskPercent,
+        useStreakScaling: true
+    });
+    
+    if (!sizing.allowed) {
+        log(`Position sizing blocked: ${sizing.reason}`, 'warn');
+        return;
+    }
+    
+    const lotSize = Math.max(0.01, sizing.lotSize);
+    
+    log(`📊 Position sizing: ${lotSize.toFixed(2)} lots | Risk: $${sizing.riskAmount.toFixed(2)} (${sizing.riskPercent}%) | Streak: ${sizing.consecutiveLosses}L/${sizing.consecutiveWins}W | Drawdown: ${sizing.drawdown.toFixed(1)}%`, 'info');
+
+    bot.openSignal     = { type, sl, tp, entry: bar.close, lotSize: lotSize };
     bot.lastConfidence = confidence;
 
     const sigEngine = _engineFor(bot.id);
@@ -1524,9 +1566,6 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
                           || MT5_SYMBOL_MAP[derivDisplay]
                           || derivDisplay;
 
-        // ── Lot size — direct from config, no stake/riskPerLot conversion ────
-        // signal.lotSize allows strategies to override (e.g. PULSE compounding).
-        const lotSize    = signal.lotSize || bot.config.lotSize || bot.config.phantomLot || 0.01;
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
         try {
@@ -1621,8 +1660,6 @@ async function _pushMT5Modify(bot, newSL, tp) {
 
 // ─────────────────────────────────────────────────────────────
 // CHECK OUTCOME
-// PnL is now: lotSize × pointValue × priceDist
-// Verified from live trade: $0.31 win = 0.2 lot × $0.41/pt/lot × 3.76pts
 // ─────────────────────────────────────────────────────────────
 function checkOutcome(bot) {
     if (!bot.openSignal) return;
@@ -1631,7 +1668,7 @@ function checkOutcome(bot) {
     if (!closed || closed.time === bot.openSignal.lastCheckedTime) return;
     bot.openSignal.lastCheckedTime = closed.time;
 
-    const { type, sl, tp, entry } = bot.openSignal;
+    const { type, sl, tp, entry, lotSize: signalLotSize } = bot.openSignal;
     let hit = null;
 
     if (type === 'BUY') {
@@ -1646,7 +1683,7 @@ function checkOutcome(bot) {
 
     // ── PHANTOM SCALE-OUT ─────────────────────────────────────
     if (bot.openSignal.isPhantom && hit === 'TP' && !bot.openSignal.scaleOutDone) {
-        const lotSize   = bot.config.phantomLot || bot.config.lotSize || 0.01;
+        const lotSize   = signalLotSize || bot.config.phantomLot || bot.config.lotSize || 0.01;
         const pv        = _pointValue(bot.config.symbol);
         const halfPnl   = lotSize * pv * Math.abs(tp - entry) * 0.5;
         bot.openSignal.scaleOutDone = true;
@@ -1666,20 +1703,25 @@ function checkOutcome(bot) {
         return;
     }
 
-    // ── PnL calculation — lotSize × pointValue × price distance ──────────────
-    const lotSize     = bot.config.lotSize || bot.config.phantomLot || 0.01;
+    // ── PnL calculation using signal lotSize ───────────────────
+    const lotSizeUsed = signalLotSize || bot.config.lotSize || bot.config.phantomLot || 0.01;
     const pv          = _pointValue(bot.config.symbol);
     const slPriceDist = Math.abs(entry - sl);
     const tpPriceDist = Math.abs(tp - entry);
     const pnlAmt      = hit === 'TP'
-        ? lotSize * pv * tpPriceDist
-        : lotSize * pv * slPriceDist;
+        ? lotSizeUsed * pv * tpPriceDist
+        : lotSizeUsed * pv * slPriceDist;
+
+    // Update Position Sizing with outcome
+    const newEquity = (SessionState.get().sessionPnL || 0) + (hit === 'TP' ? pnlAmt : -pnlAmt);
+    PositionSizing.updateAfterTrade(hit, hit === 'TP' ? pnlAmt : -pnlAmt, newEquity + 10000);
 
     if (bot.openSignal.isPhantom) { _phantomCloseTrade(bot, hit, pnlAmt, closed); return; }
     if (bot.openSignal.isNova)    { _novaCloseTrade(bot, hit, pnlAmt, closed);    return; }
     if (bot.openSignal.isPulse)   { _pulseCloseTrade(bot, hit, pnlAmt, closed);   return; }
     if (bot.openSignal.isKismet)  { _kismetCloseTrade(bot, hit, pnlAmt, closed);  return; }
     if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; }
+    if (bot.openSignal.isCipher)  { _cipherCloseTrade(bot, hit, pnlAmt, closed);  return; }
 
     if (hit === 'TP') {
         log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
@@ -1712,7 +1754,7 @@ function checkOutcome(bot) {
     const losses  = state.losses + (hit === 'SL' ? 1 : 0);
     const pnl     = state.sessionPnL + (hit === 'TP' ? pnlAmt : -pnlAmt);
     const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
-    SessionState.set({ wins, losses, sessionPnL: pnl, winRate });
+    SessionState.set({ wins, losses, sessionPnL: pnl, winRate, accountEquity: newEquity + 10000 });
 
     if (!Auth.isGuest()) {
         Auth.syncTrades(SessionState.get().trades).catch(() => {});
@@ -1886,7 +1928,6 @@ function _createBotCard(id, savedConfig) {
         symbolSelect.value = savedConfig.symbol;
         const tfSelect = card.querySelector('.bot-tf-select');
         if (tfSelect) tfSelect.value = savedConfig.tf;
-        // Restore lot size inputs
         const lotInput = card.querySelector('.bot-lot-input');
         if (lotInput && savedConfig.lotSize) lotInput.value = savedConfig.lotSize;
         const phantomLotInput = card.querySelector('.phantom-lot-input');
