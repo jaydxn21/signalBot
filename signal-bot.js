@@ -8,6 +8,7 @@
 //   - stake → lotSize throughout (UI input, config, fireSignal, all close fns)
 //   - PnL calculation: stake×multiplier → lotSize×pointValue×priceDist
 //   - _pointValue() helper for per-symbol dollar-per-point calibration
+//   - Added ULTRA SCALPER strategy (fast momentum scalper)
 if (location.hostname !== 'localhost') console.log = () => {};
 
 import { DerivAPI }          from './js/deriv-api.js';
@@ -31,6 +32,7 @@ import { ConfidenceEngine }          from './js/confidence.js';
 import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
+import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
@@ -807,12 +809,15 @@ function processBar(bot, bar, gran) {
 
     checkOutcome(bot);
 
+    // ── DIRECT STRATEGY RUNNERS ─────────────────────────────────
     if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
     if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
     if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
-    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);   return; }
+    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; }
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
+    
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
         if (forexStrategies.includes(bot.config.strategy)) {
@@ -1299,6 +1304,9 @@ function _runKismet(bot, bar, atr, rsi) {
     fireSignal(bot, signal, bar, atr, rsi, null);
 }
 
+// ─────────────────────────────────────────────────────────────
+// CIPHER RUNNER
+// ─────────────────────────────────────────────────────────────
 function _runCipher(bot, bar, atr, rsi) {
     if (!isCipherSymbol(bot.config.symbol)) {
         log(`⚡ CIPHER: ${bot.config.symbol} not supported. Use cryBTCUSD or BTCUSD.`, 'warn');
@@ -1325,6 +1333,37 @@ function _runCipher(bot, bar, atr, rsi) {
     fireSignal(bot, signal, bar, atr, rsi, null);
 }
 
+// ─────────────────────────────────────────────────────────────
+// ULTRA SCALPER RUNNER
+// ─────────────────────────────────────────────────────────────
+function _runUltraScalper(bot, bar, atr, rsi) {
+    // Apply trailing stop if in trade
+    if (bot.openSignal?.isUltraScalper) {
+        const pnl = bot.openSignal.entry ? 
+            (bot.openSignal.type === 'BUY' ? bar.close - bot.openSignal.entry : bot.openSignal.entry - bar.close) : 0;
+        const newSL = UltraScalper.applyTrailingStop(bot.openSignal, bar.close, atr, pnl);
+        if (newSL) {
+            bot.openSignal.sl = newSL;
+            const eng = _engineFor(bot.id);
+            if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
+        }
+        return;
+    }
+    
+    if (bot.openSignal) return;
+    
+    const signal = UltraScalper.checkEntry(bot.candles, atr, bot.config.symbol);
+    if (!signal) return;
+    
+    bot.lastFiredMs = Date.now();
+    log(`⚡ ULTRA SCALPER ${signal.type} @ ${bar.close.toFixed(4)} | Score: ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    
+    fireSignal(bot, signal, bar, atr, rsi, null);
+}
+
+// ─────────────────────────────────────────────────────────────
+// CLOSE TRADE FUNCTIONS
+// ─────────────────────────────────────────────────────────────
 function _cipherCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
     CipherStrategy.recordOutcome(bot.id, outcome);
@@ -1351,6 +1390,36 @@ function _cipherCloseTrade(bot, outcome, pnlAmt, bar) {
         confidence: bot.lastConfidence || null,
     });
  
+    bot.openSignal = null;
+}
+
+function _ultraScalperCloseTrade(bot, outcome, pnlAmt, bar) {
+    const { type, entry, sl, tp } = bot.openSignal;
+    UltraScalper.recordOutcome(bot.config.symbol, outcome);
+    UltraScalper.removeTrade(bot.config.symbol);
+    
+    if (outcome === 'TP') {
+        log(`⚡ ULTRA SCALPER ✓ +$${pnlAmt.toFixed(2)}`, 'buy');
+        window.registerBotWin(bot.id, pnlAmt);
+        UIManager.registerWin(pnlAmt);
+        UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
+        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'ultra_scalp', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
+        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
+    } else {
+        log(`⚡ ULTRA SCALPER ✗ -$${pnlAmt.toFixed(2)}`, 'sell');
+        window.registerBotLoss(bot.id, pnlAmt);
+        UIManager.registerLoss(pnlAmt);
+        UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
+        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'ultra_scalp', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
+        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
+    }
+    
+    SessionState.pushTrade({
+        time: Date.now(), symbol: bot.config.symbol, strategy: 'ultra_scalp',
+        type, entry, sl, tp, outcome, pnl: pnlAmt,
+        confidence: bot.lastConfidence || null,
+    });
+    
     bot.openSignal = null;
 }
 
@@ -1450,7 +1519,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const label = signal.label || type;
 
     let confidence;
-    if (signal.isPhantom || signal.isNova || signal.isPulse || signal.isKismet || signal.isVortex) {
+    if (signal.isPhantom || signal.isNova || signal.isPulse || signal.isKismet || signal.isVortex || signal.isUltraScalper) {
         confidence = {
             score:   signal.score || 50,
             grade:   signal.score >= 70 ? 'A' : signal.score >= 55 ? 'B' : 'C',
@@ -1502,16 +1571,14 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
     // ── POSITION SIZING CALCULATION ──────────────────────────────
-    // Determine risk percent based on strategy
-    let riskPercent = 0.75; // Default 0.75%
+    let riskPercent = 0.75;
     if (signal.isPhantom) riskPercent = 0.5;
     if (signal.isNova) riskPercent = 0.65;
     if (signal.isCipher) riskPercent = 0.7;
+    if (signal.isUltraScalper) riskPercent = 0.5;  // Lower risk for scalper
     
-    // Get account equity
     const accountEquity = bot.accountEquity || SessionState.get().accountEquity || 10000;
     
-    // Calculate optimal lot size
     const sizing = PositionSizing.calculateLotSize({
         symbol: bot.config.symbol,
         accountEquity: accountEquity,
@@ -1722,6 +1789,7 @@ function checkOutcome(bot) {
     if (bot.openSignal.isKismet)  { _kismetCloseTrade(bot, hit, pnlAmt, closed);  return; }
     if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; }
     if (bot.openSignal.isCipher)  { _cipherCloseTrade(bot, hit, pnlAmt, closed);  return; }
+    if (bot.openSignal.isUltraScalper) { _ultraScalperCloseTrade(bot, hit, pnlAmt, closed); return; }
 
     if (hit === 'TP') {
         log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
