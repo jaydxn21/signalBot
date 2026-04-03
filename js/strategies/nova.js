@@ -21,13 +21,13 @@ const NOVA_SYMBOLS = {
 };
 
 const CONFIG = {
-    MIN_SPIKE_MAGNITUDE: 4.0,
-    MIN_CONFIDENCE: 65,
-    MAX_TRADES_PER_HOUR: 1,
-    COOLDOWN_MINUTES: 15,
-    MAX_CONSECUTIVE_LOSSES: 4,
-    SL_BUFFER: 1.2,  // SL = spike extreme × 1.2
-    TP_RATIO: 0.6,   // TP = 60% of spike size
+    MIN_SPIKE_MAGNITUDE: 2.5,     // Was 4.0 — much lower
+    MIN_CONFIDENCE: 50,            // Was 65
+    MAX_TRADES_PER_HOUR: 2,        // Was 1
+    COOLDOWN_MINUTES: 5,           // Was 15
+    MAX_CONSECUTIVE_LOSSES: 6,     // Was 4
+    SL_BUFFER: 1.5,                // Was 1.2
+    TP_RATIO: 0.5,                 // Was 0.6
 };
 
 export function novaSymbolConfig(symbol) {

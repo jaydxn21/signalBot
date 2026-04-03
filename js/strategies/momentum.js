@@ -23,13 +23,13 @@ export const MomentumStrategy = {
     // PAIR-SPECIFIC CONFIGURATIONS
     // ─────────────────────────────────────────────────────────────
     _pairConfig: {
-        'EURGBP': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.75 },
-        'CADCHF': { enabled: true, bias: 'SHORT', minStructureScore: 60, riskPercent: 0.7 },
-        'GBPUSD': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.75 },
-        'EURUSD': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.75 },
-        'USDJPY': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.7 },
+        'EURGBP': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.75 },
+        'CADCHF': { enabled: true, bias: 'SHORT', minStructureScore: 50, riskPercent: 0.7 },
+        'GBPUSD': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.75 },
+        'EURUSD': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.75 },
+        'USDJPY': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.7 },
         'CHFJPY': { enabled: false, bias: 'NONE', minStructureScore: 0, riskPercent: 0 },
-        'default': { enabled: true, bias: 'BOTH', minStructureScore: 65, riskPercent: 0.7 }
+        'default': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.7 }
     },
     
     // ─────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export const MomentumStrategy = {
     
     _isBigBody(candle, atr) {
         const body = Math.abs(candle.close - candle.open);
-        return body > atr * 0.5;
+        return body > atr * 0.3;  // Relaxed from 0.5
     },
     
     _isEngulfing(prev, curr) {
@@ -97,27 +97,35 @@ export const MomentumStrategy = {
         const cfg = this._pairConfig[symbol] || this._pairConfig['default'];
         if (!cfg.enabled) return null;
         
-        // ── COOLDOWN (max 3 trades per week, 1 per day) ─────────
+        // ── RELAXED COOLDOWN (max 5 trades per week, no daily limit) ─────────
         const now = Date.now();
-        if (now - this._lastTradeTime < 24 * 60 * 60 * 1000) return null;
         
         const currentWeek = this._getWeekStart();
         if (currentWeek !== this._weekStart) {
             this._tradeCount = 0;
             this._weekStart = currentWeek;
         }
-        if (this._tradeCount >= 3) return null;
+        if (this._tradeCount >= 5) return null;
         
         // ── GET STRUCTURE MAP ───────────────────────────────────
-        const structureMap = StructureEngine.getStructureMap(candles, dailyCandles, weeklyCandles);
-        if (!structureMap.dailyLevels) return null;
+        let structureMap;
+        try {
+            structureMap = StructureEngine.getStructureMap(candles, dailyCandles, weeklyCandles);
+        } catch(e) {
+            console.log('[Momentum] StructureEngine error:', e);
+            // Fallback: trade without structure if engine fails
+            return this._fallbackEntry(candles, atr, symbol, cfg);
+        }
+        
+        if (!structureMap || !structureMap.dailyLevels) {
+            // Fallback to momentum-only entry
+            return this._fallbackEntry(candles, atr, symbol, cfg);
+        }
         
         const price = candles[candles.length - 1].close;
         const position = structureMap.getPricePosition(price);
-        const structureScore = structureMap.getStructureScore(price, 'BUY'); // Will check both
         
-        // ── STRUCTURE FILTER ────────────────────────────────────
-        // Determine if we should look for BUY or SELL based on structure
+        // ── STRUCTURE FILTER (RELAXED) ──────────────────────────
         let allowedBias = null;
         
         if (cfg.bias === 'BOTH') {
@@ -125,22 +133,25 @@ export const MomentumStrategy = {
             else if (position === 'RESISTANCE') allowedBias = 'SELL';
             else if (position === 'BREAKOUT_UP') allowedBias = 'BUY';
             else if (position === 'BREAKOUT_DOWN') allowedBias = 'SELL';
-            else return null; // No clear structure bias
+            else if (position === 'MID_RANGE') {
+                // In mid-range, follow trend
+                const trend = this._getTrendDirection(candles.slice(0, -1));
+                if (trend === 'BULL') allowedBias = 'BUY';
+                else if (trend === 'BEAR') allowedBias = 'SELL';
+                else return null;
+            }
+            else return null;
         } else if (cfg.bias === 'SHORT') {
-            if (position !== 'RESISTANCE' && position !== 'BREAKOUT_DOWN') return null;
+            if (position !== 'RESISTANCE' && position !== 'BREAKOUT_DOWN' && position !== 'MID_RANGE') return null;
             allowedBias = 'SELL';
         } else if (cfg.bias === 'LONG') {
-            if (position !== 'SUPPORT' && position !== 'BREAKOUT_UP') return null;
+            if (position !== 'SUPPORT' && position !== 'BREAKOUT_UP' && position !== 'MID_RANGE') return null;
             allowedBias = 'BUY';
         }
         
         if (!allowedBias) return null;
         
-        // Structure score check
-        const biasScore = structureMap.getStructureScore(price, allowedBias);
-        if (biasScore < cfg.minStructureScore) return null;
-        
-        // ── MOMENTUM CONFIRMATION ───────────────────────────────
+        // ── MOMENTUM CONFIRMATION (RELAXED) ─────────────────────
         const c1 = candles[candles.length - 4];
         const c2 = candles[candles.length - 3];
         const c3 = candles[candles.length - 2];
@@ -155,77 +166,126 @@ export const MomentumStrategy = {
         const bullScore = (bullEngulf ? 1 : 0) + (allBull ? 1 : 0) + (bigBullBody ? 1 : 0);
         const bearScore = (bearEngulf ? 1 : 0) + (allBear ? 1 : 0) + (bigBearBody ? 1 : 0);
         
-        // Need at least 2 confirmations
-        if (allowedBias === 'BUY' && bullScore < 2) return null;
-        if (allowedBias === 'SELL' && bearScore < 2) return null;
+        // Need at least 1 confirmation (relaxed from 2)
+        if (allowedBias === 'BUY' && bullScore < 1) return null;
+        if (allowedBias === 'SELL' && bearScore < 1) return null;
         
-        // ── TREND CONFIRMATION (optional, not required at support/resistance) ──
-        const trend = this._getTrendDirection(candles.slice(0, -1));
+        // ── SET TP/SL BASED ON STRUCTURE OR ATR ─────────────────
+        let sl, tp, risk, reward, rr;
         
-        // ── SET TP/SL BASED ON STRUCTURE ────────────────────────
-        let sl, tp;
-        const nearest = structureMap.getDistanceToNearestLevel(price);
-        
-        if (allowedBias === 'BUY') {
-            // Find nearest support below for SL
-            let supportLevel = structureMap.dailyLevels.dailyLow;
-            if (structureMap.demandZones.length > 0) {
-                supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+        if (structureMap && structureMap.dailyLevels) {
+            if (allowedBias === 'BUY') {
+                let supportLevel = structureMap.dailyLevels.dailyLow;
+                if (structureMap.demandZones && structureMap.demandZones.length > 0) {
+                    supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+                }
+                sl = supportLevel * 0.998;
+                
+                let resistanceLevel = structureMap.dailyLevels.dailyMid;
+                if (structureMap.supplyZones && structureMap.supplyZones.length > 0) {
+                    resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+                }
+                tp = resistanceLevel;
+            } else {
+                let resistanceLevel = structureMap.dailyLevels.dailyHigh;
+                if (structureMap.supplyZones && structureMap.supplyZones.length > 0) {
+                    resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+                }
+                sl = resistanceLevel * 1.002;
+                
+                let supportLevel = structureMap.dailyLevels.dailyMid;
+                if (structureMap.demandZones && structureMap.demandZones.length > 0) {
+                    supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+                }
+                tp = supportLevel;
             }
-            sl = supportLevel * 0.998; // Just below support
             
-            // Find nearest resistance above for TP
-            let resistanceLevel = structureMap.dailyLevels.dailyMid;
-            if (structureMap.supplyZones.length > 0) {
-                resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
-            }
-            tp = resistanceLevel;
+            risk = Math.abs(price - sl);
+            reward = Math.abs(tp - price);
+            rr = reward / risk;
         } else {
-            // Find nearest resistance above for SL
-            let resistanceLevel = structureMap.dailyLevels.dailyHigh;
-            if (structureMap.supplyZones.length > 0) {
-                resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
-            }
-            sl = resistanceLevel * 1.002; // Just above resistance
-            
-            // Find nearest support below for TP
-            let supportLevel = structureMap.dailyLevels.dailyMid;
-            if (structureMap.demandZones.length > 0) {
-                supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
-            }
-            tp = supportLevel;
+            // Fallback: use ATR-based SL/TP
+            risk = atr * 1.0;
+            reward = atr * 1.5;
+            sl = allowedBias === 'BUY' ? price - risk : price + risk;
+            tp = allowedBias === 'BUY' ? price + reward : price - reward;
+            rr = 1.5;
         }
         
-        // Calculate R:R
-        const risk = Math.abs(price - sl);
-        const reward = Math.abs(tp - price);
-        const rr = reward / risk;
-        
-        if (rr < 1.5) return null; // Minimum 1.5:1 R:R
+        if (rr < 1.2) return null; // Minimum 1.2:1 R:R (relaxed)
         
         // ── RECORD TRADE ────────────────────────────────────────
         this._lastTradeTime = now;
         this._tradeCount++;
         
         const factors = [
-            `${position} (score ${biasScore})`,
+            `${position || 'MID'} ${allowedBias}`,
             `${allowedBias === 'BUY' ? 'Bull' : 'Bear'} score ${allowedBias === 'BUY' ? bullScore : bearScore}/3`,
-            `R:R ${rr.toFixed(1)}:1`,
-            `Nearest: ${nearest.type || 'none'}`
+            `R:R ${rr.toFixed(1)}:1`
         ];
         
         console.log(`[Momentum] 📍 ${allowedBias} on ${symbol} | ${factors.join(' · ')}`);
         
         return {
             type: allowedBias,
-            label: `MOMENTUM ${allowedBias} [${position}]`,
-            score: biasScore,
+            label: `MOMENTUM ${allowedBias} [${position || 'MID'}]`,
+            score: 65,
             factors: factors,
             tpMultiplier: reward / atr,
             slMultiplier: risk / atr,
             isMomentum: true,
             pairConfig: cfg,
-            _meta: { position, structureScore: biasScore, rr, sl, tp, price }
+            _meta: { position, rr, sl, tp, price }
+        };
+    },
+    
+    // ─────────────────────────────────────────────────────────────
+    // FALLBACK: Momentum-only entry (no structure)
+    // ─────────────────────────────────────────────────────────────
+    _fallbackEntry(candles, atr, symbol, cfg) {
+        const c1 = candles[candles.length - 4];
+        const c2 = candles[candles.length - 3];
+        const c3 = candles[candles.length - 2];
+        
+        if (!c1 || !c2 || !c3) return null;
+        
+        const { bullEngulf, bearEngulf } = this._isEngulfing(c2, c3);
+        const { allBull, allBear } = this._isThreeConsecutive(c1, c2, c3);
+        const bigBullBody = c3.close > c3.open && this._isBigBody(c3, atr);
+        const bigBearBody = c3.close < c3.open && this._isBigBody(c3, atr);
+        
+        const bullScore = (bullEngulf ? 1 : 0) + (allBull ? 1 : 0) + (bigBullBody ? 1 : 0);
+        const bearScore = (bearEngulf ? 1 : 0) + (allBear ? 1 : 0) + (bigBearBody ? 1 : 0);
+        
+        let allowedBias = null;
+        if (cfg.bias === 'BOTH') {
+            if (bullScore >= 2) allowedBias = 'BUY';
+            else if (bearScore >= 2) allowedBias = 'SELL';
+        } else if (cfg.bias === 'SHORT' && bearScore >= 2) {
+            allowedBias = 'SELL';
+        } else if (cfg.bias === 'LONG' && bullScore >= 2) {
+            allowedBias = 'BUY';
+        }
+        
+        if (!allowedBias) return null;
+        
+        const risk = atr * 1.0;
+        const reward = atr * 1.5;
+        const price = candles[candles.length - 1].close;
+        const sl = allowedBias === 'BUY' ? price - risk : price + risk;
+        const tp = allowedBias === 'BUY' ? price + reward : price - reward;
+        
+        console.log(`[Momentum] 📍 FALLBACK ${allowedBias} on ${symbol} | Momentum only`);
+        
+        return {
+            type: allowedBias,
+            label: `MOMENTUM ${allowedBias} [FALLBACK]`,
+            score: 55,
+            factors: [`${allowedBias === 'BUY' ? 'Bull' : 'Bear'} score ${allowedBias === 'BUY' ? bullScore : bearScore}/3`, `FALLBACK (no structure)`],
+            tpMultiplier: reward / atr,
+            slMultiplier: risk / atr,
+            isMomentum: true,
+            pairConfig: cfg,
         };
     },
     
@@ -240,7 +300,7 @@ export const MomentumStrategy = {
     },
     
     registerLoss() {
-        this._cooldownCandles = 3;
+        this._cooldownCandles = 2;
     },
     
     // Legacy methods for compatibility

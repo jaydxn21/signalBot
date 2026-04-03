@@ -19,13 +19,13 @@ const CIPHER_SYMBOLS = ['cryBTCUSD', 'BTCUSD'];
 // ─────────────────────────────────────────────────────────────
 
 const CONFIG = {
-    MIN_ATR_VALUE: 8.0,
-    MAX_TRADES_PER_HOUR: 1,
-    COOLDOWN_CANDLES: 5,
-    MAX_CONSECUTIVE_LOSSES: 4,
-    MIN_PULLBACK_DEPTH: 0.8,
-    MIN_STRUCTURE_SCORE: 70,
-    MIN_RR: 1.5,
+    MIN_ATR_VALUE: 5.0,           // Was 8.0 — lower
+    MAX_TRADES_PER_HOUR: 2,        // Was 1
+    COOLDOWN_CANDLES: 2,           // Was 5
+    MAX_CONSECUTIVE_LOSSES: 6,     // Was 4
+    MIN_PULLBACK_DEPTH: 0.4,       // Was 0.8 — much lower
+    MIN_STRUCTURE_SCORE: 50,       // Was 70 — much lower
+    MIN_RR: 1.2,                   // Was 1.5
 };
 
 // ─────────────────────────────────────────────────────────────
