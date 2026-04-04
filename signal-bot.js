@@ -1395,18 +1395,22 @@ function _cipherCloseTrade(bot, outcome, pnlAmt, bar) {
 
 function _ultraScalperCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
-    UltraScalper.recordOutcome(bot.config.symbol, outcome);
+    
+    // Pass detailed info to UltraScalper for logging
+    UltraScalper.recordOutcome(bot.config.symbol, outcome, pnlAmt, entry, sl, tp, bar.close);
     UltraScalper.removeTrade(bot.config.symbol);
     
     if (outcome === 'TP') {
-        log(`⚡ ULTRA SCALPER ✓ +$${pnlAmt.toFixed(2)}`, 'buy');
+        log(`⚡ ULTRA SCALPER ✓ +$${pnlAmt.toFixed(2)} | ${type} on ${bot.config.symbol} | Entry: ${entry.toFixed(4)} → Exit: ${bar.close.toFixed(4)}`, 'buy');
         window.registerBotWin(bot.id, pnlAmt);
         UIManager.registerWin(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'ultra_scalp', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
         Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
     } else {
-        log(`⚡ ULTRA SCALPER ✗ -$${pnlAmt.toFixed(2)}`, 'sell');
+        const lossAmount = Math.abs(pnlAmt);
+        const pointsLost = Math.abs(entry - bar.close);
+        log(`⚡ ULTRA SCALPER ✗ -$${lossAmount.toFixed(2)} | ${type} on ${bot.config.symbol} | Entry: ${entry.toFixed(4)} → SL hit: ${bar.close.toFixed(4)} | Lost ${pointsLost.toFixed(4)} points`, 'sell');
         window.registerBotLoss(bot.id, pnlAmt);
         UIManager.registerLoss(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
