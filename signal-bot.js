@@ -360,7 +360,6 @@ async function init() {
     // Initialize Position Sizing
     PositionSizing.init(10000);
     PositionSizing.resetSession(10000);
-    PositionSizing.reset();
 
 
     if (!Auth.isGuest()) {
