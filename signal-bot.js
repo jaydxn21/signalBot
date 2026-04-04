@@ -359,6 +359,8 @@ async function init() {
     
     // Initialize Position Sizing
     PositionSizing.init(10000);
+    PositionSizing.resetSession(10000);
+
 
     if (!Auth.isGuest()) {
         const localTrades = SessionState.get().trades || [];
@@ -573,6 +575,8 @@ window.startBot = function(id) {
 
     SessionState.set({ activeBots: Object.values(bots).filter(b => b.isActive).length });
     _saveBotConfigs();
+
+    PositionSizing.reset();
 };
 
 window.stopBot = function(id) {
