@@ -9,6 +9,94 @@
       "strategies": {},
       "trades": [
         {
+          "time": 1775310600142,
+          "symbol": "cryBTCUSD",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 67209.989,
+          "sl": 67172.6205,
+          "tp": 67266.04175,
+          "outcome": "SL",
+          "pnl": 0.037368499999996856,
+          "confidence": {
+            "score": 100,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 3.6x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775310256144,
+          "symbol": "CRASH1000",
+          "strategy": "ultra_scalp",
+          "type": "SELL",
+          "entry": 5528.39,
+          "sl": 5530.874357142858,
+          "tp": 5524.663464285714,
+          "outcome": "SL",
+          "pnl": 0.1018586428571507,
+          "confidence": {
+            "score": 68.71711566660498,
+            "grade": "B",
+            "color": "#fbbf24",
+            "factors": [
+              "SELL momentum",
+              "1.5:1 R:R",
+              "Body 0.9x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775310079055,
+          "symbol": "CRASH1000",
+          "strategy": "ultra_scalp",
+          "type": "SELL",
+          "entry": 5527.306,
+          "sl": 5529.790357142857,
+          "tp": 5523.579464285714,
+          "outcome": "SL",
+          "pnl": 0.1018586428571507,
+          "confidence": {
+            "score": 68.71711566660498,
+            "grade": "B",
+            "color": "#fbbf24",
+            "factors": [
+              "SELL momentum",
+              "1.5:1 R:R",
+              "Body 0.9x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775309100167,
+          "symbol": "cryBTCUSD",
+          "strategy": "ultra_scalp",
+          "type": "SELL",
+          "entry": 67055.433,
+          "sl": 67090.86964285714,
+          "tp": 67002.27803571429,
+          "outcome": "SL",
+          "pnl": 0.03543664285713748,
+          "confidence": {
+            "score": 65.17130169941521,
+            "grade": "B",
+            "color": "#fbbf24",
+            "factors": [
+              "SELL momentum",
+              "1.5:1 R:R",
+              "Body 0.8x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
           "time": 1775304161169,
           "symbol": "cryBTCUSD",
           "strategy": "ultra_scalp",
@@ -13238,135 +13326,6 @@
             "factors": [
               "Drift re-entry ↑",
               "Pullback reversal"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774340701196,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5511.94,
-          "sl": 5510.464457142857,
-          "tp": 5516.551071428571,
-          "outcome": "TP",
-          "pnl": 3.1250000000007705,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 EMA↑",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 EMA↑",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 64",
-              "M15 3-bar↑"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774340101186,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5514.43,
-          "sl": 5513.203085714286,
-          "tp": 5518.264107142858,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 EMA↑",
-              "M1 3-bar↑",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 EMA↑",
-              "M5 3-bar↑",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 64",
-              "M15 3-bar↑"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774340100238,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5507.813,
-          "sl": 5505.8306571428575,
-          "tp": 5514.007821428571,
-          "outcome": "TP",
-          "pnl": 3.125000000000287,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 EMA↑",
-              "M1 RSI 60",
-              "M1 3-bar↑",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 EMA↑",
-              "M5 RSI 60",
-              "M5 3-bar↑",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 61",
-              "M15 3-bar↑"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774338900194,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5501.327,
-          "sl": 5499.338942857144,
-          "tp": 5507.539678571428,
-          "outcome": "TP",
-          "pnl": 3.125000000000572,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 EMA↑",
-              "M1 RSI 60",
-              "M1 3-bar↑",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 EMA↑",
-              "M5 RSI 60",
-              "M5 3-bar↑",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 54"
             ]
           },
           "overlays": []

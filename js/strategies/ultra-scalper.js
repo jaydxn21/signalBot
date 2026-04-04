@@ -1,5 +1,4 @@
-// Ultra Scalper v5.0 — SIMPLIFIED GUARANTEED-TO-FIRE VERSION
-// This version WILL fire trades on any symbol with minimal conditions
+// Ultra Scalper v6.0 — With Trend Filter
 
 export const UltraScalper = {
     
@@ -10,25 +9,45 @@ export const UltraScalper = {
     _lastDebugLog: 0,
     
     CONFIG: {
-        MIN_GAP_MS: 30000,           // 30 seconds between signals (relaxed)
-        MIN_ATR: 0.01,               // Very low - almost any market qualifies
-        MIN_BODY_RATIO: 0.1,         // Only 10% body needed
-        MAX_CONCURRENT_TRADES: 3,
-        MAX_TRADES_PER_HOUR: 10,
-        MIN_CANDLE_RANGE: 0.001,     // Very small
+        MIN_GAP_MS: 60000,              // 1 minute between signals
+        MIN_ATR: 0.01,
+        MIN_BODY_RATIO: 0.15,
+        MAX_CONCURRENT_TRADES: 1,       // Only 1 trade at a time
+        MAX_TRADES_PER_HOUR: 3,
+        MIN_CANDLE_RANGE: 0.001,
+    },
+    
+    // Simple EMA calculation for trend
+    _ema(candles, period) {
+        if (candles.length < period) return null;
+        const k = 2 / (period + 1);
+        let ema = candles.slice(0, period).reduce((a, b) => a + b.close, 0) / period;
+        for (let i = period; i < candles.length; i++) {
+            ema = candles[i].close * k + ema * (1 - k);
+        }
+        return ema;
+    },
+    
+    _getTrendDirection(candles) {
+        if (candles.length < 20) return null;
+        const ema20 = this._ema(candles, 20);
+        const ema50 = this._ema(candles, 50);
+        const price = candles[candles.length - 1].close;
+        
+        if (!ema20 || !ema50) return null;
+        
+        // Strong uptrend: price > EMA20 > EMA50
+        if (price > ema20 && ema20 > ema50) return 'BUY';
+        // Strong downtrend: price < EMA20 < EMA50
+        if (price < ema20 && ema20 < ema50) return 'SELL';
+        // Weak/neutral
+        return null;
     },
     
     _getBodyDirection(candle) {
         if (!candle) return null;
         if (candle.close > candle.open) return 'BUY';
         if (candle.close < candle.open) return 'SELL';
-        return null;
-    },
-    
-    _getLiveDirection(liveCandle, previousClose) {
-        if (!liveCandle || !previousClose) return null;
-        if (liveCandle.close > previousClose) return 'BUY';
-        if (liveCandle.close < previousClose) return 'SELL';
         return null;
     },
     
@@ -69,83 +88,43 @@ export const UltraScalper = {
     
     recordOutcome(symbol, outcome, pnl, entry, sl, tp, exitPrice) {
         console.log(`[UltraScalper] ${outcome} on ${symbol} | PnL: ${outcome === 'TP' ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`);
-        
-        if (outcome === 'TP') {
-            // Reset on win
-        } else {
-            // Loss tracking
-        }
     },
     
     checkEntry(candles, atr, symbol = 'unknown') {
         const now = Date.now();
         
-        // Log every 10 seconds to show we're alive
-        if (now - this._lastDebugLog > 10000) {
-            console.log(`[UltraScalper] 🔍 ACTIVE on ${symbol} | Candles: ${candles?.length} | ATR: ${atr?.toFixed(4)} | Last signal: ${this._lastSignalMs ? Math.round((now - this._lastSignalMs)/1000) + 's ago' : 'never'}`);
+        // Log every 30 seconds
+        if (now - this._lastDebugLog > 30000) {
+            console.log(`[UltraScalper] 🔍 ACTIVE on ${symbol} | Candles: ${candles?.length} | ATR: ${atr?.toFixed(4)}`);
             this._lastDebugLog = now;
         }
         
-        // ── MINIMAL VALIDATIONS ─────────────────────────────────
-        if (!atr) {
-            console.log(`[UltraScalper] ❌ No ATR for ${symbol}`);
+        // ── BASIC VALIDATIONS ─────────────────────────────────
+        if (!atr || !candles || candles.length < 50) return null;
+        if (atr < this.CONFIG.MIN_ATR) return null;
+        if (now - this._lastSignalMs < this.CONFIG.MIN_GAP_MS) return null;
+        if (!this._canTradeHourly()) return null;
+        if (!this._canAddTrade(symbol)) return null;
+        
+        // ── TREND FILTER (CRITICAL) ────────────────────────────
+        const trendDirection = this._getTrendDirection(candles);
+        if (!trendDirection) {
+            console.log(`[UltraScalper] ❌ ${symbol} | No clear trend direction`);
             return null;
         }
         
-        if (!candles || candles.length < 5) {
-            console.log(`[UltraScalper] ❌ Insufficient candles for ${symbol}: ${candles?.length}`);
-            return null;
-        }
+        // ── CANDLE DIRECTION ───────────────────────────────────
+        const c3 = candles[candles.length - 2];
+        const live = candles[candles.length - 1];
         
-        if (atr < this.CONFIG.MIN_ATR) {
-            console.log(`[UltraScalper] ❌ ATR too low for ${symbol}: ${atr.toFixed(4)}`);
-            return null;
-        }
+        if (!c3 || !live) return null;
         
-        if (now - this._lastSignalMs < this.CONFIG.MIN_GAP_MS) {
-            // Don't log rate limit too often
-            return null;
-        }
+        const candleDirection = this._getBodyDirection(c3);
+        if (!candleDirection) return null;
         
-        if (!this._canTradeHourly()) {
-            console.log(`[UltraScalper] ❌ Hourly limit reached for ${symbol}`);
-            return null;
-        }
-        
-        if (!this._canAddTrade(symbol)) {
-            console.log(`[UltraScalper] ❌ Max concurrent trades for ${symbol}`);
-            return null;
-        }
-        
-        // ── SIMPLE CANDLE CHECK ─────────────────────────────────
-        const c3 = candles[candles.length - 2];  // Last closed candle
-        const live = candles[candles.length - 1]; // Current forming candle
-        
-        if (!c3 || !live) {
-            console.log(`[UltraScalper] ❌ Missing candle data for ${symbol}`);
-            return null;
-        }
-        
-        const dir3 = this._getBodyDirection(c3);
-        const liveDir = this._getLiveDirection(live, c3.close);
-        
-        // Log candle details every time
-        const range3 = (c3.high - c3.low).toFixed(4);
-        const body3 = Math.abs(c3.close - c3.open).toFixed(4);
-        const bodyRatio = range3 > 0 ? (body3 / (c3.high - c3.low) * 100).toFixed(0) : 0;
-        
-        console.log(`[UltraScalper] 📊 ${symbol} | Candle3: ${dir3 || 'none'} | Body: ${bodyRatio}% | Live: ${liveDir || 'none'} | Price: ${c3.close.toFixed(2)}`);
-        
-        // ── SIMPLE DIRECTION CHECK ──────────────────────────────
-        let direction = null;
-        
-        // Just need last closed candle direction (simplest)
-        if (dir3 === 'BUY') {
-            direction = 'BUY';
-        } else if (dir3 === 'SELL') {
-            direction = 'SELL';
-        } else {
-            console.log(`[UltraScalper] ❌ No clear direction for ${symbol}`);
+        // ── CRITICAL: Only trade WITH the trend ─────────────────
+        if (candleDirection !== trendDirection) {
+            console.log(`[UltraScalper] ❌ ${symbol} | Candle ${candleDirection} against trend ${trendDirection} — skipping`);
             return null;
         }
         
@@ -153,20 +132,17 @@ export const UltraScalper = {
         const isCrash = symbol.includes('CRASH');
         const isBoom = symbol.includes('BOOM');
         
-        if (isCrash && direction === 'BUY') {
-            console.log(`[UltraScalper] ❌ ${symbol} | FILTERED: CRASH only takes SELL (trends DOWN), skipping BUY`);
+        if (isCrash && candleDirection === 'BUY') {
+            console.log(`[UltraScalper] ❌ ${symbol} | CRASH trends DOWN, skipping BUY`);
             return null;
         }
-        if (isBoom && direction === 'SELL') {
-            console.log(`[UltraScalper] ❌ ${symbol} | FILTERED: BOOM only takes BUY (trends UP), skipping SELL`);
+        if (isBoom && candleDirection === 'SELL') {
+            console.log(`[UltraScalper] ❌ ${symbol} | BOOM trends UP, skipping SELL`);
             return null;
         }
         
-        // ── BODY QUALITY CHECK (relaxed) ────────────────────────
-        if (!this._hasMeaningfulBody(c3)) {
-            console.log(`[UltraScalper] ❌ Body too small for ${symbol} (${bodyRatio}% < ${this.CONFIG.MIN_BODY_RATIO*100}%)`);
-            return null;
-        }
+        // ── BODY QUALITY CHECK ─────────────────────────────────
+        if (!this._hasMeaningfulBody(c3)) return null;
         
         // ── ALL CHECKS PASSED - FIRE TRADE! ─────────────────────
         this._lastSignalMs = now;
@@ -176,17 +152,17 @@ export const UltraScalper = {
         const bodySize = Math.abs(c3.close - c3.open);
         const bodyAtrRatio = bodySize / atr;
         
-        // Use 1:1 R:R for testing (simple)
-        const tpMult = 1.0;
-        const slMult = 1.0;
+        // Use tighter SL for trend following
+        const slMult = 0.8;   // Tighter stop
+        const tpMult = 1.2;   // Smaller target (quick profits)
         
-        console.log(`[UltraScalper] 🚀✅🔥 FIRING ${direction} on ${symbol} | Entry: ${c3.close.toFixed(2)} | ATR: ${atr.toFixed(4)} | Body: ${bodyAtrRatio.toFixed(1)}x ATR`);
+        console.log(`[UltraScalper] 🚀✅ FIRING ${candleDirection} on ${symbol} | Trend: ${trendDirection} | Entry: ${c3.close.toFixed(2)} | Body: ${bodyAtrRatio.toFixed(1)}x ATR`);
         
         return {
-            type: direction,
-            label: `ULTRA ${direction === 'BUY' ? '▲' : '▼'}`,
+            type: candleDirection,
+            label: `ULTRA ${candleDirection === 'BUY' ? '▲' : '▼'} [Trend]`,
             score: 70,
-            factors: [`${direction} momentum`, `1:1 R:R`],
+            factors: [`${candleDirection} with trend`, `1.5:1 R:R`],
             tpMultiplier: tpMult,
             slMultiplier: slMult,
             isUltraScalper: true,
@@ -203,9 +179,5 @@ export const UltraScalper = {
         this._hourlyTradeCount = 0;
         this._hourStart = Date.now();
         console.log(`[UltraScalper] Reset complete`);
-    },
-    
-    getTradeHistory(symbol) {
-        return [];
     }
 };
