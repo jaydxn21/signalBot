@@ -1572,13 +1572,23 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
     if (!atr) return;
 
+let slDist, tpDist;
+
+// If the signal provides explicit distances, use them
+if (signal._slDist && signal._tpDist) {
+    slDist = signal._slDist;
+    tpDist = signal._tpDist;
+} else {
     const tpMult = signal.tpMultiplier || 1.5;
     const slMult = signal.slMultiplier || 1.0;
-    const slDist = atr * slMult;
-    const tpDist = atr * tpMult;
+    slDist = atr * slMult;
+    tpDist = atr * tpMult;
+}
 
-    const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
-    const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
+const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
+const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
+
+console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.toFixed(2)} (${slDist.toFixed(2)} away) | TP: ${tp.toFixed(2)} (${tpDist.toFixed(2)} away)`);
 
     // ── POSITION SIZING CALCULATION (FIXED) ──────────────────────────────
     let riskPercent = 0.75;

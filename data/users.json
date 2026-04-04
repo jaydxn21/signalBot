@@ -9,6 +9,27 @@
       "strategies": {},
       "trades": [
         {
+          "time": 1775322808214,
+          "symbol": "cryBTCUSD",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 67334.333,
+          "sl": 67285.7902,
+          "tp": 67407.14719999999,
+          "outcome": "SL",
+          "pnl": 0.048542799999995626,
+          "confidence": {
+            "score": 70,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "BUY with trend",
+              "1.5:1 R:R"
+            ]
+          },
+          "overlays": []
+        },
+        {
           "time": 1775310600142,
           "symbol": "cryBTCUSD",
           "strategy": "ultra_scalp",
@@ -13305,27 +13326,6 @@
               "M15 post-spike↑",
               "M15 EMA↑",
               "M15 RSI 61"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774341001172,
-          "symbol": "CRASH1000",
-          "strategy": "kismet",
-          "type": "BUY",
-          "entry": 5513.537,
-          "sl": 5512.620571428572,
-          "tp": 5517.202714285715,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 62,
-            "grade": "B",
-            "color": "#fbbf24",
-            "factors": [
-              "Drift re-entry ↑",
-              "Pullback reversal"
             ]
           },
           "overlays": []
