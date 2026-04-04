@@ -1870,16 +1870,24 @@ function checkOutcome(bot) {
         bot.lastSLBarIdx = bot.candles.length;
     }
 
-    if (hit === 'SL' && Settings.get('lossProtection') && bot.config.strategy !== 'phantom' && bot.config.strategy !== 'nova' && bot.config.strategy !== 'pulse' && bot.config.strategy !== 'kismet' && bot.config.strategy !== 'vortex') {
+    // ── LOSS PROTECTION (UPDATED: excludes ultra_scalp) ────────
+    if (hit === 'SL' && Settings.get('lossProtection') && 
+        bot.config.strategy !== 'phantom' && 
+        bot.config.strategy !== 'nova' && 
+        bot.config.strategy !== 'pulse' && 
+        bot.config.strategy !== 'kismet' && 
+        bot.config.strategy !== 'vortex' &&
+        bot.config.strategy !== 'ultra_scalp') {  // ← EXCLUDED
+        
         const recentTrades = (SessionState.get().trades || [])
             .filter(t => t.symbol === bot.config.symbol)
-            .slice(0, 3);
-        const consecutiveLosses = recentTrades.length >= 3
+            .slice(0, 5);  // Changed from 3 to 5
+        const consecutiveLosses = recentTrades.length >= 5
             && recentTrades.every(t => t.outcome === 'SL');
         if (consecutiveLosses) {
-            log(`Loss protection: 3 consecutive SLs on ${bot.config.symbol} — bot stopped.`, 'warn');
+            log(`Loss protection: 5 consecutive SLs on ${bot.config.symbol} — bot stopped.`, 'warn');
             window.stopBot(bot.id);
-            _showRiskAlert(`Bot stopped: 3 consecutive losses on ${SYMBOL_MAP[bot.config.symbol] || bot.config.symbol}.`);
+            _showRiskAlert(`Bot stopped: 5 consecutive losses on ${SYMBOL_MAP[bot.config.symbol] || bot.config.symbol}.`);
             return;
         }
     }
