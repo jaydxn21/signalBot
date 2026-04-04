@@ -1,9 +1,5 @@
-// Ultra Scalper v3.0 — With Detailed Loss Debugging
-//
-// This version logs EVERY decision point so you can see:
-//   1. Why a trade was taken
-//   2. Why a trade lost (was SL too tight? Wrong direction? Bad entry?)
-//   3. What the market conditions were at entry
+// Ultra Scalper v4.0 — DEBUG VERSION
+// This version logs EVERY check to show why no trades are firing
 
 export const UltraScalper = {
     
@@ -15,33 +11,31 @@ export const UltraScalper = {
     _cooldownEndTime: null,
     _lastResetDate: null,
     _symbolState: new Map(),
-    
-    // Trade logging
-    _lastTradeLog: null,
+    _lastDebugLog: 0,
     
     CONFIG: {
         MIN_GAP_MS: 5000,
-        MIN_ATR: 0.5,
-        MIN_BODY_RATIO: 0.25,
-        MAX_CONCURRENT_TRADES: 3,
-        MAX_TRADES_PER_HOUR: 10,
-        MAX_CONSECUTIVE_LOSSES: 3,
-        LOSS_COOLDOWN_MS: 120000,  // 2 minutes
+        MIN_ATR: 0.1,              // MUCH LOWER - was 0.5
+        MIN_BODY_RATIO: 0.15,      // MUCH LOWER - was 0.25
+        MAX_CONCURRENT_TRADES: 5,
+        MAX_TRADES_PER_HOUR: 20,
+        MAX_CONSECUTIVE_LOSSES: 10,
+        LOSS_COOLDOWN_MS: 60000,
         TRAILING_START: 0.5,
         TRAILING_DISTANCE: 0.3,
-        MIN_CANDLE_RANGE: 0.1,
+        MIN_CANDLE_RANGE: 0.01,    // MUCH LOWER - was 0.1
     },
     
     _checkDailyReset() {
         const today = new Date().toDateString();
         if (this._lastResetDate !== today) {
+            console.log(`[UltraScalper] Daily reset`);
             this._consecutiveLosses = 0;
             this._cooldownEndTime = null;
             this._hourlyTradeCount = 0;
             this._hourStart = Date.now();
             this._symbolState.clear();
             this._lastResetDate = today;
-            console.log(`[UltraScalper] Daily reset — fresh state`);
         }
     },
     
@@ -73,10 +67,10 @@ export const UltraScalper = {
         
         if (direction === 'BUY') {
             const upperWick = candle.high - Math.max(candle.open, candle.close);
-            return upperWick > body * 1.2;
+            return upperWick > body * 2.0;  // Very long wick only
         } else {
             const lowerWick = Math.min(candle.open, candle.close) - candle.low;
-            return lowerWick > body * 1.2;
+            return lowerWick > body * 2.0;
         }
     },
     
@@ -92,7 +86,7 @@ export const UltraScalper = {
         if (state.consecutiveLosses < this.CONFIG.MAX_CONSECUTIVE_LOSSES) return false;
         if (!state.cooldownEnd) {
             state.cooldownEnd = Date.now() + this.CONFIG.LOSS_COOLDOWN_MS;
-            console.log(`[UltraScalper] ${symbol} loss cooldown: ${this.CONFIG.LOSS_COOLDOWN_MS / 1000}s`);
+            console.log(`[UltraScalper] ${symbol} loss cooldown`);
             return true;
         }
         if (Date.now() > state.cooldownEnd) {
@@ -134,7 +128,6 @@ export const UltraScalper = {
     recordOutcome(symbol, outcome, pnl, entry, sl, tp, exitPrice) {
         const state = this._getSymbolState(symbol);
         
-        // Log detailed trade outcome
         const tradeLog = {
             time: new Date().toISOString(),
             symbol,
@@ -144,14 +137,12 @@ export const UltraScalper = {
             sl: sl.toFixed(4),
             tp: tp.toFixed(4),
             exitPrice: exitPrice.toFixed(4),
-            lossStreak: state.consecutiveLosses + (outcome === 'SL' ? 1 : 0)
         };
         
         state.tradeHistory.push(tradeLog);
         if (state.tradeHistory.length > 20) state.tradeHistory.shift();
         
-        // Log to console
-        console.log(`[UltraScalper] 📊 ${outcome} on ${symbol} | PnL: ${outcome === 'TP' ? '+' : '-'}$${Math.abs(pnl).toFixed(2)} | Entry: ${entry.toFixed(4)} | Exit: ${exitPrice.toFixed(4)} | Loss streak: ${tradeLog.lossStreak}`);
+        console.log(`[UltraScalper] ${outcome} on ${symbol} | PnL: ${outcome === 'TP' ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`);
         
         if (outcome === 'TP') {
             state.consecutiveLosses = 0;
@@ -160,55 +151,55 @@ export const UltraScalper = {
         } else {
             state.consecutiveLosses++;
             this._consecutiveLosses++;
-            
-            // Log why the trade might have lost
-            console.log(`[UltraScalper] 🔍 Loss analysis for ${symbol}:`);
-            console.log(`   - Stop loss: ${sl.toFixed(4)} (${Math.abs(entry - sl).toFixed(4)} points away)`);
-            console.log(`   - Take profit: ${tp.toFixed(4)} (${Math.abs(tp - entry).toFixed(4)} points away)`);
-            console.log(`   - R:R: ${(Math.abs(tp - entry) / Math.abs(entry - sl)).toFixed(2)}:1`);
         }
     },
     
     checkEntry(candles, atr, symbol = 'unknown') {
         this._checkDailyReset();
         
-        // ── LOG 1: Basic conditions ─────────────────────────────
-        if (!atr || candles.length < 5) {
-            console.log(`[UltraScalper] ❌ ${symbol} | No ATR or insufficient candles`);
+        // Log every 50 candles to show we're alive
+        const now = Date.now();
+        if (now - this._lastDebugLog > 30000) {  // Every 30 seconds
+            console.log(`[UltraScalper] 🔍 Checking ${symbol} | Candles: ${candles?.length} | ATR: ${atr?.toFixed(4)}`);
+            this._lastDebugLog = now;
+        }
+        
+        // ── BASIC VALIDATIONS ─────────────────────────────────
+        if (!atr) {
+            console.log(`[UltraScalper] ❌ ${symbol} | No ATR`);
+            return null;
+        }
+        
+        if (!candles || candles.length < 5) {
+            console.log(`[UltraScalper] ❌ ${symbol} | Insufficient candles: ${candles?.length}`);
             return null;
         }
         
         if (atr < this.CONFIG.MIN_ATR) {
-            console.log(`[UltraScalper] ❌ ${symbol} | ATR too low: ${atr.toFixed(2)} < ${this.CONFIG.MIN_ATR}`);
+            console.log(`[UltraScalper] ❌ ${symbol} | ATR too low: ${atr.toFixed(4)} < ${this.CONFIG.MIN_ATR}`);
             return null;
         }
         
         if (this._isSymbolInLossCooldown(symbol)) {
-            console.log(`[UltraScalper] ❌ ${symbol} | In loss cooldown`);
+            // Don't log this too often
             return null;
         }
         
-        const now = Date.now();
         if (now - this._lastSignalMs < this.CONFIG.MIN_GAP_MS) {
-            // Don't log every time, only every 10 seconds
-            if (Math.floor(now / 10000) !== Math.floor(this._lastDebugLog / 10000)) {
-                console.log(`[UltraScalper] ❌ ${symbol} | Rate limit (${(now - this._lastSignalMs) / 1000}s since last signal)`);
-                this._lastDebugLog = now;
-            }
             return null;
         }
         
         if (!this._canTradeHourly()) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Hourly limit reached (${this._hourlyTradeCount}/${this.CONFIG.MAX_TRADES_PER_HOUR})`);
+            console.log(`[UltraScalper] ❌ ${symbol} | Hourly limit reached`);
             return null;
         }
         
         if (!this._canAddTrade(symbol)) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Max concurrent trades (${this._activeTrades.get(symbol) || 0}/${this.CONFIG.MAX_CONCURRENT_TRADES})`);
+            console.log(`[UltraScalper] ❌ ${symbol} | Max concurrent trades`);
             return null;
         }
         
-        // ── LOG 2: Candles ─────────────────────────────────────
+        // ── GET CANDLES ────────────────────────────────────────
         const c2 = candles[candles.length - 3];
         const c3 = candles[candles.length - 2];
         const live = candles[candles.length - 1];
@@ -218,14 +209,22 @@ export const UltraScalper = {
             return null;
         }
         
-        // Log candle details for debugging
+        // Log candle details every 30 seconds
+        if (now - this._lastDebugLog < 5000) {
+            const dir2 = this._getBodyDirection(c2);
+            const dir3 = this._getBodyDirection(c3);
+            const range3 = (c3.high - c3.low).toFixed(4);
+            const body3 = Math.abs(c3.close - c3.open).toFixed(4);
+            const bodyRatio = range3 > 0 ? (body3 / (c3.high - c3.low) * 100).toFixed(0) : 0;
+            
+            console.log(`[UltraScalper] 📊 ${symbol} | C3: ${dir3} | Range: ${range3} | Body: ${body3} (${bodyRatio}%) | Live: ${live.close > c3.close ? 'UP' : live.close < c3.close ? 'DOWN' : 'FLAT'}`);
+        }
+        
+        // ── DIRECTION CHECK ────────────────────────────────────
         const dir2 = this._getBodyDirection(c2);
         const dir3 = this._getBodyDirection(c3);
         const liveDir = this._getLiveDirection(live, c3.close);
         
-        console.log(`[UltraScalper] 🔍 ${symbol} | Candle2: ${dir2} (O:${c2.open.toFixed(4)} C:${c2.close.toFixed(4)}) | Candle3: ${dir3} | Live: ${liveDir}`);
-        
-        // ── LOG 3: Direction check ─────────────────────────────
         let direction = null;
         if (dir2 === dir3 && dir3 === liveDir) {
             direction = dir2;
@@ -237,63 +236,58 @@ export const UltraScalper = {
             direction = dir3;
             console.log(`[UltraScalper] ✅ ${symbol} | Double alignment (c3/live): ${direction}`);
         } else {
-            console.log(`[UltraScalper] ❌ ${symbol} | No direction alignment | d2:${dir2} d3:${dir3} live:${liveDir}`);
+            // Only log occasionally to avoid spam
+            if (Math.random() < 0.05) {
+                console.log(`[UltraScalper] ❌ ${symbol} | No alignment | d2:${dir2} d3:${dir3} live:${liveDir}`);
+            }
             return null;
         }
         
-        // ── LOG 4: Body quality ────────────────────────────────
+        // ── BODY QUALITY CHECK ─────────────────────────────────
         if (!this._hasMeaningfulBody(c3)) {
             const range = c3.high - c3.low;
             const body = Math.abs(c3.close - c3.open);
-            console.log(`[UltraScalper] ❌ ${symbol} | Candle3 body too small: ${(body/range*100).toFixed(0)}% < ${this.CONFIG.MIN_BODY_RATIO*100}%`);
+            const ratio = range > 0 ? (body / range * 100).toFixed(0) : 0;
+            console.log(`[UltraScalper] ❌ ${symbol} | Body too small: ${ratio}% < ${this.CONFIG.MIN_BODY_RATIO * 100}%`);
             return null;
         }
         
-        // ── LOG 5: Opposing wick ───────────────────────────────
+        // ── OPPOSING WICK CHECK ────────────────────────────────
         if (this._hasOpposingWick(c3, direction)) {
             console.log(`[UltraScalper] ❌ ${symbol} | Opposing wick on candle3`);
             return null;
         }
         
-        // ── LOG 6: Momentum strength ───────────────────────────
+        // ── ALL CHECKS PASSED ──────────────────────────────────
         const bodySize = Math.abs(c3.close - c3.open);
         const bodyRatio = bodySize / atr;
-        let momentumStrength = 50;
-        if (bodyRatio > 0.5) momentumStrength = 70;
-        else if (bodyRatio > 0.3) momentumStrength = 60;
         
-        console.log(`[UltraScalper] ✅ ${symbol} | All checks passed! Momentum: ${momentumStrength} | Body: ${(bodySize/atr).toFixed(1)}x ATR`);
-        
-        // ── LOG 7: Final decision ──────────────────────────────
-        let tpMult, slMult;
-        if (momentumStrength >= 60) {
+        let tpMult = 1.0;
+        let label = `FAST ${direction === 'BUY' ? '▲' : '▼'}`;
+        if (bodyRatio > 0.5) {
             tpMult = 1.5;
-            slMult = 1.0;
-        } else {
-            tpMult = 1.0;
-            slMult = 1.0;
+            label = `STRONG ${direction === 'BUY' ? '▲' : '▼'}`;
         }
         
         this._lastSignalMs = now;
         this._hourlyTradeCount++;
         this.addTrade(symbol);
         
-        console.log(`[UltraScalper] 🚀 TAKING ${direction} on ${symbol} | TP: ${tpMult}:1 | SL: ${slMult}:1 | ATR: ${atr.toFixed(2)}`);
+        console.log(`[UltraScalper] 🚀✅ FIRING ${direction} on ${symbol} | Body: ${bodyRatio.toFixed(1)}x ATR | TP: ${tpMult}:1`);
         
         return {
             type: direction,
-            label: `ULTRA ${direction === 'BUY' ? '▲' : '▼'}`,
-            score: momentumStrength,
-            factors: [`${direction}`, `${tpMult}:1 R:R`, `Body ${(bodySize/atr).toFixed(1)}x ATR`],
+            label: `ULTRA ${label}`,
+            score: Math.min(100, 50 + bodyRatio * 20),
+            factors: [`${direction} momentum`, `${tpMult}:1 R:R`, `Body ${bodyRatio.toFixed(1)}x ATR`],
             tpMultiplier: tpMult,
-            slMultiplier: slMult,
+            slMultiplier: 1.0,
             isUltraScalper: true,
-            momentumStrength: momentumStrength,
         };
     },
     
     applyTrailingStop(openSignal, currentPrice, atr, currentProfit) {
-        return null; // Disabled for debugging
+        return null;
     },
     
     reset() {
