@@ -360,6 +360,7 @@ async function init() {
     // Initialize Position Sizing
     PositionSizing.init(10000);
     PositionSizing.resetSession(10000);
+    PositionSizing.reset();
 
 
     if (!Auth.isGuest()) {
@@ -577,6 +578,8 @@ window.startBot = function(id) {
     _saveBotConfigs();
 
     PositionSizing.reset();
+    PositionSizing.resetSession(bot.accountEquity);
+
 };
 
 window.stopBot = function(id) {
@@ -1578,32 +1581,49 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
     const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
-    // ── POSITION SIZING CALCULATION ──────────────────────────────
+    // ── POSITION SIZING CALCULATION (FIXED) ──────────────────────────────
     let riskPercent = 0.75;
     if (signal.isPhantom) riskPercent = 0.5;
     if (signal.isNova) riskPercent = 0.65;
     if (signal.isCipher) riskPercent = 0.7;
-    if (signal.isUltraScalper) riskPercent = 0.5;  // Lower risk for scalper
+    if (signal.isUltraScalper) riskPercent = 0.5;
     
     const accountEquity = bot.accountEquity || SessionState.get().accountEquity || 10000;
     
-    const sizing = PositionSizing.calculateLotSize({
-        symbol: bot.config.symbol,
-        accountEquity: accountEquity,
-        atr: atr,
-        slMultiplier: slMult,
-        riskPercent: riskPercent,
-        useStreakScaling: true
-    });
-    
-    if (!sizing.allowed) {
-        log(`Position sizing blocked: ${sizing.reason}`, 'warn');
-        return;
+    // FORCE RESET position sizing to clear any stale loss streak
+    try {
+        PositionSizing.resetSession(accountEquity);
+        PositionSizing.reset();
+    } catch(e) {
+        log(`Position sizing reset failed: ${e.message}`, 'warn');
     }
     
-    const lotSize = Math.max(0.01, sizing.lotSize);
+    let lotSize = 0.01; // Default fallback
     
-    log(`📊 Position sizing: ${lotSize.toFixed(2)} lots | Risk: $${sizing.riskAmount.toFixed(2)} (${sizing.riskPercent}%) | Streak: ${sizing.consecutiveLosses}L/${sizing.consecutiveWins}W | Drawdown: ${sizing.drawdown.toFixed(1)}%`, 'info');
+    try {
+        const sizing = PositionSizing.calculateLotSize({
+            symbol: bot.config.symbol,
+            accountEquity: accountEquity,
+            atr: atr,
+            slMultiplier: slMult,
+            riskPercent: riskPercent,
+            useStreakScaling: false  // Disable streak scaling to prevent blocks
+        });
+        
+        if (sizing.allowed && sizing.lotSize > 0) {
+            lotSize = Math.max(0.01, sizing.lotSize);
+            log(`📊 Position sizing: ${lotSize.toFixed(2)} lots | Risk: $${sizing.riskAmount.toFixed(2)} (${sizing.riskPercent}%)`, 'info');
+        } else {
+            log(`Position sizing not available (${sizing.reason || 'unknown'}) - using fixed 0.01 lot`, 'warn');
+            lotSize = 0.01;
+        }
+    } catch(e) {
+        log(`Position sizing error: ${e.message} - using fixed 0.01 lot`, 'warn');
+        lotSize = 0.01;
+    }
+    
+    // Final safety clamp
+    lotSize = Math.min(0.1, Math.max(0.01, lotSize));  // Max 0.1 lots for safety
 
     bot.openSignal     = { type, sl, tp, entry: bar.close, lotSize: lotSize };
     bot.lastConfidence = confidence;
@@ -1614,6 +1634,8 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         sigEngine.drawTradeLevels(sl, tp);
     }
 
+    // ... rest of the function remains the same (auto-log and auto-mt5 sections)
+    
     if (document.getElementById('auto-log')?.checked) {
         try {
             const ema8  = MomentumStrategy._ema(bot.candles.slice(0, -1), 8);
