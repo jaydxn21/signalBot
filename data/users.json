@@ -9,6 +9,50 @@
       "strategies": {},
       "trades": [
         {
+          "time": 1775304161169,
+          "symbol": "cryBTCUSD",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 67141.205,
+          "sl": 67100.96264285715,
+          "tp": 67201.5685357143,
+          "outcome": "SL",
+          "pnl": 0.04024235714285169,
+          "confidence": {
+            "score": 64.57518996508863,
+            "grade": "B",
+            "color": "#fbbf24",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 0.7x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775304156156,
+          "symbol": "cryBTCUSD",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 67141.204,
+          "sl": 67100.96164285715,
+          "tp": 67201.56753571429,
+          "outcome": "SL",
+          "pnl": 0.04024235714285169,
+          "confidence": {
+            "score": 64.57518996508863,
+            "grade": "B",
+            "color": "#fbbf24",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 0.7x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
           "time": 1775302513131,
           "symbol": "CRASH1000",
           "strategy": "ultra_scalp",
@@ -13323,49 +13367,6 @@
               "M15 post-spike↑",
               "M15 EMA↑",
               "M15 RSI 54"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774337700210,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5491.27,
-          "sl": 5488.564571428572,
-          "tp": 5499.724464285714,
-          "outcome": "TP",
-          "pnl": 3.124999999999874,
-          "confidence": {
-            "score": 67,
-            "grade": "B",
-            "color": "#fbbf24",
-            "factors": [
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 RSI 51"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774336502169,
-          "symbol": "CRASH1000",
-          "strategy": "kismet",
-          "type": "BUY",
-          "entry": 5494.675,
-          "sl": 5493.429464285715,
-          "tp": 5499.657142857142,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 62,
-            "grade": "B",
-            "color": "#fbbf24",
-            "factors": [
-              "Drift re-entry ↑",
-              "Pullback reversal"
             ]
           },
           "overlays": []
