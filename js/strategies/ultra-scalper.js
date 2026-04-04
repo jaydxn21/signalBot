@@ -1,5 +1,4 @@
-// Ultra Scalper v4.0 — DEBUG VERSION
-// This version logs EVERY check to show why no trades are firing
+// Ultra Scalper v4.1 — With Crash/Boom Direction Filter
 
 export const UltraScalper = {
     
@@ -15,15 +14,15 @@ export const UltraScalper = {
     
     CONFIG: {
         MIN_GAP_MS: 5000,
-        MIN_ATR: 0.1,              // MUCH LOWER - was 0.5
-        MIN_BODY_RATIO: 0.15,      // MUCH LOWER - was 0.25
-        MAX_CONCURRENT_TRADES: 5,
-        MAX_TRADES_PER_HOUR: 20,
-        MAX_CONSECUTIVE_LOSSES: 10,
-        LOSS_COOLDOWN_MS: 60000,
+        MIN_ATR: 0.1,
+        MIN_BODY_RATIO: 0.15,
+        MAX_CONCURRENT_TRADES: 2,
+        MAX_TRADES_PER_HOUR: 10,
+        MAX_CONSECUTIVE_LOSSES: 3,
+        LOSS_COOLDOWN_MS: 120000,
         TRAILING_START: 0.5,
         TRAILING_DISTANCE: 0.3,
-        MIN_CANDLE_RANGE: 0.01,    // MUCH LOWER - was 0.1
+        MIN_CANDLE_RANGE: 0.01,
     },
     
     _checkDailyReset() {
@@ -67,7 +66,7 @@ export const UltraScalper = {
         
         if (direction === 'BUY') {
             const upperWick = candle.high - Math.max(candle.open, candle.close);
-            return upperWick > body * 2.0;  // Very long wick only
+            return upperWick > body * 2.0;
         } else {
             const lowerWick = Math.min(candle.open, candle.close) - candle.low;
             return lowerWick > body * 2.0;
@@ -157,68 +156,32 @@ export const UltraScalper = {
     checkEntry(candles, atr, symbol = 'unknown') {
         this._checkDailyReset();
         
-        // Log every 50 candles to show we're alive
+        // ── SYMBOL DIRECTION FILTER (CRITICAL FIX) ─────────────────
+        const isCrash = symbol.includes('CRASH');
+        const isBoom = symbol.includes('BOOM');
+        
+        // Log every 30 seconds
         const now = Date.now();
-        if (now - this._lastDebugLog > 30000) {  // Every 30 seconds
-            console.log(`[UltraScalper] 🔍 Checking ${symbol} | Candles: ${candles?.length} | ATR: ${atr?.toFixed(4)}`);
+        if (now - this._lastDebugLog > 30000) {
+            console.log(`[UltraScalper] 🔍 Checking ${symbol} | Candles: ${candles?.length} | ATR: ${atr?.toFixed(4)} | Crash:${isCrash} Boom:${isBoom}`);
             this._lastDebugLog = now;
         }
         
         // ── BASIC VALIDATIONS ─────────────────────────────────
-        if (!atr) {
-            console.log(`[UltraScalper] ❌ ${symbol} | No ATR`);
-            return null;
-        }
-        
-        if (!candles || candles.length < 5) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Insufficient candles: ${candles?.length}`);
-            return null;
-        }
-        
-        if (atr < this.CONFIG.MIN_ATR) {
-            console.log(`[UltraScalper] ❌ ${symbol} | ATR too low: ${atr.toFixed(4)} < ${this.CONFIG.MIN_ATR}`);
-            return null;
-        }
-        
-        if (this._isSymbolInLossCooldown(symbol)) {
-            // Don't log this too often
-            return null;
-        }
-        
-        if (now - this._lastSignalMs < this.CONFIG.MIN_GAP_MS) {
-            return null;
-        }
-        
-        if (!this._canTradeHourly()) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Hourly limit reached`);
-            return null;
-        }
-        
-        if (!this._canAddTrade(symbol)) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Max concurrent trades`);
-            return null;
-        }
+        if (!atr) return null;
+        if (!candles || candles.length < 5) return null;
+        if (atr < this.CONFIG.MIN_ATR) return null;
+        if (this._isSymbolInLossCooldown(symbol)) return null;
+        if (now - this._lastSignalMs < this.CONFIG.MIN_GAP_MS) return null;
+        if (!this._canTradeHourly()) return null;
+        if (!this._canAddTrade(symbol)) return null;
         
         // ── GET CANDLES ────────────────────────────────────────
         const c2 = candles[candles.length - 3];
         const c3 = candles[candles.length - 2];
         const live = candles[candles.length - 1];
         
-        if (!c2 || !c3 || !live) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Missing candle data`);
-            return null;
-        }
-        
-        // Log candle details every 30 seconds
-        if (now - this._lastDebugLog < 5000) {
-            const dir2 = this._getBodyDirection(c2);
-            const dir3 = this._getBodyDirection(c3);
-            const range3 = (c3.high - c3.low).toFixed(4);
-            const body3 = Math.abs(c3.close - c3.open).toFixed(4);
-            const bodyRatio = range3 > 0 ? (body3 / (c3.high - c3.low) * 100).toFixed(0) : 0;
-            
-            console.log(`[UltraScalper] 📊 ${symbol} | C3: ${dir3} | Range: ${range3} | Body: ${body3} (${bodyRatio}%) | Live: ${live.close > c3.close ? 'UP' : live.close < c3.close ? 'DOWN' : 'FLAT'}`);
-        }
+        if (!c2 || !c3 || !live) return null;
         
         // ── DIRECTION CHECK ────────────────────────────────────
         const dir2 = this._getBodyDirection(c2);
@@ -228,33 +191,33 @@ export const UltraScalper = {
         let direction = null;
         if (dir2 === dir3 && dir3 === liveDir) {
             direction = dir2;
-            console.log(`[UltraScalper] ✅ ${symbol} | Triple alignment: ${direction}`);
         } else if (dir2 === dir3) {
             direction = dir2;
-            console.log(`[UltraScalper] ✅ ${symbol} | Double alignment (c2/c3): ${direction}`);
         } else if (dir3 === liveDir) {
             direction = dir3;
-            console.log(`[UltraScalper] ✅ ${symbol} | Double alignment (c3/live): ${direction}`);
         } else {
-            // Only log occasionally to avoid spam
-            if (Math.random() < 0.05) {
-                console.log(`[UltraScalper] ❌ ${symbol} | No alignment | d2:${dir2} d3:${dir3} live:${liveDir}`);
-            }
+            return null;
+        }
+        
+        // ── CRITICAL FIX: CRASH/BOOM DIRECTION FILTER ─────────────
+        // Crash indices go DOWN → only SELL
+        // Boom indices go UP → only BUY
+        if (isCrash && direction === 'BUY') {
+            console.log(`[UltraScalper] ❌ ${symbol} | FILTERED: CRASH only takes SELL (momentum is DOWN), got ${direction}`);
+            return null;
+        }
+        if (isBoom && direction === 'SELL') {
+            console.log(`[UltraScalper] ❌ ${symbol} | FILTERED: BOOM only takes BUY (momentum is UP), got ${direction}`);
             return null;
         }
         
         // ── BODY QUALITY CHECK ─────────────────────────────────
         if (!this._hasMeaningfulBody(c3)) {
-            const range = c3.high - c3.low;
-            const body = Math.abs(c3.close - c3.open);
-            const ratio = range > 0 ? (body / range * 100).toFixed(0) : 0;
-            console.log(`[UltraScalper] ❌ ${symbol} | Body too small: ${ratio}% < ${this.CONFIG.MIN_BODY_RATIO * 100}%`);
             return null;
         }
         
         // ── OPPOSING WICK CHECK ────────────────────────────────
         if (this._hasOpposingWick(c3, direction)) {
-            console.log(`[UltraScalper] ❌ ${symbol} | Opposing wick on candle3`);
             return null;
         }
         

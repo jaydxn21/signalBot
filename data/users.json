@@ -9,6 +9,94 @@
       "strategies": {},
       "trades": [
         {
+          "time": 1775302513131,
+          "symbol": "CRASH1000",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 5507.073,
+          "sl": 5505.505428571429,
+          "tp": 5509.424357142858,
+          "outcome": "SL",
+          "pnl": 0.06427042857143897,
+          "confidence": {
+            "score": 70.83477626902078,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 1.0x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775302507134,
+          "symbol": "CRASH1000",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 5507.043,
+          "sl": 5505.4775714285715,
+          "tp": 5509.391142857143,
+          "outcome": "SL",
+          "pnl": 0.06418257142855327,
+          "confidence": {
+            "score": 70.86329622193574,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 1.0x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775302501130,
+          "symbol": "CRASH1000",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 5507.026,
+          "sl": 5505.461785714286,
+          "tp": 5509.372321428571,
+          "outcome": "SL",
+          "pnl": 0.06413278571427873,
+          "confidence": {
+            "score": 70.87949221425362,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 1.0x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775302500231,
+          "symbol": "CRASH1000",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 5503.253,
+          "sl": 5501.477714285714,
+          "tp": 5505.915928571429,
+          "outcome": "TP",
+          "pnl": 0.1091800714285846,
+          "confidence": {
+            "score": 69.26450470749126,
+            "grade": "B",
+            "color": "#fbbf24",
+            "factors": [
+              "BUY momentum",
+              "1.5:1 R:R",
+              "Body 1.0x ATR"
+            ]
+          },
+          "overlays": []
+        },
+        {
           "time": 1775194531127,
           "symbol": "cryETHUSD",
           "strategy": "ultra_scalp",
@@ -13278,102 +13366,6 @@
             "factors": [
               "Drift re-entry ↑",
               "Pullback reversal"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774336201160,
-          "symbol": "CRASH1000",
-          "strategy": "kismet",
-          "type": "BUY",
-          "entry": 5492.963,
-          "sl": 5491.425535714286,
-          "tp": 5499.112857142856,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 62,
-            "grade": "B",
-            "color": "#fbbf24",
-            "factors": [
-              "Drift re-entry ↑",
-              "Pullback reversal"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774335601168,
-          "symbol": "CRASH1000",
-          "strategy": "kismet",
-          "type": "BUY",
-          "entry": 5496.52,
-          "sl": 5494.986892857143,
-          "tp": 5502.652428571429,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 62,
-            "grade": "B",
-            "color": "#fbbf24",
-            "factors": [
-              "Drift re-entry ↑",
-              "Pullback reversal"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774335301179,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5494.8,
-          "sl": 5492.022228571429,
-          "tp": 5503.480535714286,
-          "outcome": "TP",
-          "pnl": 3.1250000000002456,
-          "confidence": {
-            "score": 73,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 46",
-              "M15 3-bar↑"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774335300242,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5499.489,
-          "sl": 5497.064828571428,
-          "tp": 5507.064535714285,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 RSI 42",
-              "M1 3-bar↑",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 RSI 42",
-              "M5 3-bar↑",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 RSI 46"
             ]
           },
           "overlays": []
