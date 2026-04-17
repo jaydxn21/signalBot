@@ -33,6 +33,7 @@ import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
+import { Jump75Strategy } from './js/strategies/jump75.js'; 
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
@@ -133,8 +134,9 @@ const STRATEGY_GROUPS = [
     },
     {
         label: '🦘 Jump Indices',
-        desc:  'JD10, JD25, JD100 etc.',
+        desc:  'JD10, JD25, JD75, JD100',
         strategies: [
+            { value: 'jump75',          label: 'JUMP75 (Multi-TF)' },
             { value: 'scalp',           label: 'Classic Scalp'     },
             { value: 'ultra_scalp',     label: 'Ultra Scalper'     },
             { value: 'range_boundary',  label: 'Range Boundary'    },
@@ -166,6 +168,11 @@ function _pointValue(symbol) {
         'BOOM_500':   0.41,
         'cryBTCUSD': 0.01,
         'BTCUSD':    0.01,
+        'JD10':      0.41,
+        'JD25':      0.41,
+        'JD50':      0.41,
+        'JD75':      0.41,
+        'JD100':     0.41,
         // Forex pairs (pip value $10 per lot for most)
         'frxEURUSD': 10.0,
         'frxGBPUSD': 10.0,
@@ -184,25 +191,32 @@ function _pointValue(symbol) {
 // ─────────────────────────────────────────────────────────────
 class BotState {
     constructor(id, config) {
-        this.id           = id;
-        this.config       = config;
-        this.candles      = [];
-        this.h4Candles    = [];
-        this.htfCandles   = [];
-        this.htfGran      = 14400;
-        this.rsiState     = { prevAvgGain: 0, prevAvgLoss: 0, initialized: false };
-        this.strategy     = new StrategyEngine();
-        this.openSignal      = null;
-        this.lastFiredMs     = 0;
-        this.lastSLTimeMs    = 0;
-        this.lastSLBarIdx    = 0;
+        this.id = id;
+        this.config = config;
+        this.candles = [];
+        this.h4Candles = [];
+        this.htfCandles = [];
+        this.htfGran = 14400;
+        this.rsiState = { prevAvgGain: 0, prevAvgLoss: 0, initialized: false };
+        this.strategy = new StrategyEngine();
+        this.openSignal = null;
+        this.lastFiredMs = 0;
+        this.lastSLTimeMs = 0;
+        this.lastSLBarIdx = 0;
         this.h4KissCandidate = null;
-        this.isActive        = false;
-        this.sessionStart    = null;
-        this.wins            = 0;
-        this.losses          = 0;
-        this.pnl             = 0;
-        this.accountEquity   = 10000; // Default, updated from Deriv API
+        this.isActive = false;
+        this.sessionStart = null;
+        this.wins = 0;
+        this.losses = 0;
+        this.pnl = 0;
+        this.accountEquity = 10000;
+        
+        // CANDLE STORAGE
+        this.m5Candles = [];
+        this.m15Candles = [];
+        this.lastM5CloseTime = null;
+        this.lastM15CloseTime = null;
+        this.lastH4CloseTime = null;
     }
 }
 
@@ -226,6 +240,11 @@ const MT5_SYMBOL_MAP = {
     'Volatility 50 Index': 'Volatility 50 Index',
     'Volatility 75 Index': 'Volatility 75 Index',
     'Volatility 100 Index':'Volatility 100 Index',
+    'Jump 10 Index':       'Jump 10 Index',
+    'Jump 25 Index':       'Jump 25 Index',
+    'Jump 50 Index':       'Jump 50 Index',
+    'Jump 75 Index':       'Jump 75 Index',
+    'Jump 100 Index':      'Jump 100 Index',
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -591,6 +610,11 @@ window.stopBot = function(id) {
     if (bot.config?.symbol) {
         api.forgetSymbol(bot.config.symbol, bot.config.tf);
         api.forgetSymbol(bot.config.symbol, 14400);
+        // Also forget M5 and M15 if they were subscribed for Jump75
+        if (bot.config.strategy === 'jump75') {
+            api.forgetSymbol(bot.config.symbol, 300);
+            api.forgetSymbol(bot.config.symbol, 900);
+        }
     }
 
     ChartManager.removeBot(id);
@@ -652,6 +676,16 @@ function _engineFor(botId) {
 
 function subscribeBot(bot) {
     Notify.request();
+    
+    // For Jump75 strategy, subscribe to M5, M15, and H4
+    if (bot.config.strategy === 'jump75') {
+        api.subscribe(bot.config.symbol, 300);   // M5
+        api.subscribe(bot.config.symbol, 900);   // M15
+        api.subscribe(bot.config.symbol, 14400); // H4
+        log(`Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
+        return;
+    }
+    
     const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
     bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
         ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
@@ -701,6 +735,7 @@ function handleData(data) {
 
     if (data.msg_type === 'candles') {
         const gran    = data.echo_req.granularity;
+        const symbol  = data.echo_req.ticks_history;
         const history = data.candles.map(c => ({
             time:  parseInt(c.epoch),
             open:  parseFloat(c.open),
@@ -709,16 +744,40 @@ function handleData(data) {
             close: parseFloat(c.close)
         }));
 
+        // Feed candles to Jump75 bot storage arrays
         Object.values(bots).forEach(bot => {
             if (!bot.isActive) return;
-            if (gran === 14400 && data.echo_req.ticks_history === bot.config.symbol) {
-                bot.h4Candles = history;
+            if (bot.config.symbol !== symbol) return;
+            
+            // Only store candles for Jump75 strategy
+            if (bot.config.strategy === 'jump75') {
+                if (gran === 300) { // M5
+                    history.forEach(candle => {
+                        bot.m5Candles.push(candle);
+                        if (bot.m5Candles.length > 100) bot.m5Candles.shift();
+                        bot.lastM5CloseTime = candle.time;
+                    });
+                }
+                
+                if (gran === 900) { // M15
+                    history.forEach(candle => {
+                        bot.m15Candles.push(candle);
+                        if (bot.m15Candles.length > 50) bot.m15Candles.shift();
+                        bot.lastM15CloseTime = candle.time;
+                    });
+                }
+                
+                if (gran === 14400) { // H4
+                    history.forEach(candle => {
+                        bot.h4Candles.push(candle);
+                        if (bot.h4Candles.length > 30) bot.h4Candles.shift();
+                        bot.lastH4CloseTime = candle.time;
+                    });
+                }
             }
-            if (gran === bot.htfGran && data.echo_req.ticks_history === bot.config.symbol) {
-                bot.htfCandles = history;
-                if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, history);
-            }
-            if (gran === bot.config.tf && data.echo_req.ticks_history === bot.config.symbol) {
+            
+            // Store original candles for all strategies
+            if (gran === bot.config.tf) {
                 bot.candles = history;
                 const eng = ChartManager.get(bot.id);
                 if (eng) {
@@ -738,6 +797,14 @@ function handleData(data) {
                         });
                     }
                 }
+            }
+            
+            if (gran === 14400 && bot.config.symbol === symbol) {
+                bot.h4Candles = history;
+            }
+            if (gran === bot.htfGran && bot.config.symbol === symbol) {
+                bot.htfCandles = history;
+                if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, history);
             }
         });
     }
@@ -777,6 +844,25 @@ function processBar(bot, bar, gran) {
         if (bot.htfCandles.length > 500) bot.htfCandles.shift();
         if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, bot.htfCandles);
         if (bot.config.strategy === 'phantom') PhantomStrategy.setHtfCandles(bot.id, bot.htfCandles);
+    }
+
+    // Store candles for Jump75 on each timeframe
+    if (bot.config.strategy === 'jump75') {
+        if (gran === 300) {
+            bot.m5Candles.push(bar);
+            if (bot.m5Candles.length > 100) bot.m5Candles.shift();
+            bot.lastM5CloseTime = bar.time;
+        }
+        if (gran === 900) {
+            bot.m15Candles.push(bar);
+            if (bot.m15Candles.length > 50) bot.m15Candles.shift();
+            bot.lastM15CloseTime = bar.time;
+        }
+        if (gran === 14400) {
+            bot.h4Candles.push(bar);
+            if (bot.h4Candles.length > 30) bot.h4Candles.shift();
+            bot.lastH4CloseTime = bar.time;
+        }
     }
 
     if (gran !== bot.config.tf) return;
@@ -823,6 +909,7 @@ function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; }
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
     if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; }
     
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
@@ -896,6 +983,40 @@ function processBar(bot, bar, gran) {
 
         bot.lastFiredMs = now;
         fireSignal(bot, signal, bar, atr, rsi, isTrending);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// JUMP75 RUNNER
+// ─────────────────────────────────────────────────────────────
+function _runJump75(bot, bar, atr, rsi) {
+    // Only trade Jump indices (JD10, JD25, JD50, JD75, JD100)
+    const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
+    if (!jumpSymbols.includes(bot.config.symbol)) return null;
+    
+    // Need enough candles on each timeframe
+    if (bot.m5Candles.length < 10 || 
+        bot.m15Candles.length < 10 || 
+        bot.h4Candles.length < 5) {
+        return null;
+    }
+    
+    // Check for entry
+    const signal = Jump75Strategy.checkEntry(
+        bot.m5Candles,      // M5 array
+        bot.m15Candles,     // M15 array
+        bot.h4Candles,      // H4 array
+        atr
+    );
+    
+    if (signal) {
+        const now = Date.now();
+        const cooldownMs = 30000; // 30 second cooldown
+        if ((now - bot.lastFiredMs) < cooldownMs) return null;
+        
+        bot.lastFiredMs = now;
+        log(`🦘 JUMP75 ${signal.type} @ ${bar.close.toFixed(4)} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
+        fireSignal(bot, signal, bar, atr, rsi, null);
     }
 }
 
@@ -1529,7 +1650,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     const label = signal.label || type;
 
     let confidence;
-    if (signal.isPhantom || signal.isNova || signal.isPulse || signal.isKismet || signal.isVortex || signal.isUltraScalper) {
+    if (signal.isPhantom || signal.isNova || signal.isPulse || signal.isKismet || signal.isVortex || signal.isUltraScalper || signal.isJump75) {
         confidence = {
             score:   signal.score || 50,
             grade:   signal.score >= 70 ? 'A' : signal.score >= 55 ? 'B' : 'C',
@@ -1596,6 +1717,7 @@ console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.to
     if (signal.isNova) riskPercent = 0.65;
     if (signal.isCipher) riskPercent = 0.7;
     if (signal.isUltraScalper) riskPercent = 0.5;
+    if (signal.isJump75) riskPercent = 0.6;
     
     const accountEquity = bot.accountEquity || SessionState.get().accountEquity || 10000;
     
@@ -1634,7 +1756,11 @@ console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.to
     // Final safety clamp
     lotSize = Math.min(0.1, Math.max(0.01, lotSize));  // Max 0.1 lots for safety
 
-    bot.openSignal     = { type, sl, tp, entry: bar.close, lotSize: lotSize };
+    bot.openSignal     = { type, sl, tp, entry: bar.close, lotSize: lotSize, strategy: bot.config.strategy };
+    if (signal.isJump75) {
+        bot.openSignal.isJump75 = true;
+        bot.openSignal.factors = signal.factors || [];
+    }
     bot.lastConfidence = confidence;
 
     const sigEngine = _engineFor(bot.id);
@@ -1787,6 +1913,59 @@ function checkOutcome(bot) {
 
     if (!hit) return;
 
+    // ── JUMP75 EXIT HANDLING ─────────────────────────────────────
+    if (bot.openSignal.isJump75) {
+        const latestM5 = bot.m5Candles[bot.m5Candles.length - 1];
+        if (latestM5) {
+            const closeSignal = Jump75Strategy.checkClose(latestM5, bot.openSignal);
+            if (closeSignal) {
+                if (closeSignal.action === 'CLOSE') {
+                    const lotSizeUsed = signalLotSize || bot.config.lotSize || 0.01;
+                    const pv = _pointValue(bot.config.symbol);
+                    const priceDist = Math.abs(latestM5.close - entry);
+                    const pnlAmt = lotSizeUsed * pv * priceDist;
+                    
+                    log(`🦘 JUMP75 ${closeSignal.reason} — closing trade @ ${latestM5.close.toFixed(4)}`, closeSignal.reason === 'TP' ? 'buy' : 'sell');
+                    
+                    if (closeSignal.reason === 'TP') {
+                        window.registerBotWin(bot.id, pnlAmt);
+                        UIManager.registerWin(pnlAmt);
+                        UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
+                        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'jump75', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
+                        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
+                    } else {
+                        window.registerBotLoss(bot.id, pnlAmt);
+                        UIManager.registerLoss(pnlAmt);
+                        UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
+                        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'jump75', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
+                        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
+                    }
+                    
+                    SessionState.pushTrade({
+                        time: Date.now(), symbol: bot.config.symbol, strategy: 'jump75',
+                        type, entry, sl, tp, outcome: closeSignal.reason, pnl: pnlAmt,
+                        confidence: bot.lastConfidence || null,
+                    });
+                    
+                    bot.openSignal = null;
+                    const outcomeEngine = _engineFor(bot.id);
+                    if (outcomeEngine) {
+                        outcomeEngine.clearMarkers();
+                        outcomeEngine.clearPriceLines();
+                    }
+                    return;
+                } else if (closeSignal.action === 'UPDATE_SL') {
+                    bot.openSignal.sl = closeSignal.newSL;
+                    log(`🦘 JUMP75 updating SL to ${closeSignal.newSL.toFixed(4)}`, 'neutral');
+                    const eng = _engineFor(bot.id);
+                    if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
+                    _pushMT5Modify(bot, bot.openSignal.sl, bot.openSignal.tp);
+                    return;
+                }
+            }
+        }
+    }
+
     // ── PHANTOM SCALE-OUT ─────────────────────────────────────
     if (bot.openSignal.isPhantom && hit === 'TP' && !bot.openSignal.scaleOutDone) {
         const lotSize   = signalLotSize || bot.config.phantomLot || bot.config.lotSize || 0.01;
@@ -1880,14 +2059,15 @@ function checkOutcome(bot) {
         bot.lastSLBarIdx = bot.candles.length;
     }
 
-    // ── LOSS PROTECTION (UPDATED: excludes ultra_scalp) ────────
+    // ── LOSS PROTECTION (UPDATED: excludes ultra_scalp and jump75) ────────
     if (hit === 'SL' && Settings.get('lossProtection') && 
         bot.config.strategy !== 'phantom' && 
         bot.config.strategy !== 'nova' && 
         bot.config.strategy !== 'pulse' && 
         bot.config.strategy !== 'kismet' && 
         bot.config.strategy !== 'vortex' &&
-        bot.config.strategy !== 'ultra_scalp') {  // ← EXCLUDED
+        bot.config.strategy !== 'ultra_scalp' &&
+        bot.config.strategy !== 'jump75') {  // ← EXCLUDED
         
         const recentTrades = (SessionState.get().trades || [])
             .filter(t => t.symbol === bot.config.symbol)

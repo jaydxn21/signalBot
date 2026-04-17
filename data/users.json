@@ -9,6 +9,69 @@
       "strategies": {},
       "trades": [
         {
+          "time": 1775351100021,
+          "symbol": "cryBTCUSD",
+          "strategy": "ultra_scalp",
+          "type": "SELL",
+          "entry": 67206.352,
+          "sl": 67260.1170824,
+          "tp": 67125.7043764,
+          "outcome": "TP",
+          "pnl": 0.008064762360000168,
+          "confidence": {
+            "score": 70,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "SELL momentum",
+              "Tight TP/SL"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775350802024,
+          "symbol": "1HZ100V",
+          "strategy": "ultra_scalp",
+          "type": "BUY",
+          "entry": 1216.74,
+          "sl": 1215.1405714285713,
+          "tp": 1219.4057142857143,
+          "outcome": "SL",
+          "pnl": 0.006557657142857624,
+          "confidence": {
+            "score": 70,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "BUY momentum",
+              "Tight TP/SL"
+            ]
+          },
+          "overlays": []
+        },
+        {
+          "time": 1775350320964,
+          "symbol": "JD75",
+          "strategy": "ultra_scalp",
+          "type": "SELL",
+          "entry": 15133.24,
+          "sl": 15139.415928571429,
+          "tp": 15122.946785714286,
+          "outcome": "SL",
+          "pnl": 0.02532130714285813,
+          "confidence": {
+            "score": 70,
+            "grade": "A",
+            "color": "#34d399",
+            "factors": [
+              "SELL momentum",
+              "Tight TP/SL"
+            ]
+          },
+          "overlays": []
+        },
+        {
           "time": 1775339699874,
           "symbol": "cryBTCUSD",
           "strategy": "ultra_scalp",
@@ -13228,85 +13291,6 @@
           "entry": 5505.289,
           "sl": 5503.7107857142855,
           "tp": 5511.601857142857,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 62,
-            "grade": "B",
-            "color": "#fbbf24",
-            "factors": [
-              "Drift re-entry ↑",
-              "Pullback reversal"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774343101245,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5503.569,
-          "sl": 5501.053742857143,
-          "tp": 5511.4291785714295,
-          "outcome": "TP",
-          "pnl": 3.1250000000002713,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 RSI 45",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 RSI 45",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 55"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774343100274,
-          "symbol": "CRASH1000",
-          "strategy": "nova",
-          "type": "BUY",
-          "entry": 5507.23,
-          "sl": 5505.2072,
-          "tp": 5513.5512499999995,
-          "outcome": "SL",
-          "pnl": 1,
-          "confidence": {
-            "score": 100,
-            "grade": "A",
-            "color": "#34d399",
-            "factors": [
-              "M1 drift↑",
-              "M1 post-spike↑",
-              "M1 RSI 59",
-              "M5 drift↑",
-              "M5 post-spike↑",
-              "M5 RSI 59",
-              "M15 drift↑",
-              "M15 post-spike↑",
-              "M15 EMA↑",
-              "M15 RSI 52"
-            ]
-          },
-          "overlays": []
-        },
-        {
-          "time": 1774342202329,
-          "symbol": "CRASH1000",
-          "strategy": "kismet",
-          "type": "BUY",
-          "entry": 5508.915,
-          "sl": 5507.648428571429,
-          "tp": 5513.981285714286,
           "outcome": "SL",
           "pnl": 1,
           "confidence": {
