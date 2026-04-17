@@ -1,448 +1,312 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// JUMP 75 STRUCTURE BREAK STRATEGY
-// ═══════════════════════════════════════════════════════════════════════════
-// 
-// Your proven manual system automated:
-// 1. H4 structure break detection (high/low breakdown)
-// 2. Track retests at broken level (multiple touches allowed)
-// 3. M15 confirmation (strong rejection candle)
-// 4. Entry after confirmation closes decisively
-// 5. SL beyond rejection candle (60-120 pts)
-// 6. Target at next H4 level (min 1:2 R:R)
+// momentum.js — Momentum Strategy with Structure Integration
 //
-// Symbol: JUMP75 (Volatility Index)
-// Timeframes: H4 (structure) + M15 (confirmation) + M5 (real-time monitoring)
-// ═══════════════════════════════════════════════════════════════════════════
+// ENTRY RULES:
+//   - MUST be at daily support for BUY, or daily resistance for SELL
+//   - Structure score must be ≥ 65
+//   - Trend confirmation (EMA alignment)
+//   - Engulfing or strong momentum candle
+//
+// EXIT RULES:
+//   - TP at nearest supply/demand zone or daily mid
+//   - Trailing stop after 1x ATR profit
 
-export const Jump75Strategy = {
+import { StructureEngine } from '../structure-engine.js';
+
+export const MomentumStrategy = {
     
-    _state: {
-        lastBreakLevel: null,
-        lastBreakDirection: null,  // 'SHORT' (break below) or 'LONG' (break above)
-        retestCount: 0,
-        maxRetests: 3,
-        confirmationCandleFound: false,
-        confirmationCandle: null,
-        setupStartTime: null,
+    _cooldownCandles: 0,
+    _lastTradeTime: 0,
+    _tradeCount: 0,
+    _weekStart: null,
+    
+    // ─────────────────────────────────────────────────────────────
+    // PAIR-SPECIFIC CONFIGURATIONS
+    // ─────────────────────────────────────────────────────────────
+    _pairConfig: {
+        'EURGBP': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.75 },
+        'CADCHF': { enabled: true, bias: 'SHORT', minStructureScore: 50, riskPercent: 0.7 },
+        'GBPUSD': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.75 },
+        'EURUSD': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.75 },
+        'USDJPY': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.7 },
+        'CHFJPY': { enabled: false, bias: 'NONE', minStructureScore: 0, riskPercent: 0 },
+        'default': { enabled: true, bias: 'BOTH', minStructureScore: 55, riskPercent: 0.7 }
     },
     
-    _config: {
-        symbol: 'JUMP75',
-        H4_BREAKOUT_THRESHOLD: 0.001,  // 0.1% move to confirm break
-        M15_REJECTION_THRESHOLD: 0.002, // 0.2% move away to confirm rejection
-        MIN_RR_RATIO: 2.0,             // Minimum 1:2 risk-reward
-        BREATHING_ROOM_PTS: 100,       // 60-120 pts SL buffer
-        MAX_RETEST_AGE_HOURS: 2,       // Retests must occur within 2 hours
-        CONFIRMATION_CLOSE_THRESHOLD: 0.003, // 0.3% decisive close away
+    // ─────────────────────────────────────────────────────────────
+    // INDICATORS
+    // ─────────────────────────────────────────────────────────────
+    _ema(candles, period) {
+        if (candles.length < period) return null;
+        const k = 2 / (period + 1);
+        let ema = candles.slice(0, period).reduce((a, b) => a + b.close, 0) / period;
+        for (let i = period; i < candles.length; i++) {
+            ema = candles[i].close * k + ema * (1 - k);
+        }
+        return ema;
     },
     
-    // ─────────────────────────────────────────────────────────────────────
-    // UTILITY: Calculate ATR
-    // ─────────────────────────────────────────────────────────────────────
     _atr(candles, period = 14) {
         if (candles.length < period + 1) return null;
         const trs = [];
         for (let i = candles.length - period; i < candles.length; i++) {
             const c = candles[i], p = candles[i - 1];
-            trs.push(Math.max(
-                c.high - c.low,
-                Math.abs(c.high - p.close),
-                Math.abs(c.low - p.close)
-            ));
+            trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
         }
         return trs.reduce((a, b) => a + b, 0) / period;
     },
     
-    // ─────────────────────────────────────────────────────────────────────
-    // UTILITY: Calculate structure levels (H4)
-    // ─────────────────────────────────────────────────────────────────────
-    _getH4Structure(h4Candles) {
-        if (!h4Candles || h4Candles.length < 5) return null;
+    _isBigBody(candle, atr) {
+        const body = Math.abs(candle.close - candle.open);
+        return body > atr * 0.3;  // Relaxed from 0.5
+    },
+    
+    _isEngulfing(prev, curr) {
+        const bullEngulf = curr.close > curr.open &&
+                           curr.open < prev.close &&
+                           curr.close > prev.open &&
+                           prev.close < prev.open;
+        const bearEngulf = curr.close < curr.open &&
+                           curr.open > prev.close &&
+                           curr.close < prev.open &&
+                           prev.close > prev.open;
+        return { bullEngulf, bearEngulf };
+    },
+    
+    _isThreeConsecutive(c1, c2, c3) {
+        const allBull = c1.close > c1.open && c2.close > c2.open && c3.close > c3.open;
+        const allBear = c1.close < c1.open && c2.close < c2.open && c3.close < c3.open;
+        return { allBull, allBear };
+    },
+    
+    _getTrendDirection(candles) {
+        const fast = this._ema(candles, 8);
+        const slow = this._ema(candles, 21);
+        if (!fast || !slow) return null;
+        if (fast > slow) return 'BULL';
+        if (fast < slow) return 'BEAR';
+        return null;
+    },
+    
+    // ─────────────────────────────────────────────────────────────
+    // STRUCTURE-BASED ENTRY
+    // ─────────────────────────────────────────────────────────────
+    checkEntry(candles, atr, symbol = '', dailyCandles = [], weeklyCandles = []) {
+        if (!atr || candles.length < 30) return null;
         
-        const recent = h4Candles.slice(-20); // Last 5 days (20 H4 candles)
-        const high = Math.max(...recent.map(c => c.high));
-        const low = Math.min(...recent.map(c => c.low));
-        const mid = (high + low) / 2;
+        // Get pair config
+        const cfg = this._pairConfig[symbol] || this._pairConfig['default'];
+        if (!cfg.enabled) return null;
         
-        // Identify structure pivot (last swing point)
-        let structurePivot = null;
-        let pivotType = null;
+        // ── RELAXED COOLDOWN (max 5 trades per week, no daily limit) ─────────
+        const now = Date.now();
         
-        for (let i = recent.length - 1; i >= 1; i--) {
-            const prev = recent[i - 1];
-            const curr = recent[i];
-            
-            // Higher low (support pivot)
-            if (i >= 2 && recent[i - 2].low > curr.low && curr.low < prev.low) {
-                structurePivot = curr.low;
-                pivotType = 'SUPPORT_PIVOT';
-                break;
-            }
-            
-            // Lower high (resistance pivot)
-            if (i >= 2 && recent[i - 2].high < curr.high && curr.high > prev.high) {
-                structurePivot = curr.high;
-                pivotType = 'RESISTANCE_PIVOT';
-                break;
-            }
+        const currentWeek = this._getWeekStart();
+        if (currentWeek !== this._weekStart) {
+            this._tradeCount = 0;
+            this._weekStart = currentWeek;
         }
+        if (this._tradeCount >= 5) return null;
+        
+        // ── GET STRUCTURE MAP ───────────────────────────────────
+        let structureMap;
+        try {
+            structureMap = StructureEngine.getStructureMap(candles, dailyCandles, weeklyCandles);
+        } catch(e) {
+            console.log('[Momentum] StructureEngine error:', e);
+            // Fallback: trade without structure if engine fails
+            return this._fallbackEntry(candles, atr, symbol, cfg);
+        }
+        
+        if (!structureMap || !structureMap.dailyLevels) {
+            // Fallback to momentum-only entry
+            return this._fallbackEntry(candles, atr, symbol, cfg);
+        }
+        
+        const price = candles[candles.length - 1].close;
+        const position = structureMap.getPricePosition(price);
+        
+        // ── STRUCTURE FILTER (RELAXED) ──────────────────────────
+        let allowedBias = null;
+        
+        if (cfg.bias === 'BOTH') {
+            if (position === 'SUPPORT') allowedBias = 'BUY';
+            else if (position === 'RESISTANCE') allowedBias = 'SELL';
+            else if (position === 'BREAKOUT_UP') allowedBias = 'BUY';
+            else if (position === 'BREAKOUT_DOWN') allowedBias = 'SELL';
+            else if (position === 'MID_RANGE') {
+                // In mid-range, follow trend
+                const trend = this._getTrendDirection(candles.slice(0, -1));
+                if (trend === 'BULL') allowedBias = 'BUY';
+                else if (trend === 'BEAR') allowedBias = 'SELL';
+                else return null;
+            }
+            else return null;
+        } else if (cfg.bias === 'SHORT') {
+            if (position !== 'RESISTANCE' && position !== 'BREAKOUT_DOWN' && position !== 'MID_RANGE') return null;
+            allowedBias = 'SELL';
+        } else if (cfg.bias === 'LONG') {
+            if (position !== 'SUPPORT' && position !== 'BREAKOUT_UP' && position !== 'MID_RANGE') return null;
+            allowedBias = 'BUY';
+        }
+        
+        if (!allowedBias) return null;
+        
+        // ── MOMENTUM CONFIRMATION (RELAXED) ─────────────────────
+        const c1 = candles[candles.length - 4];
+        const c2 = candles[candles.length - 3];
+        const c3 = candles[candles.length - 2];
+        
+        if (!c1 || !c2 || !c3) return null;
+        
+        const { bullEngulf, bearEngulf } = this._isEngulfing(c2, c3);
+        const { allBull, allBear } = this._isThreeConsecutive(c1, c2, c3);
+        const bigBullBody = c3.close > c3.open && this._isBigBody(c3, atr);
+        const bigBearBody = c3.close < c3.open && this._isBigBody(c3, atr);
+        
+        const bullScore = (bullEngulf ? 1 : 0) + (allBull ? 1 : 0) + (bigBullBody ? 1 : 0);
+        const bearScore = (bearEngulf ? 1 : 0) + (allBear ? 1 : 0) + (bigBearBody ? 1 : 0);
+        
+        // Need at least 1 confirmation (relaxed from 2)
+        if (allowedBias === 'BUY' && bullScore < 1) return null;
+        if (allowedBias === 'SELL' && bearScore < 1) return null;
+        
+        // ── SET TP/SL BASED ON STRUCTURE OR ATR ─────────────────
+        let sl, tp, risk, reward, rr;
+        
+        if (structureMap && structureMap.dailyLevels) {
+            if (allowedBias === 'BUY') {
+                let supportLevel = structureMap.dailyLevels.dailyLow;
+                if (structureMap.demandZones && structureMap.demandZones.length > 0) {
+                    supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+                }
+                sl = supportLevel * 0.998;
+                
+                let resistanceLevel = structureMap.dailyLevels.dailyMid;
+                if (structureMap.supplyZones && structureMap.supplyZones.length > 0) {
+                    resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+                }
+                tp = resistanceLevel;
+            } else {
+                let resistanceLevel = structureMap.dailyLevels.dailyHigh;
+                if (structureMap.supplyZones && structureMap.supplyZones.length > 0) {
+                    resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+                }
+                sl = resistanceLevel * 1.002;
+                
+                let supportLevel = structureMap.dailyLevels.dailyMid;
+                if (structureMap.demandZones && structureMap.demandZones.length > 0) {
+                    supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+                }
+                tp = supportLevel;
+            }
+            
+            risk = Math.abs(price - sl);
+            reward = Math.abs(tp - price);
+            rr = reward / risk;
+        } else {
+            // Fallback: use ATR-based SL/TP
+            risk = atr * 1.0;
+            reward = atr * 1.5;
+            sl = allowedBias === 'BUY' ? price - risk : price + risk;
+            tp = allowedBias === 'BUY' ? price + reward : price - reward;
+            rr = 1.5;
+        }
+        
+        if (rr < 1.2) return null; // Minimum 1.2:1 R:R (relaxed)
+        
+        // ── RECORD TRADE ────────────────────────────────────────
+        this._lastTradeTime = now;
+        this._tradeCount++;
+        
+        const factors = [
+            `${position || 'MID'} ${allowedBias}`,
+            `${allowedBias === 'BUY' ? 'Bull' : 'Bear'} score ${allowedBias === 'BUY' ? bullScore : bearScore}/3`,
+            `R:R ${rr.toFixed(1)}:1`
+        ];
+        
+        console.log(`[Momentum] 📍 ${allowedBias} on ${symbol} | ${factors.join(' · ')}`);
         
         return {
-            high,
-            low,
-            mid,
-            structurePivot,
-            pivotType,
-            range: high - low
+            type: allowedBias,
+            label: `MOMENTUM ${allowedBias} [${position || 'MID'}]`,
+            score: 65,
+            factors: factors,
+            tpMultiplier: reward / atr,
+            slMultiplier: risk / atr,
+            isMomentum: true,
+            pairConfig: cfg,
+            _meta: { position, rr, sl, tp, price }
         };
     },
     
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 1: Detect H4 Structure Break
-    // ─────────────────────────────────────────────────────────────────────
-    _detectH4Break(h4Candles, m5Candles) {
-        if (!h4Candles || h4Candles.length < 5) return null;
+    // ─────────────────────────────────────────────────────────────
+    // FALLBACK: Momentum-only entry (no structure)
+    // ─────────────────────────────────────────────────────────────
+    _fallbackEntry(candles, atr, symbol, cfg) {
+        const c1 = candles[candles.length - 4];
+        const c2 = candles[candles.length - 3];
+        const c3 = candles[candles.length - 2];
         
-        const structure = this._getH4Structure(h4Candles);
-        if (!structure) return null;
+        if (!c1 || !c2 || !c3) return null;
         
-        const latestH4 = h4Candles[h4Candles.length - 1];
-        const latestM5 = m5Candles[m5Candles.length - 1];
-        const currentPrice = latestM5.close;
+        const { bullEngulf, bearEngulf } = this._isEngulfing(c2, c3);
+        const { allBull, allBear } = this._isThreeConsecutive(c1, c2, c3);
+        const bigBullBody = c3.close > c3.open && this._isBigBody(c3, atr);
+        const bigBearBody = c3.close < c3.open && this._isBigBody(c3, atr);
         
-        // Check if price broke below support (SHORT setup)
-        if (latestH4.low < structure.low && currentPrice < structure.low) {
-            const breakDist = structure.low - currentPrice;
-            const breakPercent = breakDist / structure.low;
-            
-            if (breakPercent > this._config.H4_BREAKOUT_THRESHOLD) {
-                return {
-                    direction: 'SHORT',
-                    breakLevel: structure.low,
-                    nextTarget: structure.mid, // First target = midpoint
-                    distance: breakDist,
-                    timeDetected: new Date()
-                };
-            }
+        const bullScore = (bullEngulf ? 1 : 0) + (allBull ? 1 : 0) + (bigBullBody ? 1 : 0);
+        const bearScore = (bearEngulf ? 1 : 0) + (allBear ? 1 : 0) + (bigBearBody ? 1 : 0);
+        
+        let allowedBias = null;
+        if (cfg.bias === 'BOTH') {
+            if (bullScore >= 2) allowedBias = 'BUY';
+            else if (bearScore >= 2) allowedBias = 'SELL';
+        } else if (cfg.bias === 'SHORT' && bearScore >= 2) {
+            allowedBias = 'SELL';
+        } else if (cfg.bias === 'LONG' && bullScore >= 2) {
+            allowedBias = 'BUY';
         }
         
-        // Check if price broke above resistance (LONG setup)
-        if (latestH4.high > structure.high && currentPrice > structure.high) {
-            const breakDist = currentPrice - structure.high;
-            const breakPercent = breakDist / structure.high;
-            
-            if (breakPercent > this._config.H4_BREAKOUT_THRESHOLD) {
-                return {
-                    direction: 'LONG',
-                    breakLevel: structure.high,
-                    nextTarget: structure.mid,
-                    distance: breakDist,
-                    timeDetected: new Date()
-                };
-            }
-        }
+        if (!allowedBias) return null;
         
-        return null;
-    },
-    
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 2: Track Retests
-    // ─────────────────────────────────────────────────────────────────────
-    _isRetesting(m5Candle, breakLevel, breakDirection) {
-        if (!m5Candle || !breakLevel) return false;
+        const risk = atr * 1.0;
+        const reward = atr * 1.5;
+        const price = candles[candles.length - 1].close;
+        const sl = allowedBias === 'BUY' ? price - risk : price + risk;
+        const tp = allowedBias === 'BUY' ? price + reward : price - reward;
         
-        const tolerance = breakLevel * 0.001; // 0.1% tolerance
+        console.log(`[Momentum] 📍 FALLBACK ${allowedBias} on ${symbol} | Momentum only`);
         
-        if (breakDirection === 'SHORT') {
-            // Retest = price comes back UP to broken level
-            return m5Candle.high >= (breakLevel - tolerance) && 
-                   m5Candle.close < breakLevel;
-        } else {
-            // Retest = price comes back DOWN to broken level
-            return m5Candle.low <= (breakLevel + tolerance) && 
-                   m5Candle.close > breakLevel;
-        }
-    },
-    
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 3: M15 Rejection Candle Detection
-    // ─────────────────────────────────────────────────────────────────────
-    _detectRejectionCandle(m15Candles, m5Candles, breakLevel, breakDirection) {
-        if (m15Candles.length < 2 || m5Candles.length < 2) return null;
-        
-        const latestM15 = m15Candles[m15Candles.length - 1];
-        const prevM15 = m15Candles[m15Candles.length - 2];
-        const currentPrice = m5Candles[m5Candles.length - 1].close;
-        
-        // Rejection candle must close decisively AWAY from broken level
-        const tolerance = breakLevel * 0.001;
-        
-        if (breakDirection === 'SHORT') {
-            // SHORT rejection: candle closes well BELOW the level (away from it)
-            const rejectsLevel = latestM15.close < (breakLevel - tolerance);
-            const closesAwayThreshold = (breakLevel - latestM15.close) / breakLevel;
-            const isDecisive = closesAwayThreshold > this._config.CONFIRMATION_CLOSE_THRESHOLD;
-            
-            // Candle must touch near level but close away
-            const candleTouchesLevel = latestM15.high >= breakLevel;
-            const hasBody = Math.abs(latestM15.close - latestM15.open) > 
-                           (latestM15.high - latestM15.low) * 0.4; // At least 40% body
-            
-            if (rejectsLevel && isDecisive && candleTouchesLevel && hasBody) {
-                return {
-                    direction: 'SHORT',
-                    rejectionHigh: latestM15.high,
-                    rejectionLow: latestM15.low,
-                    rejectionClose: latestM15.close,
-                    strength: closesAwayThreshold,
-                    timeDetected: new Date()
-                };
-            }
-        } else {
-            // LONG rejection: candle closes well ABOVE the level (away from it)
-            const rejectsLevel = latestM15.close > (breakLevel + tolerance);
-            const closesAwayThreshold = (latestM15.close - breakLevel) / breakLevel;
-            const isDecisive = closesAwayThreshold > this._config.CONFIRMATION_CLOSE_THRESHOLD;
-            
-            // Candle must touch near level but close away
-            const candleTouchesLevel = latestM15.low <= breakLevel;
-            const hasBody = Math.abs(latestM15.close - latestM15.open) > 
-                           (latestM15.high - latestM15.low) * 0.4;
-            
-            if (rejectsLevel && isDecisive && candleTouchesLevel && hasBody) {
-                return {
-                    direction: 'LONG',
-                    rejectionHigh: latestM15.high,
-                    rejectionLow: latestM15.low,
-                    rejectionClose: latestM15.close,
-                    strength: closesAwayThreshold,
-                    timeDetected: new Date()
-                };
-            }
-        }
-        
-        return null;
-    },
-    
-    // ─────────────────────────────────────────────────────────────────────
-    // MAIN ENTRY CHECK
-    // ─────────────────────────────────────────────────────────────────────
-    checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        if (!m5Candles || !m15Candles || !h4Candles || !atr) return null;
-        if (m5Candles.length < 10 || m15Candles.length < 10 || h4Candles.length < 5) return null;
-        
-        const currentPrice = m5Candles[m5Candles.length - 1].close;
-        const latestM15 = m15Candles[m15Candles.length - 1];
-        
-        // ──────────────────────────────────────────────────────────────────
-        // STAGE 1: New Break Detected?
-        // ──────────────────────────────────────────────────────────────────
-        if (!this._state.lastBreakLevel) {
-            const breakSignal = this._detectH4Break(h4Candles, m5Candles);
-            
-            if (breakSignal) {
-                this._state.lastBreakLevel = breakSignal.breakLevel;
-                this._state.lastBreakDirection = breakSignal.direction;
-                this._state.retestCount = 0;
-                this._state.confirmationCandleFound = false;
-                this._state.setupStartTime = new Date();
-                
-                console.log(`[Jump75] 🔨 STRUCTURE BREAK DETECTED: ${breakSignal.direction}`);
-                console.log(`[Jump75]   Level: ${breakSignal.breakLevel.toFixed(4)}`);
-                console.log(`[Jump75]   Distance: ${breakSignal.distance.toFixed(4)}`);
-                
-                return null; // Wait for retest + confirmation
-            }
-            
-            return null; // No setup yet
-        }
-        
-        // ──────────────────────────────────────────────────────────────────
-        // STAGE 2: Are we in a Setup? Track Retests
-        // ──────────────────────────────────────────────────────────────────
-        
-        // Check if setup is too old (abandoned)
-        const setupAge = (new Date() - this._state.setupStartTime) / (1000 * 60 * 60);
-        if (setupAge > this._config.MAX_RETEST_AGE_HOURS) {
-            console.log(`[Jump75] ⏰ Setup abandoned (${setupAge.toFixed(1)}h old, no confirmation)`);
-            this._state.lastBreakLevel = null;
-            this._state.confirmationCandleFound = false;
-            return null;
-        }
-        
-        // Is price retesting the broken level?
-        const isRetesting = this._isRetesting(
-            m5Candles[m5Candles.length - 1],
-            this._state.lastBreakLevel,
-            this._state.lastBreakDirection
-        );
-        
-        if (isRetesting && !this._state.confirmationCandleFound) {
-            this._state.retestCount++;
-            console.log(`[Jump75] 🔄 Retest #${this._state.retestCount} at level ${this._state.lastBreakLevel.toFixed(4)}`);
-        }
-        
-        // ──────────────────────────────────────────────────────────────────
-        // STAGE 3: Look for Confirmation Candle (M15)
-        // ──────────────────────────────────────────────────────────────────
-        if (this._state.retestCount > 0 && !this._state.confirmationCandleFound) {
-            const rejectionSignal = this._detectRejectionCandle(
-                m15Candles,
-                m5Candles,
-                this._state.lastBreakLevel,
-                this._state.lastBreakDirection
-            );
-            
-            if (rejectionSignal) {
-                console.log(`[Jump75] ✅ CONFIRMATION CANDLE FOUND (Retest #${this._state.retestCount})`);
-                console.log(`[Jump75]   Close: ${rejectionSignal.rejectionClose.toFixed(4)}`);
-                console.log(`[Jump75]   Strength: ${(rejectionSignal.strength * 100).toFixed(2)}%`);
-                
-                this._state.confirmationCandle = rejectionSignal;
-                this._state.confirmationCandleFound = true;
-                
-                // Don't enter YET - wait for this candle to CLOSE
-                return null;
-            }
-        }
-        
-        // ──────────────────────────────────────────────────────────────────
-        // STAGE 4: Enter AFTER Confirmation Candle Closes
-        // ──────────────────────────────────────────────────────────────────
-        if (this._state.confirmationCandleFound) {
-            const confirmCandle = this._state.confirmationCandle;
-            
-            // Has the confirmation candle closed?
-            // (Check if current M15 candle is DIFFERENT from confirmation)
-            const prevM15 = m15Candles[m15Candles.length - 2];
-            const isNewM15Candle = latestM15.open !== confirmCandle.rejectionClose;
-            
-            if (isNewM15Candle) {
-                // Confirmation candle has closed. Enter!
-                
-                const direction = confirmCandle.direction;
-                const breakLevel = this._state.lastBreakLevel;
-                const currentPrice = m5Candles[m5Candles.length - 1].close;
-                
-                // ───────────────────────────────────────────────────────────
-                // CALCULATE STOP LOSS & TARGET
-                // ───────────────────────────────────────────────────────────
-                let sl, tp, risk, reward;
-                
-                if (direction === 'SHORT') {
-                    // SL: Just above rejection high + breathing room
-                    const rejectionRange = confirmCandle.rejectionHigh - confirmCandle.rejectionLow;
-                    sl = confirmCandle.rejectionHigh + (this._config.BREATHING_ROOM_PTS / 10000);
-                    
-                    // TP: Next H4 level down (or use structure.mid as first target)
-                    tp = this._state.lastBreakLevel - (atr * 2); // Conservative first target
-                    
-                    risk = sl - currentPrice;
-                    reward = currentPrice - tp;
-                } else {
-                    // SL: Just below rejection low + breathing room
-                    const rejectionRange = confirmCandle.rejectionHigh - confirmCandle.rejectionLow;
-                    sl = confirmCandle.rejectionLow - (this._config.BREATHING_ROOM_PTS / 10000);
-                    
-                    // TP: Next H4 level up
-                    tp = this._state.lastBreakLevel + (atr * 2);
-                    
-                    risk = currentPrice - sl;
-                    reward = tp - currentPrice;
-                }
-                
-                const rr = reward / risk;
-                
-                // Minimum R:R check
-                if (rr < this._config.MIN_RR_RATIO) {
-                    console.log(`[Jump75] ⚠️  Poor R:R (${rr.toFixed(2)}:1), skipping entry`);
-                    this._state.confirmationCandleFound = false;
-                    return null;
-                }
-                
-                // Reset state for next setup
-                this._state.lastBreakLevel = null;
-                this._state.confirmationCandleFound = false;
-                this._state.retestCount = 0;
-                
-                console.log(`[Jump75] 📊 ENTRY SIGNAL: ${direction}`);
-                console.log(`[Jump75]   SL: ${sl.toFixed(4)} (Risk: ${(risk * 10000).toFixed(0)} pts)`);
-                console.log(`[Jump75]   TP: ${tp.toFixed(4)} (Reward: ${(reward * 10000).toFixed(0)} pts)`);
-                console.log(`[Jump75]   R:R: ${rr.toFixed(2)}:1`);
-                
-                return {
-                    direction: direction === 'SHORT' ? 'SELL' : 'BUY',
-                    type: direction,
-                    label: `JUMP75 ${direction} [Structure Break + M15 Confirmation]`,
-                    score: 78, // High confidence
-                    factors: [
-                        `Structure Break (${direction})`,
-                        `${this._state.retestCount} Retest(s)`,
-                        `M15 Rejection Confirmed`,
-                        `R:R ${rr.toFixed(2)}:1`
-                    ],
-                    slMultiplier: risk / atr,
-                    tpMultiplier: reward / atr,
-                    _meta: {
-                        breakLevel: this._state.lastBreakLevel,
-                        sl,
-                        tp,
-                        rr,
-                        retrests: this._state.retestCount
-                    }
-                };
-            }
-        }
-        
-        return null;
-    },
-    
-    // ─────────────────────────────────────────────────────────────────────
-    // MANAGE EXISTING TRADES
-    // ─────────────────────────────────────────────────────────────────────
-    checkClose(m5Candle, trade) {
-        if (!m5Candle || !trade) return null;
-        
-        const price = m5Candle.close;
-        
-        // Hit TP?
-        if (trade.type === 'BUY' && price >= trade.tp) {
-            return { action: 'CLOSE', reason: 'take_profit' };
-        }
-        if (trade.type === 'SELL' && price <= trade.tp) {
-            return { action: 'CLOSE', reason: 'take_profit' };
-        }
-        
-        // Hit SL?
-        if (trade.type === 'BUY' && price <= trade.sl) {
-            return { action: 'CLOSE', reason: 'stop_loss' };
-        }
-        if (trade.type === 'SELL' && price >= trade.sl) {
-            return { action: 'CLOSE', reason: 'stop_loss' };
-        }
-        
-        // Trailing stop: Move SL to breakeven + 50pts after 1x ATR profit
-        if (trade.profit && trade.profit > trade.atr) {
-            if (trade.type === 'BUY' && price > (trade.entry + trade.atr * 0.5)) {
-                return { action: 'UPDATE_SL', newSL: trade.entry + 50 / 10000 };
-            }
-            if (trade.type === 'SELL' && price < (trade.entry - trade.atr * 0.5)) {
-                return { action: 'UPDATE_SL', newSL: trade.entry - 50 / 10000 };
-            }
-        }
-        
-        return null;
-    },
-    
-    resetState() {
-        this._state = {
-            lastBreakLevel: null,
-            lastBreakDirection: null,
-            retestCount: 0,
-            maxRetests: 3,
-            confirmationCandleFound: false,
-            confirmationCandle: null,
-            setupStartTime: null,
+        return {
+            type: allowedBias,
+            label: `MOMENTUM ${allowedBias} [FALLBACK]`,
+            score: 55,
+            factors: [`${allowedBias === 'BUY' ? 'Bull' : 'Bear'} score ${allowedBias === 'BUY' ? bullScore : bearScore}/3`, `FALLBACK (no structure)`],
+            tpMultiplier: reward / atr,
+            slMultiplier: risk / atr,
+            isMomentum: true,
+            pairConfig: cfg,
         };
-    }
+    },
+    
+    _getWeekStart() {
+        const now = new Date();
+        const day = now.getUTCDay();
+        const diff = (day === 0 ? 6 : day - 1);
+        const monday = new Date(now);
+        monday.setUTCDate(now.getUTCDate() - diff);
+        monday.setUTCHours(0, 0, 0, 0);
+        return monday.getTime();
+    },
+    
+    registerLoss() {
+        this._cooldownCandles = 2;
+    },
+    
+    // Legacy methods for compatibility
+    _isVolatileEnough() { return true; },
+    _isTrending() { return true; },
+    _isActiveSession() { return true; },
+    _isConfirmed() { return true; },
+    analyze() { return null; }
 };
