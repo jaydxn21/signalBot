@@ -11,6 +11,25 @@ const __dirname  = path.dirname(__filename);
 const PORT     = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
 
+// ─── CORS CONFIGURATION - MUST BE BEFORE SERVER CALLBACK ───────────────────
+const _allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(' ').map(s => s.trim()).filter(Boolean)
+    : null;
+
+function _corsHeaders(req) {
+    const origin  = req.headers['origin'] || '';
+    const allowed = !_allowedOrigins || _allowedOrigins.includes(origin)
+        ? (origin || '*')
+        : _allowedOrigins[0];
+    return {
+        'Access-Control-Allow-Origin':      allowed,
+        'Access-Control-Allow-Methods':     'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers':     'Content-Type, Authorization',
+        'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
+    };
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────────────
 const AUTH_SECRET = process.env.NEXUS_SECRET || 'nexus_dev_secret_change_in_prod';
 const DB_PATH     = path.join(__dirname, 'data', 'users.json');
@@ -67,13 +86,9 @@ function _json(res, status, body, req) {
     res.end(JSON.stringify(body));
 }
 
-
-
 let latestSignal  = null;
 let signalHistory = [];
 const mt5Clients  = [];
-
-// MT5 real trade results — posted back by the EA when trades close
 let mt5TradeResults = [];
 
 // ─── CSV helpers ───────────────────────────────────────────────────────────
@@ -127,13 +142,6 @@ function pushToMT5(payload) {
     console.log(`[WS] Pushed to ${mt5Clients.length} MT5 client(s)`);
 }
 
-// ─── CORS ──────────────────────────────────────────────────────────────────
-// Set ALLOWED_ORIGINS env var on Render (space-separated):
-//   e.g. "https://nexus.netlify.app https://www.nexus.netlify.app"
-// Leave unset locally — falls back to permissive mode.
-
-
-
 // ─── Main HTTP Server ──────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
@@ -151,78 +159,55 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // ── /api/test ──────────────────────────────────────────────────────────
+    if (pathname === '/api/test' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+        res.end(JSON.stringify({ status: 'ok', message: 'Server is running latest code', timestamp: Date.now() }));
+        return;
+    }
 
+    // ── /api/strategy-status (POST) ────────────────────────────────────────
+    if (pathname === '/api/strategy-status' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const status = JSON.parse(body);
+                console.log(`[STRATEGY] ${status.status}:`, status);
+                
+                if (!global.strategyStatusHistory) global.strategyStatusHistory = [];
+                global.latestStrategyStatus = status;
+                global.strategyStatusHistory.unshift(status);
+                if (global.strategyStatusHistory.length > 100) global.strategyStatusHistory.pop();
+                
+                res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+                res.end(JSON.stringify({ status: 'ok' }));
+            } catch(err) {
+                console.error('[Strategy Status] Error:', err);
+                res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+                res.end(JSON.stringify({ error: 'Invalid JSON' }));
+            }
+        });
+        return;
+    }
 
-    // Add this near your other API routes (around line 200-250)
-// ── /api/strategy-status ─────────────────────────────────────────────────────
-// POST - Receive status updates from strategy
-if (pathname === '/api/strategy-status' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-        try {
-            const status = JSON.parse(body);
-            console.log(`[STRATEGY] ${status.status}:`, status);
-            
-            // Store latest status in memory for frontend to fetch
-            if (!global.strategyStatusHistory) global.strategyStatusHistory = [];
-            global.latestStrategyStatus = status;
-            global.strategyStatusHistory.unshift(status);
-            if (global.strategyStatusHistory.length > 100) global.strategyStatusHistory.pop();
-            
-            res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-            res.end(JSON.stringify({ status: 'ok' }));
-        } catch(err) {
-            console.error('[Strategy Status] Error:', err);
-            res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-            res.end(JSON.stringify({ error: 'Invalid JSON' }));
-        }
-    });
-    return;
-}
+    // ── /api/strategy-status (GET) ─────────────────────────────────────────
+    if (pathname === '/api/strategy-status' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+        res.end(JSON.stringify(global.latestStrategyStatus || { 
+            status: 'waiting', 
+            message: 'No status updates yet. Strategy bot not running or not sending updates.',
+            timestamp: Date.now()
+        }));
+        return;
+    }
 
-// GET - Frontend polls current status
-if (pathname === '/api/strategy-status' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-    res.end(JSON.stringify(global.latestStrategyStatus || { 
-        status: 'waiting', 
-        message: 'No status updates yet. Strategy bot not running or not sending updates.',
-        timestamp: Date.now()
-    }));
-    return;
-}
-
-// GET - Full history for debugging
-if (pathname === '/api/strategy-status/history' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-    res.end(JSON.stringify(global.strategyStatusHistory || []));
-    return;
-}
-
-const _allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(' ').map(s => s.trim()).filter(Boolean)
-    : null;
-
-function _corsHeaders(req) {
-    const origin  = req.headers['origin'] || '';
-    const allowed = !_allowedOrigins || _allowedOrigins.includes(origin)
-        ? (origin || '*')
-        : _allowedOrigins[0];
-    return {
-        'Access-Control-Allow-Origin':      allowed,
-        'Access-Control-Allow-Methods':     'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers':     'Content-Type, Authorization',
-        'Access-Control-Allow-Credentials': 'true',
-        'Vary': 'Origin',
-    };
-}
-
-    // Add this near your other API routes (around line 130)
-if (pathname === '/api/test' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-    res.end(JSON.stringify({ status: 'ok', message: 'Server is running latest code', timestamp: Date.now() }));
-    return;
-}
+    // ── /api/strategy-status/history (GET) ─────────────────────────────────
+    if (pathname === '/api/strategy-status/history' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+        res.end(JSON.stringify(global.strategyStatusHistory || []));
+        return;
+    }
 
     // ── /api/signal ──────────────────────────────────────────────────────────
     if (pathname === '/api/signal') {
@@ -266,8 +251,7 @@ if (pathname === '/api/test' && req.method === 'GET') {
         return;
     }
 
-    // ── /api/trade-result ───────────────────────────────────────────────────────
-    // Posted by MT5 EA when a trade closes — stores result for NEXUS to display
+    // ── /api/trade-result ───────────────────────────────────────────────────
     if (pathname === '/api/trade-result' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
@@ -278,7 +262,6 @@ if (pathname === '/api/test' && req.method === 'GET') {
                 mt5TradeResults.unshift(result);
                 if (mt5TradeResults.length > 200) mt5TradeResults.pop();
                 console.log(`[MT5] Trade closed → ${result.outcome} ${result.symbol} P&L: ${result.pnl}`);
-                // Push update to any connected browser clients
                 pushToMT5({ type: 'trade_result', ...result });
                 res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ status: 'ok' }));
@@ -290,8 +273,7 @@ if (pathname === '/api/test' && req.method === 'GET') {
         return;
     }
 
-    // ── /api/trade-results ──────────────────────────────────────────────────────
-    // GET all stored MT5 trade results
+    // ── /api/trade-results ──────────────────────────────────────────────────
     if (pathname === '/api/trade-results' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
         res.end(JSON.stringify(mt5TradeResults));
@@ -328,17 +310,12 @@ if (pathname === '/api/test' && req.method === 'GET') {
     }
 
     // ── /api/save-strategy ───────────────────────────────────────────────────
-    // Called by Strategy Builder "Save to Server" button.
-    // Writes the generated .js file directly to js/strategies/ on disk.
-    // VS Code picks up the change immediately — no drag and drop needed.
     if (pathname === '/api/save-strategy' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end', () => {
             try {
                 const { filename, code } = JSON.parse(body);
-
-                // Validate — only .js files, no path traversal
                 if (!filename || !code) throw new Error('filename and code required');
                 const safeName = path.basename(filename).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
                 if (!safeName.endsWith('.js')) throw new Error('Only .js files allowed');
@@ -350,7 +327,6 @@ if (pathname === '/api/test' && req.method === 'GET') {
 
                 const filePath = path.join(strategiesDir, safeName);
 
-                // Backup existing file with timestamp before overwriting
                 if (fs.existsSync(filePath)) {
                     const backupPath = filePath.replace('.js', `_backup_${Date.now()}.js`);
                     fs.copyFileSync(filePath, backupPath);
@@ -372,8 +348,6 @@ if (pathname === '/api/test' && req.method === 'GET') {
     }
 
     // ── /api/strategies ──────────────────────────────────────────────────────
-    // Lists all .js files in js/strategies/ — used to populate custom
-    // strategy dropdowns in the Strategy Builder and Backtest pages.
     if (pathname === '/api/strategies' && req.method === 'GET') {
         try {
             const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
@@ -397,8 +371,6 @@ if (pathname === '/api/test' && req.method === 'GET') {
     }
 
     // ── /api/ai ───────────────────────────────────────────────────────────────
-    // Proxy to Anthropic API — avoids browser CORS restrictions.
-    // Requires ANTHROPIC_API_KEY env var.
     if (pathname === '/api/ai' && req.method === 'POST') {
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
@@ -410,7 +382,6 @@ if (pathname === '/api/test' && req.method === 'GET') {
         req.on('end', async () => {
             try {
                 const payload = JSON.parse(body);
-                // Forward to Anthropic using Node's built-in fetch (Node 18+)
                 const upstream = await fetch('https://api.anthropic.com/v1/messages', {
                     method:  'POST',
                     headers: {
@@ -576,7 +547,6 @@ if (pathname === '/api/test' && req.method === 'GET') {
                     const { trades } = JSON.parse(body);
                     const db = _readDB();
                     if (db.users[auth.userId]) {
-                        // Merge — keep newest 500
                         const existing = db.users[auth.userId].trades || [];
                         const merged   = [...trades, ...existing]
                             .filter((t, i, arr) => arr.findIndex(x => x.time === t.time && x.symbol === t.symbol) === i)
@@ -591,7 +561,7 @@ if (pathname === '/api/test' && req.method === 'GET') {
         }
     }
 
-    // ── API catch-all — unknown /api/ routes return 404 JSON ─────────────────
+    // ── API catch-all ─────────────────────────────────────────────────────────
     if (pathname.startsWith('/api/')) {
         _json(res, 404, { error: `Unknown API route: ${req.method} ${pathname}` }, req);
         return;
@@ -615,9 +585,7 @@ if (pathname === '/api/test' && req.method === 'GET') {
     });
 });
 
-// ─── WebSocket Upgrade — same port 3000 ───────────────────────────────────
-// When MT5 sends "Upgrade: websocket" header, HTTP server hands off the
-// raw TCP socket to our WebSocket handler instead of the HTTP handler
+// ─── WebSocket Upgrade ───────────────────────────────────────────────────
 server.on('upgrade', (req, socket, head) => {
     const keyHeader = req.headers['sec-websocket-key'];
     if (!keyHeader) {
@@ -638,9 +606,9 @@ server.on('upgrade', (req, socket, head) => {
     );
 
     mt5Clients.push(socket);
-    console.log(`[WS] MT5 client connected on port 3000. Total: ${mt5Clients.length}`);
+    console.log(`[WS] MT5 client connected on port ${PORT}. Total: ${mt5Clients.length}`);
 
-    socket.on('data', () => {}); // keep alive
+    socket.on('data', () => {});
     socket.on('close', () => {
         const idx = mt5Clients.indexOf(socket);
         if (idx > -1) mt5Clients.splice(idx, 1);
@@ -651,7 +619,6 @@ server.on('upgrade', (req, socket, head) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
-    // ── VERSION MARKER — if you see this, the patched server is running ──
     console.log(`\n🚀 Signal Bot running`);
     console.log(`   UI              → http://127.0.0.1:${PORT}`);
     console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/login`);
@@ -661,6 +628,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`   MT5 WS push     → ws://127.0.0.1:${PORT}/mt5`);
     console.log(`   Save strategy   → POST http://127.0.0.1:${PORT}/api/save-strategy`);
     console.log(`   MT5 result      → POST http://127.0.0.1:${PORT}/api/trade-result`);
+    console.log(`   Strategy status → POST/GET http://127.0.0.1:${PORT}/api/strategy-status`);
     console.log(`   List strategies → GET  http://127.0.0.1:${PORT}/api/strategies`);
     console.log(`   Training        → ${path.join(ROOT_DIR, 'training_data/')}`);
     console.log(`   Press Ctrl+C to stop\n`);
