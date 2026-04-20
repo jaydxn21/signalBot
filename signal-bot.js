@@ -1015,7 +1015,15 @@ function _runJump75(bot, bar, atr, rsi) {
         if ((now - bot.lastFiredMs) < cooldownMs) return null;
         
         bot.lastFiredMs = now;
-        log(`🦘 JUMP75 ${signal.type} @ ${bar.close.toFixed(4)} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
+        
+        // ✅ FIX: Safely handle factors array
+        const factorsText = signal.factors && Array.isArray(signal.factors) 
+            ? signal.factors.join(' · ') 
+            : '';
+        
+        log(`🦘 JUMP75 ${signal.type} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
+            signal.type === 'BUY' ? 'buy' : 'sell');
+        
         fireSignal(bot, signal, bar, atr, rsi, null);
     }
 }
