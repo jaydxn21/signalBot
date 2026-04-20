@@ -1207,3 +1207,163 @@ input[type="checkbox"] {
 /* Hide mobile-only elements on desktop */
 #mobile-nav        { display: none; }
 #mobile-status-bar { display: none; }
+
+
+/* ─────────────────────────────────────────────────────────────
+   STRATEGY STATUS PANEL - FIXED
+   ──────────────────────────────────────────────────────────── */
+#strategy-status-panel {
+    background: rgba(15, 23, 42, 0.8);
+    border-radius: 12px;
+    padding: 14px;
+    margin-top: 16px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    backdrop-filter: blur(4px);
+}
+
+#strategy-status-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+#strategy-status-panel .panel-header .stat-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: #a78bfa;
+    font-weight: 600;
+}
+
+#strategy-status-panel .status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+#strategy-status-panel .status-card {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 8px 6px;
+    text-align: center;
+}
+
+#strategy-status-panel .status-card .stat-label {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
+}
+
+#strategy-status-panel .status-card .stat-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-family: 'DM Mono', monospace;
+}
+
+/* Active Setup Panel */
+#strategy-status-panel .active-setup {
+    background: rgba(139, 92, 246, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-left: 3px solid #8b5cf6;
+    display: none;
+}
+
+#strategy-status-panel .active-setup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+#strategy-status-panel .active-setup-header span:first-child {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #a78bfa;
+}
+
+#strategy-status-panel .active-setup-header span:last-child {
+    font-size: 0.55rem;
+    color: #f59e0b;
+    font-family: 'DM Mono', monospace;
+}
+
+#strategy-status-panel .setup-details {
+    font-size: 0.65rem;
+    font-family: 'DM Mono', monospace;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+/* Last Signal Panel */
+#strategy-status-panel .last-signal {
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-left: 3px solid #10b981;
+    display: none;
+}
+
+#strategy-status-panel .last-signal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+#strategy-status-panel .last-signal-header span:first-child {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #10b981;
+}
+
+#strategy-status-panel .last-signal-header span:last-child {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+}
+
+#strategy-status-panel .signal-details {
+    font-size: 0.65rem;
+    font-family: 'DM Mono', monospace;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+/* Last Event */
+#strategy-status-panel .last-event {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-family: 'DM Mono', monospace;
+}
+
+#strategy-status-panel .last-event span:first-child {
+    color: var(--text-muted);
+}
+
+#strategy-status-panel .last-event span:last-child {
+    color: #8b5cf6;
+}
+
+/* Status colors */
+.status-idle { color: var(--text-primary); }
+.status-scanning { color: #f59e0b; }
+.status-break { color: #f59e0b; text-shadow: 0 0 5px rgba(245, 158, 11, 0.3); }
+.status-confirmation { color: #8b5cf6; text-shadow: 0 0 5px rgba(139, 92, 246, 0.3); }
+.status-entry { color: #10b981; text-shadow: 0 0 5px rgba(16, 185, 129, 0.3); }
+
+/* Glow animation */
+@keyframes glowPulse {
+    0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16, 185, 129, 0); }
+    50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+    100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16, 185, 129, 0); }
+}
+
+.glow-pulse {
+    animation: glowPulse 0.5s ease-in-out;
+}
