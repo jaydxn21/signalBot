@@ -132,7 +132,28 @@ function pushToMT5(payload) {
 //   e.g. "https://nexus.netlify.app https://www.nexus.netlify.app"
 // Leave unset locally — falls back to permissive mode.
 
-// Add this near your other API routes (around line 200-250)
+
+
+// ─── Main HTTP Server ──────────────────────────────────────────────────────
+const server = http.createServer((req, res) => {
+    const parsedUrl = url.parse(req.url, true);
+    let pathname    = parsedUrl.pathname.replace(/\/+$/, '') || '/';
+
+    if (pathname === '/' || pathname === '') pathname = '/index.html';
+
+    if (pathname.startsWith('/api/')) {
+        console.log(`[API] ${req.method} ${pathname}`);
+    }
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204, _corsHeaders(req));
+        res.end();
+        return;
+    }
+
+
+
+    // Add this near your other API routes (around line 200-250)
 // ── /api/strategy-status ─────────────────────────────────────────────────────
 // POST - Receive status updates from strategy
 if (pathname === '/api/strategy-status' && req.method === 'POST') {
@@ -195,24 +216,6 @@ function _corsHeaders(req) {
         'Vary': 'Origin',
     };
 }
-
-// ─── Main HTTP Server ──────────────────────────────────────────────────────
-const server = http.createServer((req, res) => {
-    const parsedUrl = url.parse(req.url, true);
-    let pathname    = parsedUrl.pathname.replace(/\/+$/, '') || '/';
-
-    if (pathname === '/' || pathname === '') pathname = '/index.html';
-
-    if (pathname.startsWith('/api/')) {
-        console.log(`[API] ${req.method} ${pathname}`);
-    }
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(204, _corsHeaders(req));
-        res.end();
-        return;
-    }
-
 
     // Add this near your other API routes (around line 130)
 if (pathname === '/api/test' && req.method === 'GET') {
