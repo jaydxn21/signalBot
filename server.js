@@ -166,6 +166,14 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+
+    // Add this near your other API routes (around line 130)
+if (pathname === '/api/test' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+    res.end(JSON.stringify({ status: 'ok', message: 'Server is running latest code', timestamp: Date.now() }));
+    return;
+}
+
     // ── /api/signal ──────────────────────────────────────────────────────────
     if (pathname === '/api/signal') {
         if (req.method === 'GET') {
