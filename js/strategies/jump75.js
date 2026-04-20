@@ -1,24 +1,17 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// JUMP 75 STRUCTURE BREAK STRATEGY
+// JUMP 75 STRUCTURE BREAK STRATEGY - DIAGNOSTIC VERSION
 // ═══════════════════════════════════════════════════════════════════════════
 // 
-// Your proven manual system automated:
-// 1. H4 structure break detection (high/low breakdown)
-// 2. Track retests at broken level (multiple touches allowed)
-// 3. M15 confirmation (strong rejection candle)
-// 4. Entry after confirmation closes decisively
-// 5. SL beyond rejection candle (60-120 pts)
-// 6. Target at next H4 level (min 1:2 R:R)
+// THIS VERSION LOGS EVERYTHING for debugging
+// Enable to see exactly why setups aren't being detected
 //
-// Symbol: JUMP75 (Volatility Index)
-// Timeframes: H4 (structure) + M15 (confirmation) + M5 (real-time monitoring)
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const Jump75Strategy = {
     
     _state: {
         lastBreakLevel: null,
-        lastBreakDirection: null,  // 'SHORT' (break below) or 'LONG' (break above)
+        lastBreakDirection: null,
         retestCount: 0,
         maxRetests: 3,
         confirmationCandleFound: false,
@@ -27,13 +20,22 @@ export const Jump75Strategy = {
     },
     
     _config: {
-        symbol: 'JUMP75',
-        H4_BREAKOUT_THRESHOLD: 0.001,  // 0.1% move to confirm break
-        M15_REJECTION_THRESHOLD: 0.002, // 0.2% move away to confirm rejection
-        MIN_RR_RATIO: 2.0,             // Minimum 1:2 risk-reward
-        BREATHING_ROOM_PTS: 100,       // 60-120 pts SL buffer
-        MAX_RETEST_AGE_HOURS: 2,       // Retests must occur within 2 hours
-        CONFIRMATION_CLOSE_THRESHOLD: 0.003, // 0.3% decisive close away
+    symbol: 'JD75',
+    H4_BREAKOUT_THRESHOLD: 0.0003,      // 0.03% - catches small breaks
+    M15_REJECTION_THRESHOLD: 0.0015,    // 0.15% - sensitive
+    MIN_RR_RATIO: 1.5,                  // 1.5:1 - more trades
+    BREATHING_ROOM_PTS: 80,             // Tighter SL
+    MAX_RETEST_AGE_HOURS: 2,
+    CONFIRMATION_CLOSE_THRESHOLD: 0.0015, // 0.15% - easier confirm
+},
+
+    _diagnostics: {
+        callCount: 0,
+        lastCheckTime: null,
+        h4BreaksDetected: 0,
+        retestsDetected: 0,
+        confirmationsDetected: 0,
+        entriesFired: 0,
     },
     
     // ─────────────────────────────────────────────────────────────────────
@@ -54,51 +56,34 @@ export const Jump75Strategy = {
     },
     
     // ─────────────────────────────────────────────────────────────────────
-    // UTILITY: Calculate structure levels (H4)
+    // UTILITY: Calculate H4 structure levels (with logging)
     // ─────────────────────────────────────────────────────────────────────
     _getH4Structure(h4Candles) {
-        if (!h4Candles || h4Candles.length < 5) return null;
+        if (!h4Candles || h4Candles.length < 5) {
+            console.log('[JD75-DIAG] ⚠️  Insufficient H4 candles:', h4Candles?.length || 0);
+            return null;
+        }
         
-        const recent = h4Candles.slice(-20); // Last 5 days (20 H4 candles)
+        const recent = h4Candles.slice(-20); // Last 5 days
         const high = Math.max(...recent.map(c => c.high));
         const low = Math.min(...recent.map(c => c.low));
         const mid = (high + low) / 2;
         
-        // Identify structure pivot (last swing point)
-        let structurePivot = null;
-        let pivotType = null;
-        
-        for (let i = recent.length - 1; i >= 1; i--) {
-            const prev = recent[i - 1];
-            const curr = recent[i];
-            
-            // Higher low (support pivot)
-            if (i >= 2 && recent[i - 2].low > curr.low && curr.low < prev.low) {
-                structurePivot = curr.low;
-                pivotType = 'SUPPORT_PIVOT';
-                break;
-            }
-            
-            // Lower high (resistance pivot)
-            if (i >= 2 && recent[i - 2].high < curr.high && curr.high > prev.high) {
-                structurePivot = curr.high;
-                pivotType = 'RESISTANCE_PIVOT';
-                break;
-            }
-        }
+        console.log(`[JD75-DIAG] H4 Structure (last 20 H4s):
+           High: ${high.toFixed(4)}
+           Low: ${low.toFixed(4)}
+           Range: ${(high - low).toFixed(4)}`);
         
         return {
             high,
             low,
             mid,
-            structurePivot,
-            pivotType,
             range: high - low
         };
     },
     
     // ─────────────────────────────────────────────────────────────────────
-    // STEP 1: Detect H4 Structure Break
+    // STEP 1: Detect H4 Structure Break (with full logging)
     // ─────────────────────────────────────────────────────────────────────
     _detectH4Break(h4Candles, m5Candles) {
         if (!h4Candles || h4Candles.length < 5) return null;
@@ -110,28 +95,49 @@ export const Jump75Strategy = {
         const latestM5 = m5Candles[m5Candles.length - 1];
         const currentPrice = latestM5.close;
         
-        // Check if price broke below support (SHORT setup)
+        console.log(`[JD75-DIAG] H4 Break Check:
+           Current Price: ${currentPrice.toFixed(4)}
+           H4 High: ${structure.high.toFixed(4)}
+           H4 Low: ${structure.low.toFixed(4)}
+           Latest H4 High: ${latestH4.high.toFixed(4)}
+           Latest H4 Low: ${latestH4.low.toFixed(4)}`);
+        
+        // Check SHORT break (below support)
         if (latestH4.low < structure.low && currentPrice < structure.low) {
             const breakDist = structure.low - currentPrice;
             const breakPercent = breakDist / structure.low;
             
+            console.log(`[JD75-DIAG] SHORT Break candidate:
+               Break distance: ${breakDist.toFixed(4)} (${(breakPercent * 100).toFixed(3)}%)
+               Threshold: ${this._config.H4_BREAKOUT_THRESHOLD * 100}%
+               PASS? ${breakPercent > this._config.H4_BREAKOUT_THRESHOLD}`);
+            
             if (breakPercent > this._config.H4_BREAKOUT_THRESHOLD) {
+                console.log(`[JD75] 🔨 SHORT BREAK DETECTED!`);
+                this._diagnostics.h4BreaksDetected++;
                 return {
                     direction: 'SHORT',
                     breakLevel: structure.low,
-                    nextTarget: structure.mid, // First target = midpoint
+                    nextTarget: structure.mid,
                     distance: breakDist,
                     timeDetected: new Date()
                 };
             }
         }
         
-        // Check if price broke above resistance (LONG setup)
+        // Check LONG break (above resistance)
         if (latestH4.high > structure.high && currentPrice > structure.high) {
             const breakDist = currentPrice - structure.high;
             const breakPercent = breakDist / structure.high;
             
+            console.log(`[JD75-DIAG] LONG Break candidate:
+               Break distance: ${breakDist.toFixed(4)} (${(breakPercent * 100).toFixed(3)}%)
+               Threshold: ${this._config.H4_BREAKOUT_THRESHOLD * 100}%
+               PASS? ${breakPercent > this._config.H4_BREAKOUT_THRESHOLD}`);
+            
             if (breakPercent > this._config.H4_BREAKOUT_THRESHOLD) {
+                console.log(`[JD75] 🔨 LONG BREAK DETECTED!`);
+                this._diagnostics.h4BreaksDetected++;
                 return {
                     direction: 'LONG',
                     breakLevel: structure.high,
@@ -142,53 +148,69 @@ export const Jump75Strategy = {
             }
         }
         
+        console.log(`[JD75-DIAG] No break detected`);
         return null;
     },
     
     // ─────────────────────────────────────────────────────────────────────
-    // STEP 2: Track Retests
+    // STEP 2: Track Retests (with logging)
     // ─────────────────────────────────────────────────────────────────────
     _isRetesting(m5Candle, breakLevel, breakDirection) {
         if (!m5Candle || !breakLevel) return false;
         
-        const tolerance = breakLevel * 0.001; // 0.1% tolerance
+        const tolerance = breakLevel * 0.001;
         
         if (breakDirection === 'SHORT') {
-            // Retest = price comes back UP to broken level
-            return m5Candle.high >= (breakLevel - tolerance) && 
-                   m5Candle.close < breakLevel;
+            const isRetesting = m5Candle.high >= (breakLevel - tolerance) && 
+                               m5Candle.close < breakLevel;
+            if (isRetesting) {
+                console.log(`[JD75-DIAG] SHORT Retest: High=${m5Candle.high.toFixed(4)}, Close=${m5Candle.close.toFixed(4)}, Level=${breakLevel.toFixed(4)}`);
+            }
+            return isRetesting;
         } else {
-            // Retest = price comes back DOWN to broken level
-            return m5Candle.low <= (breakLevel + tolerance) && 
-                   m5Candle.close > breakLevel;
+            const isRetesting = m5Candle.low <= (breakLevel + tolerance) && 
+                               m5Candle.close > breakLevel;
+            if (isRetesting) {
+                console.log(`[JD75-DIAG] LONG Retest: Low=${m5Candle.low.toFixed(4)}, Close=${m5Candle.close.toFixed(4)}, Level=${breakLevel.toFixed(4)}`);
+            }
+            return isRetesting;
         }
     },
     
     // ─────────────────────────────────────────────────────────────────────
-    // STEP 3: M15 Rejection Candle Detection
+    // STEP 3: M15 Rejection Candle Detection (with detailed logging)
     // ─────────────────────────────────────────────────────────────────────
     _detectRejectionCandle(m15Candles, m5Candles, breakLevel, breakDirection) {
         if (m15Candles.length < 2 || m5Candles.length < 2) return null;
         
         const latestM15 = m15Candles[m15Candles.length - 1];
-        const prevM15 = m15Candles[m15Candles.length - 2];
-        const currentPrice = m5Candles[m5Candles.length - 1].close;
-        
-        // Rejection candle must close decisively AWAY from broken level
         const tolerance = breakLevel * 0.001;
         
+        console.log(`[JD75-DIAG] M15 Rejection Check (${breakDirection}):
+           Latest M15: O=${latestM15.open.toFixed(4)}, H=${latestM15.high.toFixed(4)}, L=${latestM15.low.toFixed(4)}, C=${latestM15.close.toFixed(4)}
+           Break Level: ${breakLevel.toFixed(4)}`);
+        
         if (breakDirection === 'SHORT') {
-            // SHORT rejection: candle closes well BELOW the level (away from it)
             const rejectsLevel = latestM15.close < (breakLevel - tolerance);
             const closesAwayThreshold = (breakLevel - latestM15.close) / breakLevel;
             const isDecisive = closesAwayThreshold > this._config.CONFIRMATION_CLOSE_THRESHOLD;
-            
-            // Candle must touch near level but close away
             const candleTouchesLevel = latestM15.high >= breakLevel;
-            const hasBody = Math.abs(latestM15.close - latestM15.open) > 
-                           (latestM15.high - latestM15.low) * 0.4; // At least 40% body
+            const bodySize = Math.abs(latestM15.close - latestM15.open);
+            const candleRange = latestM15.high - latestM15.low;
+            const hasBody = bodySize > (candleRange * 0.4);
+            
+            console.log(`[JD75-DIAG] SHORT Rejection Analysis:
+               Closes below level? ${rejectsLevel}
+               Closes away %: ${(closesAwayThreshold * 100).toFixed(3)}% (needs ${this._config.CONFIRMATION_CLOSE_THRESHOLD * 100}%)
+               Is Decisive? ${isDecisive}
+               Touches level? ${candleTouchesLevel}
+               Body: ${bodySize.toFixed(4)} / Range: ${candleRange.toFixed(4)} = ${(bodySize/candleRange*100).toFixed(1)}% (needs 40%)
+               Has Body? ${hasBody}
+               ALL PASS? ${rejectsLevel && isDecisive && candleTouchesLevel && hasBody}`);
             
             if (rejectsLevel && isDecisive && candleTouchesLevel && hasBody) {
+                console.log(`[JD75] ✅ SHORT REJECTION CANDLE FOUND!`);
+                this._diagnostics.confirmationsDetected++;
                 return {
                     direction: 'SHORT',
                     rejectionHigh: latestM15.high,
@@ -199,17 +221,26 @@ export const Jump75Strategy = {
                 };
             }
         } else {
-            // LONG rejection: candle closes well ABOVE the level (away from it)
             const rejectsLevel = latestM15.close > (breakLevel + tolerance);
             const closesAwayThreshold = (latestM15.close - breakLevel) / breakLevel;
             const isDecisive = closesAwayThreshold > this._config.CONFIRMATION_CLOSE_THRESHOLD;
-            
-            // Candle must touch near level but close away
             const candleTouchesLevel = latestM15.low <= breakLevel;
-            const hasBody = Math.abs(latestM15.close - latestM15.open) > 
-                           (latestM15.high - latestM15.low) * 0.4;
+            const bodySize = Math.abs(latestM15.close - latestM15.open);
+            const candleRange = latestM15.high - latestM15.low;
+            const hasBody = bodySize > (candleRange * 0.4);
+            
+            console.log(`[JD75-DIAG] LONG Rejection Analysis:
+               Closes above level? ${rejectsLevel}
+               Closes away %: ${(closesAwayThreshold * 100).toFixed(3)}% (needs ${this._config.CONFIRMATION_CLOSE_THRESHOLD * 100}%)
+               Is Decisive? ${isDecisive}
+               Touches level? ${candleTouchesLevel}
+               Body: ${bodySize.toFixed(4)} / Range: ${candleRange.toFixed(4)} = ${(bodySize/candleRange*100).toFixed(1)}% (needs 40%)
+               Has Body? ${hasBody}
+               ALL PASS? ${rejectsLevel && isDecisive && candleTouchesLevel && hasBody}`);
             
             if (rejectsLevel && isDecisive && candleTouchesLevel && hasBody) {
+                console.log(`[JD75] ✅ LONG REJECTION CANDLE FOUND!`);
+                this._diagnostics.confirmationsDetected++;
                 return {
                     direction: 'LONG',
                     rejectionHigh: latestM15.high,
@@ -228,8 +259,31 @@ export const Jump75Strategy = {
     // MAIN ENTRY CHECK
     // ─────────────────────────────────────────────────────────────────────
     checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        if (!m5Candles || !m15Candles || !h4Candles || !atr) return null;
-        if (m5Candles.length < 10 || m15Candles.length < 10 || h4Candles.length < 5) return null;
+        this._diagnostics.callCount++;
+        
+        if (this._diagnostics.callCount % 100 === 0) {
+            console.log(`[JD75-DIAG] ========== DIAGNOSTIC REPORT (Call #${this._diagnostics.callCount}) ==========
+               H4 Breaks detected: ${this._diagnostics.h4BreaksDetected}
+               Retests detected: ${this._diagnostics.retestsDetected}
+               Confirmations detected: ${this._diagnostics.confirmationsDetected}
+               Entries fired: ${this._diagnostics.entriesFired}
+               Current state: ${this._state.lastBreakLevel ? `SETUP ACTIVE (${this._state.retestCount} retests)` : 'IDLE'}
+               M5 candles: ${m5Candles?.length || 0}
+               M15 candles: ${m15Candles?.length || 0}
+               H4 candles: ${h4Candles?.length || 0}
+               =============================================================`);
+        }
+        
+        if (!m5Candles || !m15Candles || !h4Candles || !atr) {
+            console.log(`[JD75-DIAG] ⚠️  Missing data:`, { m5: !!m5Candles, m15: !!m15Candles, h4: !!h4Candles, atr: !!atr });
+            return null;
+        }
+        if (m5Candles.length < 10 || m15Candles.length < 10 || h4Candles.length < 5) {
+            if (this._diagnostics.callCount % 50 === 0) {
+                console.log(`[JD75-DIAG] ⚠️  Insufficient candles: M5=${m5Candles.length}, M15=${m15Candles.length}, H4=${h4Candles.length}`);
+            }
+            return null;
+        }
         
         const currentPrice = m5Candles[m5Candles.length - 1].close;
         const latestM15 = m15Candles[m15Candles.length - 1];
@@ -247,10 +301,6 @@ export const Jump75Strategy = {
                 this._state.confirmationCandleFound = false;
                 this._state.setupStartTime = new Date();
                 
-                console.log(`[Jump75] 🔨 STRUCTURE BREAK DETECTED: ${breakSignal.direction}`);
-                console.log(`[Jump75]   Level: ${breakSignal.breakLevel.toFixed(4)}`);
-                console.log(`[Jump75]   Distance: ${breakSignal.distance.toFixed(4)}`);
-                
                 return null; // Wait for retest + confirmation
             }
             
@@ -261,16 +311,14 @@ export const Jump75Strategy = {
         // STAGE 2: Are we in a Setup? Track Retests
         // ──────────────────────────────────────────────────────────────────
         
-        // Check if setup is too old (abandoned)
         const setupAge = (new Date() - this._state.setupStartTime) / (1000 * 60 * 60);
         if (setupAge > this._config.MAX_RETEST_AGE_HOURS) {
-            console.log(`[Jump75] ⏰ Setup abandoned (${setupAge.toFixed(1)}h old, no confirmation)`);
+            console.log(`[JD75] ⏰ Setup abandoned (${setupAge.toFixed(1)}h old)`);
             this._state.lastBreakLevel = null;
             this._state.confirmationCandleFound = false;
             return null;
         }
         
-        // Is price retesting the broken level?
         const isRetesting = this._isRetesting(
             m5Candles[m5Candles.length - 1],
             this._state.lastBreakLevel,
@@ -279,7 +327,8 @@ export const Jump75Strategy = {
         
         if (isRetesting && !this._state.confirmationCandleFound) {
             this._state.retestCount++;
-            console.log(`[Jump75] 🔄 Retest #${this._state.retestCount} at level ${this._state.lastBreakLevel.toFixed(4)}`);
+            this._diagnostics.retestsDetected++;
+            console.log(`[JD75] 🔄 Retest #${this._state.retestCount}`);
         }
         
         // ──────────────────────────────────────────────────────────────────
@@ -294,15 +343,9 @@ export const Jump75Strategy = {
             );
             
             if (rejectionSignal) {
-                console.log(`[Jump75] ✅ CONFIRMATION CANDLE FOUND (Retest #${this._state.retestCount})`);
-                console.log(`[Jump75]   Close: ${rejectionSignal.rejectionClose.toFixed(4)}`);
-                console.log(`[Jump75]   Strength: ${(rejectionSignal.strength * 100).toFixed(2)}%`);
-                
                 this._state.confirmationCandle = rejectionSignal;
                 this._state.confirmationCandleFound = true;
-                
-                // Don't enter YET - wait for this candle to CLOSE
-                return null;
+                return null; // Wait for candle to close
             }
         }
         
@@ -311,85 +354,56 @@ export const Jump75Strategy = {
         // ──────────────────────────────────────────────────────────────────
         if (this._state.confirmationCandleFound) {
             const confirmCandle = this._state.confirmationCandle;
-            
-            // Has the confirmation candle closed?
-            // (Check if current M15 candle is DIFFERENT from confirmation)
             const prevM15 = m15Candles[m15Candles.length - 2];
             const isNewM15Candle = latestM15.open !== confirmCandle.rejectionClose;
             
+            console.log(`[JD75-DIAG] Waiting for confirmation close: prevClose=${prevM15?.close.toFixed(4)}, currOpen=${latestM15.open.toFixed(4)}, newCandle=${isNewM15Candle}`);
+            
             if (isNewM15Candle) {
-                // Confirmation candle has closed. Enter!
-                
                 const direction = confirmCandle.direction;
-                const breakLevel = this._state.lastBreakLevel;
                 const currentPrice = m5Candles[m5Candles.length - 1].close;
                 
-                // ───────────────────────────────────────────────────────────
-                // CALCULATE STOP LOSS & TARGET
-                // ───────────────────────────────────────────────────────────
                 let sl, tp, risk, reward;
                 
                 if (direction === 'SHORT') {
-                    // SL: Just above rejection high + breathing room
-                    const rejectionRange = confirmCandle.rejectionHigh - confirmCandle.rejectionLow;
                     sl = confirmCandle.rejectionHigh + (this._config.BREATHING_ROOM_PTS / 10000);
-                    
-                    // TP: Next H4 level down (or use structure.mid as first target)
-                    tp = this._state.lastBreakLevel - (atr * 2); // Conservative first target
-                    
+                    tp = this._state.lastBreakLevel - (atr * 2);
                     risk = sl - currentPrice;
                     reward = currentPrice - tp;
                 } else {
-                    // SL: Just below rejection low + breathing room
-                    const rejectionRange = confirmCandle.rejectionHigh - confirmCandle.rejectionLow;
                     sl = confirmCandle.rejectionLow - (this._config.BREATHING_ROOM_PTS / 10000);
-                    
-                    // TP: Next H4 level up
                     tp = this._state.lastBreakLevel + (atr * 2);
-                    
                     risk = currentPrice - sl;
                     reward = tp - currentPrice;
                 }
                 
                 const rr = reward / risk;
                 
-                // Minimum R:R check
                 if (rr < this._config.MIN_RR_RATIO) {
-                    console.log(`[Jump75] ⚠️  Poor R:R (${rr.toFixed(2)}:1), skipping entry`);
+                    console.log(`[JD75] ⚠️  Poor R:R (${rr.toFixed(2)}:1), skipping entry`);
                     this._state.confirmationCandleFound = false;
                     return null;
                 }
                 
-                // Reset state for next setup
                 this._state.lastBreakLevel = null;
                 this._state.confirmationCandleFound = false;
                 this._state.retestCount = 0;
                 
-                console.log(`[Jump75] 📊 ENTRY SIGNAL: ${direction}`);
-                console.log(`[Jump75]   SL: ${sl.toFixed(4)} (Risk: ${(risk * 10000).toFixed(0)} pts)`);
-                console.log(`[Jump75]   TP: ${tp.toFixed(4)} (Reward: ${(reward * 10000).toFixed(0)} pts)`);
-                console.log(`[Jump75]   R:R: ${rr.toFixed(2)}:1`);
+                this._diagnostics.entriesFired++;
+                console.log(`[JD75] 📊 ENTRY SIGNAL: ${direction}`);
                 
                 return {
                     direction: direction === 'SHORT' ? 'SELL' : 'BUY',
                     type: direction,
-                    label: `JUMP75 ${direction} [Structure Break + M15 Confirmation]`,
-                    score: 78, // High confidence
+                    label: `JD75 ${direction}`,
+                    score: 78,
                     factors: [
-                        `Structure Break (${direction})`,
-                        `${this._state.retestCount} Retest(s)`,
-                        `M15 Rejection Confirmed`,
+                        `${direction}`,
+                        `${this._state.retestCount} retests`,
                         `R:R ${rr.toFixed(2)}:1`
                     ],
                     slMultiplier: risk / atr,
                     tpMultiplier: reward / atr,
-                    _meta: {
-                        breakLevel: this._state.lastBreakLevel,
-                        sl,
-                        tp,
-                        rr,
-                        retrests: this._state.retestCount
-                    }
                 };
             }
         }
@@ -397,40 +411,21 @@ export const Jump75Strategy = {
         return null;
     },
     
-    // ─────────────────────────────────────────────────────────────────────
-    // MANAGE EXISTING TRADES
-    // ─────────────────────────────────────────────────────────────────────
     checkClose(m5Candle, trade) {
         if (!m5Candle || !trade) return null;
-        
         const price = m5Candle.close;
-        
-        // Hit TP?
         if (trade.type === 'BUY' && price >= trade.tp) {
             return { action: 'CLOSE', reason: 'take_profit' };
         }
         if (trade.type === 'SELL' && price <= trade.tp) {
             return { action: 'CLOSE', reason: 'take_profit' };
         }
-        
-        // Hit SL?
         if (trade.type === 'BUY' && price <= trade.sl) {
             return { action: 'CLOSE', reason: 'stop_loss' };
         }
         if (trade.type === 'SELL' && price >= trade.sl) {
             return { action: 'CLOSE', reason: 'stop_loss' };
         }
-        
-        // Trailing stop: Move SL to breakeven + 50pts after 1x ATR profit
-        if (trade.profit && trade.profit > trade.atr) {
-            if (trade.type === 'BUY' && price > (trade.entry + trade.atr * 0.5)) {
-                return { action: 'UPDATE_SL', newSL: trade.entry + 50 / 10000 };
-            }
-            if (trade.type === 'SELL' && price < (trade.entry - trade.atr * 0.5)) {
-                return { action: 'UPDATE_SL', newSL: trade.entry - 50 / 10000 };
-            }
-        }
-        
         return null;
     },
     
