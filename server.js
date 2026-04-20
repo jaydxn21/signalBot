@@ -131,6 +131,53 @@ function pushToMT5(payload) {
 // Set ALLOWED_ORIGINS env var on Render (space-separated):
 //   e.g. "https://nexus.netlify.app https://www.nexus.netlify.app"
 // Leave unset locally — falls back to permissive mode.
+
+// Add this near your other API routes (around line 200-250)
+// ── /api/strategy-status ─────────────────────────────────────────────────────
+// POST - Receive status updates from strategy
+if (pathname === '/api/strategy-status' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+        try {
+            const status = JSON.parse(body);
+            console.log(`[STRATEGY] ${status.status}:`, status);
+            
+            // Store latest status in memory for frontend to fetch
+            if (!global.strategyStatusHistory) global.strategyStatusHistory = [];
+            global.latestStrategyStatus = status;
+            global.strategyStatusHistory.unshift(status);
+            if (global.strategyStatusHistory.length > 100) global.strategyStatusHistory.pop();
+            
+            res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+            res.end(JSON.stringify({ status: 'ok' }));
+        } catch(err) {
+            console.error('[Strategy Status] Error:', err);
+            res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+            res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+    });
+    return;
+}
+
+// GET - Frontend polls current status
+if (pathname === '/api/strategy-status' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+    res.end(JSON.stringify(global.latestStrategyStatus || { 
+        status: 'waiting', 
+        message: 'No status updates yet. Strategy bot not running or not sending updates.',
+        timestamp: Date.now()
+    }));
+    return;
+}
+
+// GET - Full history for debugging
+if (pathname === '/api/strategy-status/history' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+    res.end(JSON.stringify(global.strategyStatusHistory || []));
+    return;
+}
+
 const _allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(' ').map(s => s.trim()).filter(Boolean)
     : null;

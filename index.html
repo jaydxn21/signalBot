@@ -164,6 +164,85 @@
                     <label><span>MT5 Auto-Push</span><input type="checkbox" id="auto-mt5" checked></label>
                     <label><span>Session Filter</span><input type="checkbox" id="auto-session"></label>
                 </div>
+                <!-- Strategy Status Panel -->
+<div id="strategy-status-panel" style="
+    background: rgba(15, 23, 42, 0.8);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 16px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    backdrop-filter: blur(4px);
+">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span class="stat-label" style="color: #a78bfa;">🎯 JUMP75 STRATEGY</span>
+        <span id="status-time" style="font-size: 0.55rem; color: var(--text-muted); font-family: 'DM Mono', monospace;">—</span>
+    </div>
+    
+    <!-- Main Status Grid -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+        <div class="stat-item" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 6px;">
+            <div class="stat-label" style="font-size: 0.55rem;">STATUS</div>
+            <div id="strategy-status" class="stat-value" style="font-size: 0.7rem; font-weight: 700;">IDLE</div>
+        </div>
+        <div class="stat-item" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 6px;">
+            <div class="stat-label" style="font-size: 0.55rem;">H4 BREAKS</div>
+            <div id="stat-breaks" class="stat-value" style="font-size: 0.7rem;">0</div>
+        </div>
+        <div class="stat-item" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 6px;">
+            <div class="stat-label" style="font-size: 0.55rem;">RETESTS</div>
+            <div id="stat-retests" class="stat-value" style="font-size: 0.7rem;">0</div>
+        </div>
+        <div class="stat-item" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 6px;">
+            <div class="stat-label" style="font-size: 0.55rem;">ENTRIES</div>
+            <div id="stat-entries" class="stat-value" style="font-size: 0.7rem;">0</div>
+        </div>
+    </div>
+    
+    <!-- Active Setup Display -->
+    <div id="active-setup" style="
+        background: rgba(139, 92, 246, 0.1);
+        border-radius: 6px;
+        padding: 8px;
+        margin-bottom: 8px;
+        display: none;
+        border-left: 3px solid #8b5cf6;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.6rem; font-weight: 700; color: #a78bfa;">⚡ ACTIVE SETUP</span>
+            <span id="setup-timer" style="font-size: 0.55rem; color: #f59e0b; font-family: 'DM Mono', monospace;">0h</span>
+        </div>
+        <div id="setup-details" style="font-size: 0.65rem; font-family: 'DM Mono', monospace; margin-top: 4px;">—</div>
+    </div>
+    
+    <!-- Last Signal Display -->
+    <div id="last-signal" style="
+        background: rgba(16, 185, 129, 0.1);
+        border-radius: 6px;
+        padding: 8px;
+        margin-bottom: 8px;
+        display: none;
+        border-left: 3px solid #10b981;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.6rem; font-weight: 700; color: #10b981;">📈 LAST SIGNAL</span>
+            <span id="signal-time" style="font-size: 0.55rem; color: var(--text-muted);">—</span>
+        </div>
+        <div id="signal-details" style="font-size: 0.65rem; font-family: 'DM Mono', monospace; margin-top: 4px;">—</div>
+    </div>
+    
+    <!-- Last Event -->
+    <div style="
+        font-size: 0.55rem;
+        color: var(--text-muted);
+        padding-top: 8px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        font-family: 'DM Mono', monospace;
+    ">
+        <span>🔄 Last event:</span>
+        <span id="last-event-text" style="color: #8b5cf6;">Waiting for strategy...</span>
+    </div>
+</div>
+
             </aside>
 
             <!-- TERMINAL PANEL -->

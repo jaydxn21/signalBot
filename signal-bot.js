@@ -2092,6 +2092,143 @@ function checkOutcome(bot) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// STRATEGY STATUS POLLING
+// ─────────────────────────────────────────────────────────────
+
+async function _pollStrategyStatus() {
+    try {
+        const response = await fetch('https://nexus-api-khvt.onrender.com/api/strategy-status');
+        if (!response.ok) {
+            console.warn('Status poll failed:', response.status);
+            return;
+        }
+        
+        const status = await response.json();
+        console.log('[Status] Received:', status.status);
+        
+        // Update main status display
+        const statusEl = document.getElementById('strategy-status');
+        if (statusEl) {
+            statusEl.textContent = status.status || 'IDLE';
+            
+            // Color coding
+            if (status.status === 'ENTRY_SIGNAL_FIRED') {
+                statusEl.style.color = '#10b981';
+                statusEl.style.textShadow = '0 0 5px rgba(16,185,129,0.3)';
+            } else if (status.status === 'H4_BREAK_DETECTED') {
+                statusEl.style.color = '#f59e0b';
+                statusEl.style.textShadow = '0 0 5px rgba(245,158,11,0.3)';
+            } else if (status.status === 'CONFIRMATION_CANDLE') {
+                statusEl.style.color = '#8b5cf6';
+                statusEl.style.textShadow = '0 0 5px rgba(139,92,246,0.3)';
+            } else if (status.status === 'ACTIVE_SETUP') {
+                statusEl.style.color = '#ec4899';
+            } else {
+                statusEl.style.color = 'var(--text-primary)';
+                statusEl.style.textShadow = 'none';
+            }
+        }
+        
+        // Update stats
+        const breaksEl = document.getElementById('stat-breaks');
+        if (breaksEl) breaksEl.textContent = status.h4Breaks || 0;
+        
+        const retestsEl = document.getElementById('stat-retests');
+        if (retestsEl) retestsEl.textContent = status.retests || 0;
+        
+        const entriesEl = document.getElementById('stat-entries');
+        if (entriesEl) entriesEl.textContent = status.entries || 0;
+        
+        const timeEl = document.getElementById('status-time');
+        if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+        
+        // Active setup panel
+        const setupDiv = document.getElementById('active-setup');
+        if (setupDiv) {
+            if (status.currentState === 'ACTIVE_SETUP' && status.lastBreakLevel) {
+                setupDiv.style.display = 'block';
+                const setupDetails = document.getElementById('setup-details');
+                if (setupDetails) {
+                    setupDetails.innerHTML = `
+                        ${status.lastBreakDirection || '?'} @ ${parseFloat(status.lastBreakLevel).toFixed(4)} | 
+                        ${status.retestCount || 0}/${status.maxRetests || 3} retests | 
+                        ${status.setupAge?.toFixed(1) || 0}h old
+                    `;
+                }
+                const setupTimer = document.getElementById('setup-timer');
+                if (setupTimer) {
+                    setupTimer.textContent = `${status.setupAge?.toFixed(1) || 0}h`;
+                    setupTimer.style.color = (status.setupAge || 0) > 1.5 ? '#ef4444' : '#f59e0b';
+                }
+            } else {
+                setupDiv.style.display = 'none';
+            }
+        }
+        
+        // Last signal panel
+        const signalDiv = document.getElementById('last-signal');
+        if (signalDiv) {
+            if (status.status === 'ENTRY_SIGNAL_FIRED' && status.direction) {
+                signalDiv.style.display = 'block';
+                const signalDetails = document.getElementById('signal-details');
+                if (signalDetails) {
+                    signalDetails.innerHTML = `
+                        ${status.direction} @ ${parseFloat(status.entryPrice).toFixed(4)} | 
+                        R:R ${parseFloat(status.rr).toFixed(2)}:1 | 
+                        SL: ${parseFloat(status.sl).toFixed(4)} TP: ${parseFloat(status.tp).toFixed(4)}
+                    `;
+                }
+                const signalTime = document.getElementById('signal-time');
+                if (signalTime && status.timeDetected) {
+                    signalTime.textContent = new Date(status.timeDetected).toLocaleTimeString();
+                }
+                
+                // Flash effect
+                signalDiv.style.animation = 'none';
+                setTimeout(() => {
+                    signalDiv.style.animation = 'glowPulse 0.5s ease-in-out';
+                }, 10);
+            } else {
+                signalDiv.style.display = 'none';
+            }
+        }
+        
+        // Last event text
+        const lastEventEl = document.getElementById('last-event-text');
+        if (lastEventEl) {
+            let eventText = status.status || 'IDLE';
+            if (status.direction) eventText += ` (${status.direction})`;
+            if (status.rr) eventText += ` | R:R ${parseFloat(status.rr).toFixed(2)}`;
+            lastEventEl.textContent = eventText;
+        }
+        
+    } catch(e) {
+        console.warn('[Status] Poll error:', e);
+    }
+}
+
+// Add CSS animation
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes glowPulse {
+        0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+        50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
+        100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+    }
+`;
+document.head.appendChild(style);
+
+// Start polling (add to your init function)
+// Call this in your existing init() or setup function
+if (typeof window !== 'undefined') {
+    // Poll every 3 seconds for faster updates
+    setInterval(_pollStrategyStatus, 3000);
+    // Initial poll
+    _pollStrategyStatus();
+}
+
+
+// ─────────────────────────────────────────────────────────────
 // OVERLAYS
 // ─────────────────────────────────────────────────────────────
 function redrawOverlays() {
