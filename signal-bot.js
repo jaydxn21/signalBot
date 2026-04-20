@@ -986,10 +986,11 @@ function processBar(bot, bar, gran) {
     }
 }
 
+
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER
+// JUMP75 RUNNER - FIXED VERSION
 // ─────────────────────────────────────────────────────────────
-function _runJump75(bot, bar, atr, rsi) {
+async function _runJump75(bot, bar, atr, rsi) {
     // Only trade Jump indices (JD10, JD25, JD50, JD75, JD100)
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(bot.config.symbol)) return null;
@@ -1001,30 +1002,40 @@ function _runJump75(bot, bar, atr, rsi) {
         return null;
     }
     
-    // Check for entry
-    const signal = Jump75Strategy.checkEntry(
-        bot.m5Candles,      // M5 array
-        bot.m15Candles,     // M15 array
-        bot.h4Candles,      // H4 array
-        atr
-    );
-    
-    if (signal) {
-        const now = Date.now();
-        const cooldownMs = 30000; // 30 second cooldown
-        if ((now - bot.lastFiredMs) < cooldownMs) return null;
+    try {
+        // ✅ IMPORTANT: AWAIT the signal (checkEntry is async)
+        const signal = await Jump75Strategy.checkEntry(
+            bot.m5Candles,   // M5 array
+            bot.m15Candles,  // M15 array
+            bot.h4Candles,   // H4 array
+            atr
+        );
         
-        bot.lastFiredMs = now;
-        
-        // ✅ FIX: Safely handle factors array
-        const factorsText = signal.factors && Array.isArray(signal.factors) 
-            ? signal.factors.join(' · ') 
-            : '';
-        
-        log(`🦘 JUMP75 ${signal.type} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
-            signal.type === 'BUY' ? 'buy' : 'sell');
-        
-        fireSignal(bot, signal, bar, atr, rsi, null);
+        if (signal) {
+            const now = Date.now();
+            const cooldownMs = 30000; // 30 second cooldown
+            if ((now - bot.lastFiredMs) < cooldownMs) return null;
+            
+            bot.lastFiredMs = now;
+            
+            // ✅ Safely get the signal type
+            const signalType = signal.type || signal.direction || 'BUY/SELL';
+            const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
+            
+            // ✅ Safely handle factors array
+            const factorsText = signal.factors && Array.isArray(signal.factors) 
+                ? signal.factors.join(' · ') 
+                : '';
+            
+            log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
+                displayType === 'BUY' ? 'buy' : 'sell');
+            
+            // ✅ Pass the signal to fireSignal
+            fireSignal(bot, signal, bar, atr, rsi, null);
+        }
+    } catch (error) {
+        console.error('[Jump75] Error in _runJump75:', error);
+        log(`🦘 JUMP75 error: ${error.message}`, 'warn');
     }
 }
 
@@ -1654,7 +1665,19 @@ function _updatePhantomBadge(botId, session) {
 // FIRE SIGNAL WITH POSITION SIZING
 // ─────────────────────────────────────────────────────────────
 async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
-    const type  = signal.type  || signal;
+    // ✅ FIX 1: Properly extract type with fallbacks
+    let type = signal?.type || signal?.direction;
+    
+    // Convert LONG/SHORT to BUY/SELL for display and trading
+    if (type === 'LONG') type = 'BUY';
+    if (type === 'SHORT') type = 'SELL';
+    
+    // Final fallback - if still no type, try to infer or default
+    if (!type || type === 'BUY/SELL') {
+        console.warn('[fireSignal] Unknown signal type:', signal);
+        type = 'BUY'; // Default fallback
+    }
+    
     const label = signal.label || type;
 
     let confidence;
@@ -1701,25 +1724,30 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
     if (!atr) return;
 
-let slDist, tpDist;
+    // ✅ FIX 2: Calculate slDist and tpDist BEFORE using slMult in position sizing
+    let slDist, tpDist;
+    let slMult = 1.0;  // Define defaults
+    let tpMult = 1.5;  // Define defaults
 
-// If the signal provides explicit distances, use them
-if (signal._slDist && signal._tpDist) {
-    slDist = signal._slDist;
-    tpDist = signal._tpDist;
-} else {
-    const tpMult = signal.tpMultiplier || 1.5;
-    const slMult = signal.slMultiplier || 1.0;
-    slDist = atr * slMult;
-    tpDist = atr * tpMult;
-}
+    // If the signal provides explicit distances, use them
+    if (signal._slDist && signal._tpDist) {
+        slDist = signal._slDist;
+        tpDist = signal._tpDist;
+        slMult = slDist / atr;
+        tpMult = tpDist / atr;
+    } else {
+        tpMult = signal.tpMultiplier || 1.5;
+        slMult = signal.slMultiplier || 1.0;
+        slDist = atr * slMult;
+        tpDist = atr * tpMult;
+    }
 
-const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
-const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
+    const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
+    const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
-console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.toFixed(2)} (${slDist.toFixed(2)} away) | TP: ${tp.toFixed(2)} (${tpDist.toFixed(2)} away)`);
+    console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.toFixed(2)} (${slDist.toFixed(2)} away) | TP: ${tp.toFixed(2)} (${tpDist.toFixed(2)} away)`);
 
-    // ── POSITION SIZING CALCULATION (FIXED) ──────────────────────────────
+    // ── POSITION SIZING CALCULATION ──────────────────────────────
     let riskPercent = 0.75;
     if (signal.isPhantom) riskPercent = 0.5;
     if (signal.isNova) riskPercent = 0.65;
@@ -1744,9 +1772,9 @@ console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.to
             symbol: bot.config.symbol,
             accountEquity: accountEquity,
             atr: atr,
-            slMultiplier: slMult,
+            slMultiplier: slMult,  // ✅ Now slMult is defined!
             riskPercent: riskPercent,
-            useStreakScaling: false  // Disable streak scaling to prevent blocks
+            useStreakScaling: false
         });
         
         if (sizing.allowed && sizing.lotSize > 0) {
@@ -1762,9 +1790,9 @@ console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.to
     }
     
     // Final safety clamp
-    lotSize = Math.min(0.1, Math.max(0.01, lotSize));  // Max 0.1 lots for safety
+    lotSize = Math.min(0.1, Math.max(0.01, lotSize));
 
-    bot.openSignal     = { type, sl, tp, entry: bar.close, lotSize: lotSize, strategy: bot.config.strategy };
+    bot.openSignal = { type, sl, tp, entry: bar.close, lotSize: lotSize, strategy: bot.config.strategy };
     if (signal.isJump75) {
         bot.openSignal.isJump75 = true;
         bot.openSignal.factors = signal.factors || [];
@@ -1777,8 +1805,7 @@ console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.to
         sigEngine.drawTradeLevels(sl, tp);
     }
 
-    // ... rest of the function remains the same (auto-log and auto-mt5 sections)
-    
+    // Auto-log training data
     if (document.getElementById('auto-log')?.checked) {
         try {
             const ema8  = MomentumStrategy._ema(bot.candles.slice(0, -1), 8);
@@ -1800,6 +1827,7 @@ console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.to
         } catch(e) {}
     }
 
+    // MT5 Push
     if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
         const mt5Symbol    = MT5_SYMBOL_MAP[bot.config.symbol]
