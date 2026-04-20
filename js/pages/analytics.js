@@ -512,10 +512,13 @@ function _setBadge(id, isUp, text) {
 // ─────────────────────────────────────────────────────────────
 async function _pollMT5() {
     try {
-        const r = await fetch('/api/trade-results');
+        // Change this line:
+        const r = await fetch('https://nexus-api-khvt.onrender.com/api/trade-results');
+        
         if (!r.ok) return;
-        const { results } = await r.json();
-        if (results) _renderMT5(results);
+        const data = await r.json();
+        // Note: Your server returns the array directly, not { results }
+        if (Array.isArray(data)) _renderMT5(data);
     } catch(_) {}
 }
 
