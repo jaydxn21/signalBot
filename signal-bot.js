@@ -989,94 +989,41 @@ function processBar(bot, bar, gran) {
 // ─────────────────────────────────────────────────────────────
 // JUMP75 RUNNER - COMPLETE FIXED VERSION
 // ─────────────────────────────────────────────────────────────
-async function _runJump75(bot, bar, atr, rsi) {
-    // Only trade Jump indices (JD10, JD25, JD50, JD75, JD100)
-    const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
-    if (!jumpSymbols.includes(bot.config.symbol)) {
-        console.log(`[Jump75] Symbol ${bot.config.symbol} not a Jump index`);
-        return null;
-    }
-    
-    // ✅ FIX 1: Check candle buffer status with detailed logging
-    if (!bot.m5Candles || !bot.m15Candles || !bot.h4Candles) {
-        console.log('[Jump75] ⚠️ Buffers not initialized yet');
-        return null;
-    }
-    
-    const m5Count  = bot.m5Candles.length;
-    const m15Count = bot.m15Candles.length;
-    const h4Count  = bot.h4Candles.length;
-    
-    console.log(`[Jump75-DEBUG] Candle counts: M5=${m5Count}, M15=${m15Count}, H4=${h4Count} | Need: M5≥10, M15≥10, H4≥5`);
-    
-    // ✅ FIX 2: More lenient candle requirements (easier to test)
-    if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
-        if (m5Count === 0 || m15Count === 0 || h4Count === 0) {
-            console.log('[Jump75] ⚠️ CRITICAL: Missing candle data - subscription may have failed');
-        }
-        return null;
-    }
-    
-    // ✅ FIX 3: Ensure ATR is valid
-    if (!atr || atr === 0 || !isFinite(atr)) {
-        console.log(`[Jump75] ⚠️ Invalid ATR: ${atr}`);
-        return null;
-    }
-    
-    try {
-        console.log('[Jump75] 🔍 Calling Jump75Strategy.checkEntry...');
-        
-        // ✅ FIX 4: PROPERLY AWAIT the async function
-        const signal = await Jump75Strategy.checkEntry(
-            bot.m5Candles,   // M5 array
-            bot.m15Candles,  // M15 array
-            bot.h4Candles,   // H4 array
-            atr
-        );
-        
-        if (!signal) {
-            // Only log periodically to avoid spam
-            if (Math.random() < 0.05) {
-                console.log('[Jump75] No signal this candle (waiting for setup)');
-            }
-            return null;
-        }
-        
-        console.log('[Jump75] ✅ SIGNAL RETURNED!', signal);
-        
+// Add this near the top of signal-bot.js after imports
+// TEST MODE: Force more frequent signals (remove in production)
+const JUMP75_TEST_MODE = true; // Set to false for normal operation
+
+// Then modify the _runJump75 function to include test signals
+// Add this right after the candle count check in _runJump75:
+
+    // ✅ TEST MODE: Generate test signals periodically
+    if (JUMP75_TEST_MODE && m5Count > 10) {
         const now = Date.now();
-        const cooldownMs = 30000; // 30 second cooldown
-        
-        if ((now - bot.lastFiredMs) < cooldownMs) {
-            console.log('[Jump75] ⏱️ Cooldown active, skipping');
-            return null;
+        if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) { // Every minute
+            bot._lastTestSignal = now;
+            
+            // Determine direction based on recent price action
+            const lastFew = bot.m5Candles.slice(-5);
+            const isUptrend = lastFew[lastFew.length - 1].close > lastFew[0].close;
+            
+            const testSignal = {
+                type: isUptrend ? 'LONG' : 'SHORT',
+                score: 70,
+                factors: ['🧪 TEST MODE', isUptrend ? 'Uptrend detected' : 'Downtrend detected'],
+                tpMultiplier: 1.5,
+                slMultiplier: 1.0,
+                isJump75: true
+            };
+            
+            console.log(`[Jump75-TEST] Generating test ${testSignal.type} signal`);
+            log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)} (TEST MODE)`, 
+                testSignal.type === 'LONG' ? 'buy' : 'sell');
+            
+            fireSignal(bot, testSignal, bar, atr, rsi, null);
+            bot.lastFiredMs = now;
+            return testSignal;
         }
-        
-        bot.lastFiredMs = now;
-        
-        // ✅ FIX 5: Safely extract signal properties
-        const signalType = signal.type || signal.direction || 'BUY/SELL';
-        const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
-        const factorsText = (signal.factors && Array.isArray(signal.factors)) 
-            ? signal.factors.join(' · ') 
-            : '';
-        
-        log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
-            displayType === 'BUY' ? 'buy' : 'sell');
-        
-        console.log('[Jump75] 🎯 FIRING SIGNAL:', { displayType, price: bar.close, factors: signal.factors });
-        
-        // ✅ FIX 6: Pass signal to fireSignal
-        fireSignal(bot, signal, bar, atr, rsi, null);
-        
-        return signal;
-        
-    } catch (error) {
-        console.error('[Jump75] ❌ CRITICAL ERROR:', error);
-        log(`🦘 JUMP75 error: ${error.message}`, 'warn');
-        return null;
     }
-}
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM MULTI-TF CANDLE BUFFERS
