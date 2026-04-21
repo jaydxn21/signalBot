@@ -2191,12 +2191,13 @@ async function _pollStrategyStatus() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 8000);
         
+        // ✅ FIX: Remove 'pragma' header - it's not allowed by CORS
         const response = await fetch('https://nexus-api-khvt.onrender.com/api/strategy-status', {
             signal: controller.signal,
             headers: { 
-                'Cache-Control': 'no-cache', 
-                'Pragma': 'no-cache',
                 'Accept': 'application/json'
+                // Removed: 'Cache-Control': 'no-cache'
+                // Removed: 'Pragma': 'no-cache'  ← This was causing CORS error
             }
         });
         clearTimeout(timeoutId);
@@ -2209,7 +2210,7 @@ async function _pollStrategyStatus() {
         const status = await response.json();
         consecutiveErrors = 0;
         
-        // ✅ FIX: Log all status updates to console for debugging
+        // Log all status updates to console for debugging
         console.log(`[Poll #${pollCount}] Status:`, status.status || status.currentState || 'IDLE', {
             h4Breaks: status.h4Breaks || status.h4BreaksDetected || 0,
             retests: status.retests || status.retestCount || 0,
@@ -2222,24 +2223,29 @@ async function _pollStrategyStatus() {
         consecutiveErrors++;
         console.warn(`[Status] Poll #${pollCount} failed:`, e.message, `(${consecutiveErrors} consecutive)`);
         
+        // Update UI to show connection status
+        const statusEl = document.getElementById('strategy-status');
+        const lastEventEl = document.getElementById('last-event-text');
+        
         if (consecutiveErrors <= 2) {
             // First couple failures are normal (server cold start)
-            const statusEl = document.getElementById('strategy-status');
             if (statusEl && consecutiveErrors === 1) {
                 statusEl.textContent = 'CONNECTING...';
                 statusEl.style.color = '#f59e0b';
             }
+            if (lastEventEl && consecutiveErrors === 1) {
+                lastEventEl.textContent = 'Connecting to server...';
+                lastEventEl.style.color = '#f59e0b';
+            }
         } else if (consecutiveErrors > 3) {
             // After 3 failures, show offline
-            const statusEl = document.getElementById('strategy-status');
             if (statusEl) {
                 statusEl.textContent = 'OFFLINE';
                 statusEl.style.color = '#ef4444';
             }
             
-            const lastEventEl = document.getElementById('last-event-text');
             if (lastEventEl) {
-                lastEventEl.textContent = `Server connection lost (${consecutiveErrors} fails)`;
+                lastEventEl.textContent = `Server offline (${consecutiveErrors} fails) - retrying...`;
                 lastEventEl.style.color = '#ef4444';
             }
         }
@@ -2263,7 +2269,7 @@ function _updateStatusUI(status) {
     const timeEl = document.getElementById('status-time');
     const lastEventEl = document.getElementById('last-event-text');
     
-    // ✅ FIX: Safely get status text with fallbacks
+    // Safely get status text with fallbacks
     const statusText = status.status || status.currentState || 'IDLE';
     
     // Update main status
@@ -2417,7 +2423,7 @@ function _startStatusPolling() {
     
     console.log('[Status Polling] Starting... polling every 5 seconds');
     
-    // Poll every 5 seconds for faster response (was 10)
+    // Poll every 5 seconds for faster response
     pollInterval = setInterval(() => {
         _pollStrategyStatus().catch(e => console.error('[Status] Poll error:', e));
     }, 5000);
