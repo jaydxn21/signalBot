@@ -986,24 +986,47 @@ function processBar(bot, bar, gran) {
     }
 }
 
-
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - FIXED VERSION
+// JUMP75 RUNNER - COMPLETE FIXED VERSION
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     // Only trade Jump indices (JD10, JD25, JD50, JD75, JD100)
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
-    if (!jumpSymbols.includes(bot.config.symbol)) return null;
+    if (!jumpSymbols.includes(bot.config.symbol)) {
+        console.log(`[Jump75] Symbol ${bot.config.symbol} not a Jump index`);
+        return null;
+    }
     
-    // Need enough candles on each timeframe
-    if (bot.m5Candles.length < 10 || 
-        bot.m15Candles.length < 10 || 
-        bot.h4Candles.length < 5) {
+    // ✅ FIX 1: Check candle buffer status with detailed logging
+    if (!bot.m5Candles || !bot.m15Candles || !bot.h4Candles) {
+        console.log('[Jump75] ⚠️ Buffers not initialized yet');
+        return null;
+    }
+    
+    const m5Count  = bot.m5Candles.length;
+    const m15Count = bot.m15Candles.length;
+    const h4Count  = bot.h4Candles.length;
+    
+    console.log(`[Jump75-DEBUG] Candle counts: M5=${m5Count}, M15=${m15Count}, H4=${h4Count} | Need: M5≥10, M15≥10, H4≥5`);
+    
+    // ✅ FIX 2: More lenient candle requirements (easier to test)
+    if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
+        if (m5Count === 0 || m15Count === 0 || h4Count === 0) {
+            console.log('[Jump75] ⚠️ CRITICAL: Missing candle data - subscription may have failed');
+        }
+        return null;
+    }
+    
+    // ✅ FIX 3: Ensure ATR is valid
+    if (!atr || atr === 0 || !isFinite(atr)) {
+        console.log(`[Jump75] ⚠️ Invalid ATR: ${atr}`);
         return null;
     }
     
     try {
-        // ✅ IMPORTANT: AWAIT the signal (checkEntry is async)
+        console.log('[Jump75] 🔍 Calling Jump75Strategy.checkEntry...');
+        
+        // ✅ FIX 4: PROPERLY AWAIT the async function
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,   // M5 array
             bot.m15Candles,  // M15 array
@@ -1011,31 +1034,47 @@ async function _runJump75(bot, bar, atr, rsi) {
             atr
         );
         
-        if (signal) {
-            const now = Date.now();
-            const cooldownMs = 30000; // 30 second cooldown
-            if ((now - bot.lastFiredMs) < cooldownMs) return null;
-            
-            bot.lastFiredMs = now;
-            
-            // ✅ Safely get the signal type
-            const signalType = signal.type || signal.direction || 'BUY/SELL';
-            const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
-            
-            // ✅ Safely handle factors array
-            const factorsText = signal.factors && Array.isArray(signal.factors) 
-                ? signal.factors.join(' · ') 
-                : '';
-            
-            log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
-                displayType === 'BUY' ? 'buy' : 'sell');
-            
-            // ✅ Pass the signal to fireSignal
-            fireSignal(bot, signal, bar, atr, rsi, null);
+        if (!signal) {
+            // Only log periodically to avoid spam
+            if (Math.random() < 0.05) {
+                console.log('[Jump75] No signal this candle (waiting for setup)');
+            }
+            return null;
         }
+        
+        console.log('[Jump75] ✅ SIGNAL RETURNED!', signal);
+        
+        const now = Date.now();
+        const cooldownMs = 30000; // 30 second cooldown
+        
+        if ((now - bot.lastFiredMs) < cooldownMs) {
+            console.log('[Jump75] ⏱️ Cooldown active, skipping');
+            return null;
+        }
+        
+        bot.lastFiredMs = now;
+        
+        // ✅ FIX 5: Safely extract signal properties
+        const signalType = signal.type || signal.direction || 'BUY/SELL';
+        const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
+        const factorsText = (signal.factors && Array.isArray(signal.factors)) 
+            ? signal.factors.join(' · ') 
+            : '';
+        
+        log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
+            displayType === 'BUY' ? 'buy' : 'sell');
+        
+        console.log('[Jump75] 🎯 FIRING SIGNAL:', { displayType, price: bar.close, factors: signal.factors });
+        
+        // ✅ FIX 6: Pass signal to fireSignal
+        fireSignal(bot, signal, bar, atr, rsi, null);
+        
+        return signal;
+        
     } catch (error) {
-        console.error('[Jump75] Error in _runJump75:', error);
+        console.error('[Jump75] ❌ CRITICAL ERROR:', error);
         log(`🦘 JUMP75 error: ${error.message}`, 'warn');
+        return null;
     }
 }
 
@@ -2131,17 +2170,22 @@ function checkOutcome(bot) {
 // STRATEGY STATUS POLLING
 // ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────
-// STRATEGY STATUS POLLING - FIXED VERSION
-// ─────────────────────────────────────────────────────────────
+// ============================================================
+// STRATEGY STATUS POLLING - DEBUGGING FIXED VERSION
+// ============================================================
+// FIX #3: Strategy Status Polling - Debug & Fix
+// Problem: Status only shows heartbeat, never detects signals
+// Solution: Enhanced logging, better error handling, proper initialization
 
 let pollInterval = null;
 let consecutiveErrors = 0;
 let isPolling = false;
+let pollCount = 0;
 
 async function _pollStrategyStatus() {
     if (isPolling) return;
     isPolling = true;
+    pollCount++;
     
     try {
         const controller = new AbortController();
@@ -2149,31 +2193,55 @@ async function _pollStrategyStatus() {
         
         const response = await fetch('https://nexus-api-khvt.onrender.com/api/strategy-status', {
             signal: controller.signal,
-            headers: { 'Cache-Control': 'no-cache' }
+            headers: { 
+                'Cache-Control': 'no-cache', 
+                'Pragma': 'no-cache',
+                'Accept': 'application/json'
+            }
         });
         clearTimeout(timeoutId);
         
         if (!response.ok) {
+            console.warn(`[Status] HTTP ${response.status}`);
             throw new Error(`HTTP ${response.status}`);
         }
         
         const status = await response.json();
         consecutiveErrors = 0;
+        
+        // ✅ FIX: Log all status updates to console for debugging
+        console.log(`[Poll #${pollCount}] Status:`, status.status || status.currentState || 'IDLE', {
+            h4Breaks: status.h4Breaks || status.h4BreaksDetected || 0,
+            retests: status.retests || status.retestCount || 0,
+            entries: status.entries || status.entriesFired || 0
+        });
+        
         _updateStatusUI(status);
         
     } catch(e) {
         consecutiveErrors++;
-        console.warn('[Status] Poll error:', e.message);
+        console.warn(`[Status] Poll #${pollCount} failed:`, e.message, `(${consecutiveErrors} consecutive)`);
         
-        const statusEl = document.getElementById('strategy-status');
-        if (statusEl) {
-            statusEl.textContent = consecutiveErrors > 3 ? 'OFFLINE' : 'CONNECTING...';
-            statusEl.style.color = '#f59e0b';
-        }
-        
-        const lastEventEl = document.getElementById('last-event-text');
-        if (lastEventEl && consecutiveErrors > 3) {
-            lastEventEl.textContent = 'Server connection lost - retrying...';
+        if (consecutiveErrors <= 2) {
+            // First couple failures are normal (server cold start)
+            const statusEl = document.getElementById('strategy-status');
+            if (statusEl && consecutiveErrors === 1) {
+                statusEl.textContent = 'CONNECTING...';
+                statusEl.style.color = '#f59e0b';
+            }
+        } else if (consecutiveErrors > 3) {
+            // After 3 failures, show offline
+            const statusEl = document.getElementById('strategy-status');
+            if (statusEl) {
+                statusEl.textContent = 'OFFLINE';
+                statusEl.style.color = '#ef4444';
+            }
+            
+            const lastEventEl = document.getElementById('last-event-text');
+            if (lastEventEl) {
+                lastEventEl.textContent = `Server connection lost (${consecutiveErrors} fails)`;
+                lastEventEl.style.color = '#ef4444';
+            }
         }
         
     } finally {
@@ -2182,112 +2250,235 @@ async function _pollStrategyStatus() {
 }
 
 function _updateStatusUI(status) {
+    if (!status) {
+        console.warn('[Status] No status data received');
+        return;
+    }
+    
+    // Get DOM elements
     const statusEl = document.getElementById('strategy-status');
+    const breaksEl = document.getElementById('stat-breaks');
+    const retestsEl = document.getElementById('stat-retests');
+    const entriesEl = document.getElementById('stat-entries');
+    const timeEl = document.getElementById('status-time');
+    const lastEventEl = document.getElementById('last-event-text');
+    
+    // ✅ FIX: Safely get status text with fallbacks
+    const statusText = status.status || status.currentState || 'IDLE';
+    
+    // Update main status
     if (statusEl) {
-        statusEl.textContent = status.status || 'IDLE';
+        statusEl.textContent = statusText;
         
-        if (status.status === 'ENTRY_SIGNAL_FIRED') {
+        // Color coding based on status
+        if (statusText.includes('ENTRY') || statusText === 'ENTRY_SIGNAL_FIRED') {
             statusEl.style.color = '#10b981';
             statusEl.style.textShadow = '0 0 5px rgba(16,185,129,0.3)';
-        } else if (status.status === 'H4_BREAK_DETECTED') {
+        } else if (statusText.includes('BREAK') || statusText === 'H4_BREAK_DETECTED') {
             statusEl.style.color = '#f59e0b';
             statusEl.style.textShadow = '0 0 5px rgba(245,158,11,0.3)';
-        } else if (status.status === 'CONFIRMATION_CANDLE') {
+        } else if (statusText.includes('CONFIRMATION') || statusText === 'CONFIRMATION_CANDLE') {
             statusEl.style.color = '#8b5cf6';
             statusEl.style.textShadow = '0 0 5px rgba(139,92,246,0.3)';
-        } else if (status.status === 'ACTIVE_SETUP') {
+        } else if (statusText.includes('ACTIVE') || statusText === 'ACTIVE_SETUP') {
             statusEl.style.color = '#ec4899';
+            statusEl.style.textShadow = '0 0 5px rgba(236,72,153,0.3)';
+        } else if (statusText === 'OFFLINE') {
+            statusEl.style.color = '#ef4444';
+            statusEl.style.textShadow = 'none';
         } else {
             statusEl.style.color = 'var(--text-primary)';
             statusEl.style.textShadow = 'none';
         }
     }
     
-    const breaksEl = document.getElementById('stat-breaks');
-    if (breaksEl) breaksEl.textContent = status.h4Breaks || 0;
+    // Update stats counters with fallback property names
+    if (breaksEl) {
+        const breakCount = status.h4Breaks || status.h4BreaksDetected || 0;
+        breaksEl.textContent = breakCount;
+        if (breakCount > 0) breaksEl.style.color = '#f59e0b';
+        else breaksEl.style.color = '';
+    }
     
-    const retestsEl = document.getElementById('stat-retests');
-    if (retestsEl) retestsEl.textContent = status.retests || 0;
+    if (retestsEl) {
+        const retestCount = status.retests || status.retestsDetected || status.retestCount || 0;
+        retestsEl.textContent = retestCount;
+        if (retestCount > 0) retestsEl.style.color = '#8b5cf6';
+        else retestsEl.style.color = '';
+    }
     
-    const entriesEl = document.getElementById('stat-entries');
-    if (entriesEl) entriesEl.textContent = status.entries || 0;
+    if (entriesEl) {
+        const entryCount = status.entries || status.entriesFired || 0;
+        entriesEl.textContent = entryCount;
+        if (entryCount > 0) entriesEl.style.color = '#10b981';
+        else entriesEl.style.color = '';
+    }
     
-    const timeEl = document.getElementById('status-time');
     if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
     
+    // Update active setup display
     const setupDiv = document.getElementById('active-setup');
     if (setupDiv) {
-        if (status.currentState === 'ACTIVE_SETUP' && status.lastBreakLevel) {
+        const isActiveSetup = (statusText === 'ACTIVE_SETUP' || status.currentState === 'ACTIVE_SETUP');
+        const hasBreakLevel = (status.lastBreakLevel || status.breakLevel);
+        
+        if (isActiveSetup && hasBreakLevel) {
             setupDiv.style.display = 'block';
             const setupDetails = document.getElementById('setup-details');
             if (setupDetails) {
-                setupDetails.innerHTML = `${status.lastBreakDirection || '?'} @ ${parseFloat(status.lastBreakLevel).toFixed(4)} | ${status.retestCount || 0}/${status.maxRetests || 3} retests | ${status.setupAge?.toFixed(1) || 0}h old`;
+                const level = status.lastBreakLevel || status.breakLevel || '?';
+                const dir = status.lastBreakDirection || status.direction || '?';
+                const age = (status.setupAge || 0).toFixed(1);
+                const retests = status.retestCount || 0;
+                const maxRetests = status.maxRetests || 3;
+                
+                setupDetails.innerHTML = `${dir} @ ${parseFloat(level).toFixed(4)} | ${retests}/${maxRetests} retests | ${age}h old`;
+                
+                console.log('[UI] Setup display updated:', { dir, level, retests, age });
             }
+            
             const setupTimer = document.getElementById('setup-timer');
             if (setupTimer) {
-                setupTimer.textContent = `${status.setupAge?.toFixed(1) || 0}h`;
-                setupTimer.style.color = (status.setupAge || 0) > 1.5 ? '#ef4444' : '#f59e0b';
+                const age = (status.setupAge || 0);
+                setupTimer.textContent = `${age.toFixed(1)}h`;
+                setupTimer.style.color = age > 1.5 ? '#ef4444' : '#f59e0b';
             }
         } else {
             setupDiv.style.display = 'none';
         }
     }
     
+    // Update last signal display
     const signalDiv = document.getElementById('last-signal');
     if (signalDiv) {
-        if (status.status === 'ENTRY_SIGNAL_FIRED' && status.direction) {
+        const isEntrySignal = (statusText === 'ENTRY_SIGNAL_FIRED');
+        const hasDirection = (status.direction || status.type);
+        
+        if (isEntrySignal && hasDirection) {
             signalDiv.style.display = 'block';
             const signalDetails = document.getElementById('signal-details');
             if (signalDetails) {
-                signalDetails.innerHTML = `${status.direction} @ ${parseFloat(status.entryPrice).toFixed(4)} | R:R ${parseFloat(status.rr).toFixed(2)}:1 | SL: ${parseFloat(status.sl).toFixed(4)} TP: ${parseFloat(status.tp).toFixed(4)}`;
+                const dir = status.direction || status.type || '?';
+                const price = status.entryPrice || '?';
+                const rr = status.rr || '?';
+                const sl = status.sl || '?';
+                const tp = status.tp || '?';
+                
+                signalDetails.innerHTML = 
+                    `${dir} @ ${parseFloat(price).toFixed(4)} | ` +
+                    `R:R ${parseFloat(rr).toFixed(2)}:1 | ` +
+                    `SL: ${parseFloat(sl).toFixed(4)} TP: ${parseFloat(tp).toFixed(4)}`;
+                
+                console.log('[UI] Signal display updated:', { dir, price, rr });
             }
+            
             const signalTime = document.getElementById('signal-time');
             if (signalTime && status.timeDetected) {
                 signalTime.textContent = new Date(status.timeDetected).toLocaleTimeString();
             }
+            
+            // Trigger glow animation
             signalDiv.style.animation = 'none';
+            signalDiv.offsetHeight; // Force reflow
             setTimeout(() => { signalDiv.style.animation = 'glowPulse 0.5s ease-in-out'; }, 10);
+            
         } else {
             signalDiv.style.display = 'none';
         }
     }
     
-    const lastEventEl = document.getElementById('last-event-text');
+    // Update last event text
     if (lastEventEl) {
-        let eventText = status.status || 'IDLE';
+        let eventText = statusText;
         if (status.direction) eventText += ` (${status.direction})`;
         if (status.rr) eventText += ` | R:R ${parseFloat(status.rr).toFixed(2)}`;
+        if (status.callCount) eventText += ` | Calls: ${status.callCount}`;
+        
         lastEventEl.textContent = eventText;
+        
+        // Color coding for last event
+        if (statusText.includes('ENTRY') || statusText.includes('SIGNAL')) {
+            lastEventEl.style.color = '#10b981';
+        } else if (statusText.includes('OFFLINE')) {
+            lastEventEl.style.color = '#ef4444';
+        } else if (statusText.includes('BREAK')) {
+            lastEventEl.style.color = '#f59e0b';
+        } else {
+            lastEventEl.style.color = '#8b5cf6';
+        }
     }
 }
 
 function _startStatusPolling() {
-    if (pollInterval) clearInterval(pollInterval);
-    // Poll every 10 seconds instead of 3
-    pollInterval = setInterval(_pollStrategyStatus, 10000);
-    _pollStrategyStatus();
-}
-
-// Add CSS animation
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes glowPulse {
-        0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
-        50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
-        100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
     }
-`;
-document.head.appendChild(style);
-
-// Start polling (add to your init function)
-// Call this in your existing init() or setup function
-if (typeof window !== 'undefined') {
-    // Poll every 3 seconds for faster updates
-_startStatusPolling();
-    // Initial poll
-    _pollStrategyStatus();
+    
+    console.log('[Status Polling] Starting... polling every 5 seconds');
+    
+    // Poll every 5 seconds for faster response (was 10)
+    pollInterval = setInterval(() => {
+        _pollStrategyStatus().catch(e => console.error('[Status] Poll error:', e));
+    }, 5000);
+    
+    // Initial poll immediately
+    _pollStrategyStatus().catch(e => console.error('[Status] Initial poll error:', e));
 }
 
+function _stopStatusPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+        console.log('[Status Polling] Stopped');
+    }
+}
+
+// Add CSS animation if not already present
+if (!document.querySelector('#status-glow-style')) {
+    const style = document.createElement('style');
+    style.id = 'status-glow-style';
+    style.textContent = `
+        @keyframes glowPulse {
+            0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+            50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
+            100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+        }
+        
+        #strategy-status {
+            transition: color 0.2s ease, text-shadow 0.2s ease;
+        }
+        
+        .stat-value {
+            transition: color 0.2s ease;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// Initialize polling with proper DOM ready handling
+if (typeof window !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[Init] Starting status polling on DOMContentLoaded');
+            _startStatusPolling();
+        });
+    } else {
+        console.log('[Init] Starting status polling immediately');
+        _startStatusPolling();
+    }
+}
+
+// Stop polling when page unloads
+window.addEventListener('beforeunload', _stopStatusPolling);
+
+// Optional: Expose for debugging
+window._debugStatusPolling = {
+    stop: _stopStatusPolling,
+    start: _startStatusPolling,
+    poll: _pollStrategyStatus,
+    getStats: () => ({ pollCount, consecutiveErrors, isPolling })
+};
 
 // ─────────────────────────────────────────────────────────────
 // OVERLAYS
