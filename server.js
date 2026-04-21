@@ -17,16 +17,20 @@ const _allowedOrigins = process.env.ALLOWED_ORIGINS
     : null;
 
 function _corsHeaders(req) {
-    const origin  = req.headers['origin'] || '';
-    const allowed = !_allowedOrigins || _allowedOrigins.includes(origin)
-        ? (origin || '*')
-        : _allowedOrigins[0];
+    const origin = req.headers['origin'] || '';
+    const allowedOrigins = [
+        'https://signal-bot-eight.vercel.app',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000'
+    ];
+    const allowed = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+    
     return {
-        'Access-Control-Allow-Origin':      allowed,
-        'Access-Control-Allow-Methods':     'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers':     'Content-Type, Authorization',
+        'Access-Control-Allow-Origin': allowed,
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cache-Control',  // ← Added Cache-Control
         'Access-Control-Allow-Credentials': 'true',
-        'Vary': 'Origin',
+        'Access-Control-Max-Age': '86400',
     };
 }
 
