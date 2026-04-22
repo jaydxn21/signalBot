@@ -627,6 +627,44 @@ window.stopBot = function(id) {
     _saveBotConfigs();
 };
 
+window.stopBot = function(id) {
+    const bot = bots[id];
+    if (!bot) return;
+    bot.isActive = false;
+    window.setBotRunning(id, false);
+    log(`Bot #${id} stopped`, 'neutral');
+
+    if (bot.config?.symbol) {
+        api.forgetSymbol(bot.config.symbol, bot.config.tf);
+        api.forgetSymbol(bot.config.symbol, 14400);
+        // Also forget M5 and M15 if they were subscribed for Jump75
+        if (bot.config.strategy === 'jump75') {
+            api.forgetSymbol(bot.config.symbol, 300);
+            api.forgetSymbol(bot.config.symbol, 900);
+        }
+    }
+
+    ChartManager.removeBot(id);
+    
+    // ✅ NEW: Clear analysis when bot stops
+    const engine = ChartManager.get(id);
+    if (engine) {
+        try {
+            engine.clearAnalysis();
+        } catch(e) {
+            console.warn('[Chart] Failed to clear analysis:', e.message);
+        }
+    }
+    
+    if (ChartManager.count() === 0) {
+        const ph = document.getElementById('chart-placeholder-empty');
+        if (ph) ph.style.display = 'flex';
+    }
+
+    SessionState.set({ activeBots: Object.values(bots).filter(b => b.isActive).length });
+    _saveBotConfigs();
+};
+
 window.focusBot = function(id) {
     focusedBotId = id;
     const bot = bots[id];
@@ -645,6 +683,10 @@ window.focusBot = function(id) {
         _showOverlayPanel(true);
         setTimeout(() => {
             ChartManager.loadMain(id, bot.candles);
+            
+            // ✅ NEW: Draw H4 levels and analysis
+            _drawBotAnalysis(id, bot);
+            
             redrawOverlays();
             if (bot.openSignal) {
                 const eng = ChartManager.mainEngine();
@@ -658,6 +700,10 @@ window.focusBot = function(id) {
         if (engine && bot.candles.length > 0) {
             engine.setData(bot.candles);
             engine.chart.timeScale().fitContent();
+            
+            // ✅ NEW: Draw H4 levels and analysis
+            _drawBotAnalysis(id, bot);
+            
             redrawOverlays();
         }
     }
@@ -666,6 +712,149 @@ window.focusBot = function(id) {
 window.onSplitView = function() {
     _showOverlayPanel(false);
 };
+
+// ─────────────────────────────────────────────────────────────
+// ✅ NEW: Draw H4 Levels & Strategy-Specific Analysis
+// ─────────────────────────────────────────────────────────────
+
+function _drawBotAnalysis(botId, bot) {
+    const engine = _engineFor(botId);
+    if (!engine) return;
+
+    // Always draw H4 levels if available
+    if (bot.h4Candles && bot.h4Candles.length > 0) {
+        try {
+            engine.drawH4Levels(bot.h4Candles);
+            console.log(`[Chart] H4 levels drawn for ${bot.config.symbol}`);
+        } catch(e) {
+            console.warn('[Chart] Failed to draw H4 levels:', e.message);
+        }
+    }
+
+    // Draw strategy-specific analysis
+    const analysisConfig = _getStrategyAnalysis(bot.config.strategy);
+    if (Object.keys(analysisConfig).length > 0) {
+        try {
+            engine.drawAnalysis(analysisConfig);
+            const overlays = Object.keys(analysisConfig).join(', ');
+            console.log(`[Chart] Analysis overlays drawn: ${overlays}`);
+        } catch(e) {
+            console.warn('[Chart] Failed to draw analysis:', e.message);
+        }
+    }
+}
+
+/**
+ * Get recommended analysis config for each strategy
+ * Customize these based on your trading style
+ */
+function _getStrategyAnalysis(strategy) {
+    const configs = {
+        // Jump75: Multi-timeframe, needs volatility and trend info
+        'jump75': {
+            sma: { periods: 20, color: '#2563eb' },      // Trend
+            atr: { periods: 14, color: '#f59e0b' }       // Volatility
+        },
+
+        // Momentum: Trending strategy, needs EMA + ATR
+        'momentum': {
+            ema: { periods: 9, color: '#059669' },       // Fast trend
+            sma: { periods: 21, color: '#3b82f6' },      // Slow trend
+            atr: { periods: 14, color: '#f59e0b' }       // Volatility
+        },
+
+        // Phantom: High-precision daily target
+        'phantom': {
+            sma: { periods: 20, color: '#a78bfa' },      // Median
+            atr: { periods: 14, color: '#f59e0b' }       // Risk sizing
+        },
+
+        // Nova: Spike-based strategy on Crash/Boom
+        'nova': {
+            atr: { periods: 14, color: '#f59e0b' },      // Spike detection
+            bollingerBands: { periods: 20, stdDev: 2 }   // Range extremes
+        },
+
+        // Pulse: Compounding on Crash/Boom
+        'pulse': {
+            atr: { periods: 14, color: '#f59e0b' },      // Volatility tracking
+            sma: { periods: 20, color: '#2563eb' }       // Direction
+        },
+
+        // Kismet: Structure-based strategy
+        'kismet': {
+            sma: { periods: 20, color: '#2563eb' },      // Support/Resistance
+            atr: { periods: 14, color: '#f59e0b' }       // Range
+        },
+
+        // Vortex: Volatility-based strategy
+        'vortex': {
+            atr: { periods: 14, color: '#f59e0b' },      // Chaos detection
+            bollingerBands: { periods: 20, stdDev: 2 }   // Extremes
+        },
+
+        // Ultra Scalper: Fast momentum on synthetics
+        'ultra_scalp': {
+            ema: { periods: 9, color: '#059669' },       // Fast entry
+            atr: { periods: 7, color: '#f59e0b' }        // Quick exits
+        },
+
+        // Cipher: Bitcoin structure
+        'cipher': {
+            sma: { periods: 20, color: '#2563eb' },      // Structure
+            atr: { periods: 14, color: '#f59e0b' }       // Volatility
+        },
+
+        // RSI Fade: Mean reversion
+        'rsi_fade': {
+            ema: { periods: 21, color: '#059669' },      // Mean
+            atr: { periods: 14, color: '#f59e0b' }       // Bands
+        },
+
+        // Range Boundary: Mean reversion
+        'range_boundary': {
+            sma: { periods: 20, color: '#2563eb' },      // Middle
+            bollingerBands: { periods: 20, stdDev: 2 }   // Extremes
+        },
+
+        // H4 Kiss: EMA-based
+        'h4_kiss': {
+            ema: { periods: 21, color: '#059669' },      // H4 EMA
+            atr: { periods: 14, color: '#f59e0b' }       // Volatility
+        },
+
+        // Default for unknown strategies
+        'default': {
+            sma: { periods: 20, color: '#2563eb' },      // Trend
+            atr: { periods: 14, color: '#f59e0b' }       // Volatility
+        }
+    };
+
+    return configs[strategy] || configs['default'];
+}
+
+/**
+ * Update H4 levels when new H4 candle arrives
+ * Call this in processBar() for strategies that need H4 updates
+ */
+function _updateChartH4Levels(botId, bot) {
+    const engine = _engineFor(botId);
+    if (!engine) return;
+    
+    // Check if H4 changed
+    const currentH4 = engine.getH4Levels();
+    const latestH4 = bot.h4Candles[bot.h4Candles.length - 1];
+    
+    if (!latestH4) return;
+    
+    // Redraw if H4 high/low changed (new 4-hour candle)
+    if (!currentH4.high || 
+        currentH4.high !== latestH4.high || 
+        currentH4.low !== latestH4.low) {
+        engine.drawH4Levels(bot.h4Candles);
+    }
+}
+
 
 function _engineFor(botId) {
     if (!ChartManager.isSplitMode() && botId === focusedBotId) {
@@ -774,6 +963,16 @@ function handleData(data) {
                         bot.lastH4CloseTime = candle.time;
                     });
                 }
+                if (gran === 14400) {
+            bot.h4Candles.push(bar);
+            if (bot.h4Candles.length > 30) bot.h4Candles.shift();
+            bot.lastH4CloseTime = bar.time;
+            
+            // ✅ NEW: Update H4 levels on chart if bot is focused
+            if (bot.config.strategy === 'jump75' && bot.id === focusedBotId) {
+                _updateChartH4Levels(bot.id, bot);
+            }
+        }
             }
             
             // Store original candles for all strategies
