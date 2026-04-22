@@ -186,6 +186,7 @@ function _pointValue(symbol) {
     return MAP[symbol] || 0.41;
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // BOT STATE CLASS
 // ─────────────────────────────────────────────────────────────
@@ -246,6 +247,7 @@ const MT5_SYMBOL_MAP = {
     'Jump 75 Index':       'Jump 75 Index',
     'Jump 100 Index':      'Jump 100 Index',
 };
+
 
 // ─────────────────────────────────────────────────────────────
 // PUSH NOTIFICATIONS
@@ -545,6 +547,7 @@ async function init() {
     }
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // START / STOP BOT
 // ─────────────────────────────────────────────────────────────
@@ -618,35 +621,8 @@ window.stopBot = function(id) {
     }
 
     ChartManager.removeBot(id);
-    if (ChartManager.count() === 0) {
-        const ph = document.getElementById('chart-placeholder-empty');
-        if (ph) ph.style.display = 'flex';
-    }
-
-    SessionState.set({ activeBots: Object.values(bots).filter(b => b.isActive).length });
-    _saveBotConfigs();
-};
-
-window.stopBot = function(id) {
-    const bot = bots[id];
-    if (!bot) return;
-    bot.isActive = false;
-    window.setBotRunning(id, false);
-    log(`Bot #${id} stopped`, 'neutral');
-
-    if (bot.config?.symbol) {
-        api.forgetSymbol(bot.config.symbol, bot.config.tf);
-        api.forgetSymbol(bot.config.symbol, 14400);
-        // Also forget M5 and M15 if they were subscribed for Jump75
-        if (bot.config.strategy === 'jump75') {
-            api.forgetSymbol(bot.config.symbol, 300);
-            api.forgetSymbol(bot.config.symbol, 900);
-        }
-    }
-
-    ChartManager.removeBot(id);
     
-    // ✅ NEW: Clear analysis when bot stops
+    // Clear analysis when bot stops
     const engine = ChartManager.get(id);
     if (engine) {
         try {
@@ -684,7 +660,7 @@ window.focusBot = function(id) {
         setTimeout(() => {
             ChartManager.loadMain(id, bot.candles);
             
-            // ✅ NEW: Draw H4 levels and analysis
+            // Draw H4 levels and analysis
             _drawBotAnalysis(id, bot);
             
             redrawOverlays();
@@ -701,7 +677,7 @@ window.focusBot = function(id) {
             engine.setData(bot.candles);
             engine.chart.timeScale().fitContent();
             
-            // ✅ NEW: Draw H4 levels and analysis
+            // Draw H4 levels and analysis
             _drawBotAnalysis(id, bot);
             
             redrawOverlays();
@@ -730,19 +706,37 @@ function _drawBotAnalysis(botId, bot) {
             console.warn('[Chart] Failed to draw H4 levels:', e.message);
         }
     }
-
-    // Draw strategy-specific analysis
-    const analysisConfig = _getStrategyAnalysis(bot.config.strategy);
-    if (Object.keys(analysisConfig).length > 0) {
-        try {
-            engine.drawAnalysis(analysisConfig);
-            const overlays = Object.keys(analysisConfig).join(', ');
-            console.log(`[Chart] Analysis overlays drawn: ${overlays}`);
-        } catch(e) {
-            console.warn('[Chart] Failed to draw analysis:', e.message);
-        }
-    }
 }
+
+function _engineFor(botId) {
+    if (!ChartManager.isSplitMode() && botId === focusedBotId) {
+        return ChartManager.mainEngine();
+    }
+    return ChartManager.get(botId);
+}
+
+function subscribeBot(bot) {
+    Notify.request();
+    
+    // For Jump75 strategy, subscribe to M5, M15, and H4
+    if (bot.config.strategy === 'jump75') {
+        api.subscribe(bot.config.symbol, 300);   // M5
+        api.subscribe(bot.config.symbol, 900);   // M15
+        api.subscribe(bot.config.symbol, 14400); // H4
+        log(`Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
+        return;
+    }
+    
+    const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
+    bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
+        ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
+        : 14400;
+    api.subscribe(bot.config.symbol, bot.config.tf);
+    api.subscribe(bot.config.symbol, bot.htfGran);
+    const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
+    log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + ${htfLabel}`, 'info');
+}
+
 
 /**
  * Get recommended analysis config for each strategy
@@ -963,16 +957,6 @@ function handleData(data) {
                         bot.lastH4CloseTime = candle.time;
                     });
                 }
-                if (gran === 14400) {
-            bot.h4Candles.push(bar);
-            if (bot.h4Candles.length > 30) bot.h4Candles.shift();
-            bot.lastH4CloseTime = bar.time;
-            
-            // ✅ NEW: Update H4 levels on chart if bot is focused
-            if (bot.config.strategy === 'jump75' && bot.id === focusedBotId) {
-                _updateChartH4Levels(bot.id, bot);
-            }
-        }
             }
             
             // Store original candles for all strategies
@@ -1226,14 +1210,13 @@ async function _runJump75(bot, bar, atr, rsi) {
         return null;
     }
     
-    // ✅ TEST MODE: Generate test signals periodically (MOVED INSIDE FUNCTION)
-    const JUMP75_TEST_MODE = false; // Set to false for production
+    // TEST MODE - Set to false for production
+    const JUMP75_TEST_MODE = false;
     
     if (JUMP75_TEST_MODE && m5Count > 10) {
-        if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) { // Every minute
+        if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) {
             bot._lastTestSignal = now;
             
-            // Determine direction based on recent price action
             const lastFew = bot.m5Candles.slice(-5);
             const isUptrend = lastFew[lastFew.length - 1].close > lastFew[0].close;
             
@@ -1256,9 +1239,7 @@ async function _runJump75(bot, bar, atr, rsi) {
         }
     }
     
-    // ─────────────────────────────────────────────────────────────
-    // REAL STRATEGY - Only runs if test mode didn't fire
-    // ─────────────────────────────────────────────────────────────
+    // REAL STRATEGY
     try {
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
