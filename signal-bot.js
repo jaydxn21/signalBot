@@ -1028,7 +1028,7 @@ async function _runJump75(bot, bar, atr, rsi) {
     }
     
     // ✅ TEST MODE: Generate test signals periodically (MOVED INSIDE FUNCTION)
-    const JUMP75_TEST_MODE = true; // Set to false for production
+    const JUMP75_TEST_MODE = false; // Set to false for production
     
     if (JUMP75_TEST_MODE && m5Count > 10) {
         if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) { // Every minute
