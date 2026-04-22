@@ -708,12 +708,12 @@ function _drawBotAnalysis(botId, bot) {
     }
 }
 
-// function _engineFor(botId) {
-//     if (!ChartManager.isSplitMode() && botId === focusedBotId) {
-//         return ChartManager.mainEngine();
-//     }
-//     return ChartManager.get(botId);
-// }
+function _engineFor(botId) {
+    if (!ChartManager.isSplitMode() && botId === focusedBotId) {
+        return ChartManager.mainEngine();
+    }
+    return ChartManager.get(botId);
+}
 
 function subscribeBot(bot) {
     Notify.request();
@@ -882,6 +882,9 @@ function subscribeBot(bot) {
 // ─────────────────────────────────────────────────────────────
 // HANDLE DERIV API DATA
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// HANDLE DERIV API DATA - CORRECTED VERSION
+// ─────────────────────────────────────────────────────────────
 function handleData(data) {
     if (data.error) {
         const req = data.echo_req || {};
@@ -901,7 +904,7 @@ function handleData(data) {
     if (data.msg_type === 'authorize') {
         authorised = true;
         document.getElementById('connection-indicator').className = 'status-dot status-online';
-        document.getElementById('conn-label').textContent         = 'Online';
+        document.getElementById('conn-label').textContent = 'Online';
         log('Terminal authorized — connection established', 'info');
         api.fetchActiveSymbols();
         SessionState.set({ connected: true });
@@ -917,24 +920,23 @@ function handleData(data) {
     }
 
     if (data.msg_type === 'candles') {
-        const gran    = data.echo_req.granularity;
-        const symbol  = data.echo_req.ticks_history;
+        const gran = data.echo_req.granularity;
+        const symbol = data.echo_req.ticks_history;
         const history = data.candles.map(c => ({
-            time:  parseInt(c.epoch),
-            open:  parseFloat(c.open),
-            high:  parseFloat(c.high),
-            low:   parseFloat(c.low),
+            time: parseInt(c.epoch),
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
             close: parseFloat(c.close)
         }));
 
-        // Feed candles to Jump75 bot storage arrays
         Object.values(bots).forEach(bot => {
             if (!bot.isActive) return;
             if (bot.config.symbol !== symbol) return;
             
-            // Only store candles for Jump75 strategy
+            // Store candles for Jump75 strategy
             if (bot.config.strategy === 'jump75') {
-                if (gran === 300) { // M5
+                if (gran === 300) {
                     history.forEach(candle => {
                         bot.m5Candles.push(candle);
                         if (bot.m5Candles.length > 100) bot.m5Candles.shift();
@@ -942,7 +944,7 @@ function handleData(data) {
                     });
                 }
                 
-                if (gran === 900) { // M15
+                if (gran === 900) {
                     history.forEach(candle => {
                         bot.m15Candles.push(candle);
                         if (bot.m15Candles.length > 50) bot.m15Candles.shift();
@@ -950,7 +952,7 @@ function handleData(data) {
                     });
                 }
                 
-                if (gran === 14400) { // H4
+                if (gran === 14400) {
                     history.forEach(candle => {
                         bot.h4Candles.push(candle);
                         if (bot.h4Candles.length > 30) bot.h4Candles.shift();
@@ -971,7 +973,10 @@ function handleData(data) {
                         const current = {};
                         OVERLAY_IDS.forEach(oid => {
                             const el = document.getElementById(oid);
-                            if (el) { current[oid] = el.checked; el.checked = saved[oid] || false; }
+                            if (el) {
+                                current[oid] = el.checked;
+                                el.checked = saved[oid] || false;
+                            }
                         });
                         _drawOverlaysOnEngine(eng, bot);
                         OVERLAY_IDS.forEach(oid => {
@@ -993,13 +998,13 @@ function handleData(data) {
     }
 
     if (data.msg_type === 'ohlc') {
-        const gran   = data.echo_req.granularity;
+        const gran = data.echo_req.granularity;
         const symbol = data.ohlc.symbol || data.echo_req.ticks_history;
-        const bar    = {
-            time:  parseInt(data.ohlc.open_time),
-            open:  parseFloat(data.ohlc.open),
-            high:  parseFloat(data.ohlc.high),
-            low:   parseFloat(data.ohlc.low),
+        const bar = {
+            time: parseInt(data.ohlc.open_time),
+            open: parseFloat(data.ohlc.open),
+            high: parseFloat(data.ohlc.high),
+            low: parseFloat(data.ohlc.low),
             close: parseFloat(data.ohlc.close)
         };
         Object.values(bots).forEach(bot => {
