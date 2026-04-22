@@ -1025,72 +1025,96 @@ const JUMP75_TEST_MODE = true; // Set to false for normal operation
 // ─────────────────────────────────────────────────────────────
 // JUMP75 RUNNER - COMPLETE FIXED VERSION
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// JUMP75 RUNNER - COMPLETE FIXED VERSION
+// ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     // Only trade Jump indices (JD10, JD25, JD50, JD75, JD100)
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(bot.config.symbol)) {
-        console.log(`[Jump75] Symbol ${bot.config.symbol} not a Jump index`);
         return null;
     }
     
-    // ✅ FIX 1: Check candle buffer status with detailed logging
+    // Check candle buffer status
     if (!bot.m5Candles || !bot.m15Candles || !bot.h4Candles) {
-        console.log('[Jump75] ⚠️ Buffers not initialized yet');
         return null;
     }
     
-    const m5Count  = bot.m5Candles.length;
+    const m5Count = bot.m5Candles.length;
     const m15Count = bot.m15Candles.length;
-    const h4Count  = bot.h4Candles.length;
+    const h4Count = bot.h4Candles.length;
     
-    console.log(`[Jump75-DEBUG] Candle counts: M5=${m5Count}, M15=${m15Count}, H4=${h4Count} | Need: M5≥10, M15≥10, H4≥5`);
+    // Log candle counts occasionally
+    if (!bot._lastCandleLog || Date.now() - bot._lastCandleLog > 60000) {
+        console.log(`[Jump75-${bot.config.symbol}] Candles: M5=${m5Count}, M15=${m15Count}, H4=${h4Count}`);
+        bot._lastCandleLog = Date.now();
+    }
     
-    // ✅ FIX 2: More lenient candle requirements (easier to test)
+    // Minimum candle requirements
     if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
-        if (m5Count === 0 || m15Count === 0 || h4Count === 0) {
-            console.log('[Jump75] ⚠️ CRITICAL: Missing candle data - subscription may have failed');
-        }
         return null;
     }
     
-    // ✅ FIX 3: Ensure ATR is valid
+    // Ensure ATR is valid
     if (!atr || atr === 0 || !isFinite(atr)) {
-        console.log(`[Jump75] ⚠️ Invalid ATR: ${atr}`);
         return null;
     }
     
-    try {
-        console.log('[Jump75] 🔍 Calling Jump75Strategy.checkEntry...');
+    // Check cooldown
+    const now = Date.now();
+    const cooldownMs = 30000; // 30 seconds
+    
+    if ((now - bot.lastFiredMs) < cooldownMs) {
+        return null;
+    }
+    
+    // ✅ TEST MODE: Generate test signal every 2 minutes
+    // Remove this block in production
+    if (!bot._testSignalTime || now - bot._testSignalTime > 120000) {
+        bot._testSignalTime = now;
         
-        // ✅ FIX 4: PROPERLY AWAIT the async function
+        // Simple trend detection
+        const lastFew = bot.m5Candles.slice(-10);
+        const firstClose = lastFew[0]?.close || bar.close;
+        const lastClose = lastFew[lastFew.length - 1]?.close || bar.close;
+        const isUptrend = lastClose > firstClose;
+        
+        const testSignal = {
+            type: isUptrend ? 'LONG' : 'SHORT',
+            direction: isUptrend ? 'LONG' : 'SHORT',
+            score: 75,
+            factors: ['🧪 TEST MODE', isUptrend ? 'M5 Uptrend' : 'M5 Downtrend'],
+            tpMultiplier: 1.5,
+            slMultiplier: 1.0,
+            isJump75: true
+        };
+        
+        console.log(`[Jump75-TEST] 🔔 Generating test ${testSignal.type} signal at ${bar.close.toFixed(4)}`);
+        log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)} (TEST MODE)`, 
+            testSignal.type === 'LONG' ? 'buy' : 'sell');
+        
+        bot.lastFiredMs = now;
+        fireSignal(bot, testSignal, bar, atr, rsi, null);
+        return testSignal;
+    }
+    
+    // ─────────────────────────────────────────────────────────────
+    // REAL STRATEGY - Only runs if test mode didn't fire
+    // ─────────────────────────────────────────────────────────────
+    try {
         const signal = await Jump75Strategy.checkEntry(
-            bot.m5Candles,   // M5 array
-            bot.m15Candles,  // M15 array
-            bot.h4Candles,   // H4 array
+            bot.m5Candles,
+            bot.m15Candles,
+            bot.h4Candles,
             atr
         );
         
         if (!signal) {
-            // Only log periodically to avoid spam
-            if (Math.random() < 0.05) {
-                console.log('[Jump75] No signal this candle (waiting for setup)');
-            }
             return null;
         }
         
-        console.log('[Jump75] ✅ SIGNAL RETURNED!', signal);
+        console.log(`[Jump75] ✅ Signal detected!`, signal);
         
-        const now = Date.now();
-        const cooldownMs = 30000; // 30 second cooldown
-        
-        if ((now - bot.lastFiredMs) < cooldownMs) {
-            console.log('[Jump75] ⏱️ Cooldown active, skipping');
-            return null;
-        }
-        
-        bot.lastFiredMs = now;
-        
-        // ✅ FIX 5: Safely extract signal properties
         const signalType = signal.type || signal.direction || 'BUY/SELL';
         const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
         const factorsText = (signal.factors && Array.isArray(signal.factors)) 
@@ -1100,16 +1124,13 @@ async function _runJump75(bot, bar, atr, rsi) {
         log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
             displayType === 'BUY' ? 'buy' : 'sell');
         
-        console.log('[Jump75] 🎯 FIRING SIGNAL:', { displayType, price: bar.close, factors: signal.factors });
-        
-        // ✅ FIX 6: Pass signal to fireSignal
+        bot.lastFiredMs = now;
         fireSignal(bot, signal, bar, atr, rsi, null);
         
         return signal;
         
     } catch (error) {
-        console.error('[Jump75] ❌ CRITICAL ERROR:', error);
-        log(`🦘 JUMP75 error: ${error.message}`, 'warn');
+        console.error('[Jump75] ❌ Error:', error);
         return null;
     }
 }
