@@ -857,27 +857,27 @@ function _engineFor(botId) {
     return ChartManager.get(botId);
 }
 
-function subscribeBot(bot) {
-    Notify.request();
+// function subscribeBot(bot) {
+//     Notify.request();
     
-    // For Jump75 strategy, subscribe to M5, M15, and H4
-    if (bot.config.strategy === 'jump75') {
-        api.subscribe(bot.config.symbol, 300);   // M5
-        api.subscribe(bot.config.symbol, 900);   // M15
-        api.subscribe(bot.config.symbol, 14400); // H4
-        log(`Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
-        return;
-    }
+//     // For Jump75 strategy, subscribe to M5, M15, and H4
+//     if (bot.config.strategy === 'jump75') {
+//         api.subscribe(bot.config.symbol, 300);   // M5
+//         api.subscribe(bot.config.symbol, 900);   // M15
+//         api.subscribe(bot.config.symbol, 14400); // H4
+//         log(`Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
+//         return;
+//     }
     
-    const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
-    bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
-        ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
-        : 14400;
-    api.subscribe(bot.config.symbol, bot.config.tf);
-    api.subscribe(bot.config.symbol, bot.htfGran);
-    const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
-    log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + ${htfLabel}`, 'info');
-}
+//     const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
+//     bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
+//         ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
+//         : 14400;
+//     api.subscribe(bot.config.symbol, bot.config.tf);
+//     api.subscribe(bot.config.symbol, bot.htfGran);
+//     const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
+//     log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + ${htfLabel}`, 'info');
+// }
 
 // ─────────────────────────────────────────────────────────────
 // HANDLE DERIV API DATA
