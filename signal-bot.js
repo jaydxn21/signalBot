@@ -1062,18 +1062,16 @@ async function _runJump75(bot, bar, atr, rsi) {
     
     // Check cooldown
     const now = Date.now();
-    const cooldownMs = 30000; // 30 seconds
+    const cooldownMs = 30000;
     
     if ((now - bot.lastFiredMs) < cooldownMs) {
         return null;
     }
     
-    // ✅ TEST MODE: Generate test signal every 2 minutes
-    // Remove this block in production
+    // TEST MODE: Generate test signal every 2 minutes
     if (!bot._testSignalTime || now - bot._testSignalTime > 120000) {
         bot._testSignalTime = now;
         
-        // Simple trend detection
         const lastFew = bot.m5Candles.slice(-10);
         const firstClose = lastFew[0]?.close || bar.close;
         const lastClose = lastFew[lastFew.length - 1]?.close || bar.close;
@@ -1089,8 +1087,8 @@ async function _runJump75(bot, bar, atr, rsi) {
             isJump75: true
         };
         
-        console.log(`[Jump75-TEST] 🔔 Generating test ${testSignal.type} signal at ${bar.close.toFixed(4)}`);
-        log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)} (TEST MODE)`, 
+        console.log(`[Jump75-TEST] Test signal at ${bar.close.toFixed(4)}`);
+        log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)}`, 
             testSignal.type === 'LONG' ? 'buy' : 'sell');
         
         bot.lastFiredMs = now;
@@ -1098,9 +1096,7 @@ async function _runJump75(bot, bar, atr, rsi) {
         return testSignal;
     }
     
-    // ─────────────────────────────────────────────────────────────
-    // REAL STRATEGY - Only runs if test mode didn't fire
-    // ─────────────────────────────────────────────────────────────
+    // Real strategy
     try {
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
@@ -1113,7 +1109,7 @@ async function _runJump75(bot, bar, atr, rsi) {
             return null;
         }
         
-        console.log(`[Jump75] ✅ Signal detected!`, signal);
+        console.log(`[Jump75] Signal detected!`, signal);
         
         const signalType = signal.type || signal.direction || 'BUY/SELL';
         const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
@@ -1130,7 +1126,7 @@ async function _runJump75(bot, bar, atr, rsi) {
         return signal;
         
     } catch (error) {
-        console.error('[Jump75] ❌ Error:', error);
+        console.error('[Jump75] Error:', error);
         return null;
     }
 }
