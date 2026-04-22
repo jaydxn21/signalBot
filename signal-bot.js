@@ -708,12 +708,12 @@ function _drawBotAnalysis(botId, bot) {
     }
 }
 
-function _engineFor(botId) {
-    if (!ChartManager.isSplitMode() && botId === focusedBotId) {
-        return ChartManager.mainEngine();
-    }
-    return ChartManager.get(botId);
-}
+// function _engineFor(botId) {
+//     if (!ChartManager.isSplitMode() && botId === focusedBotId) {
+//         return ChartManager.mainEngine();
+//     }
+//     return ChartManager.get(botId);
+// }
 
 function subscribeBot(bot) {
     Notify.request();
