@@ -986,48 +986,9 @@ function processBar(bot, bar, gran) {
     }
 }
 
-// Add this near the top of signal-bot.js after imports
-// TEST MODE: Force more frequent signals (remove in production)
-const JUMP75_TEST_MODE = true; // Set to false for normal operation
-
-// Then modify the _runJump75 function to include test signals
-// Add this right after the candle count check in _runJump75:
-
-    // ✅ TEST MODE: Generate test signals periodically
-    if (JUMP75_TEST_MODE && m5Count > 10) {
-        const now = Date.now();
-        if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) { // Every minute
-            bot._lastTestSignal = now;
-            
-            // Determine direction based on recent price action
-            const lastFew = bot.m5Candles.slice(-5);
-            const isUptrend = lastFew[lastFew.length - 1].close > lastFew[0].close;
-            
-            const testSignal = {
-                type: isUptrend ? 'LONG' : 'SHORT',
-                score: 70,
-                factors: ['🧪 TEST MODE', isUptrend ? 'Uptrend detected' : 'Downtrend detected'],
-                tpMultiplier: 1.5,
-                slMultiplier: 1.0,
-                isJump75: true
-            };
-            
-            console.log(`[Jump75-TEST] Generating test ${testSignal.type} signal`);
-            log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)} (TEST MODE)`, 
-                testSignal.type === 'LONG' ? 'buy' : 'sell');
-            
-            fireSignal(bot, testSignal, bar, atr, rsi, null);
-            bot.lastFiredMs = now;
-            return testSignal;
-        }
-    }
-
-// ============================================================
-// QUICK FIX for Jump75 Syntax Error
-// ============================================================
-// Replace the _runJump75 function in signal-bot.js with this version
-// This fixes the "Illegal return statement" error at line 1021
-
+// ─────────────────────────────────────────────────────────────
+// JUMP75 RUNNER - COMPLETE FIXED VERSION
+// ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     // Only trade Jump indices
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
@@ -1060,45 +1021,45 @@ async function _runJump75(bot, bar, atr, rsi) {
         return null;
     }
     
-    // Cooldown check
+    // Check cooldown
     const now = Date.now();
     if ((now - bot.lastFiredMs) < 30000) {
         return null;
     }
     
-    // ✅ TEST MODE - generates signal every 2 minutes for testing
-    // Set to false for production when real Jump75 strategy is ready
-    const JUMP75_TEST_MODE = true;
+    // ✅ TEST MODE: Generate test signals periodically (MOVED INSIDE FUNCTION)
+    const JUMP75_TEST_MODE = true; // Set to false for production
     
-    if (JUMP75_TEST_MODE && (!bot._testSignalTime || now - bot._testSignalTime > 120000)) {
-        bot._testSignalTime = now;
-        
-        // Simple trend detection from recent candles
-        const lastFew = bot.m5Candles.slice(-10);
-        const firstClose = lastFew[0]?.close || bar.close;
-        const lastClose = lastFew[lastFew.length - 1]?.close || bar.close;
-        const isUptrend = lastClose > firstClose;
-        
-        const testSignal = {
-            type: isUptrend ? 'LONG' : 'SHORT',
-            direction: isUptrend ? 'LONG' : 'SHORT',
-            score: 75,
-            factors: ['🧪 TEST MODE', isUptrend ? 'Uptrend detected' : 'Downtrend detected'],
-            tpMultiplier: 1.5,
-            slMultiplier: 1.0,
-            isJump75: true
-        };
-        
-        console.log(`[Jump75-TEST] Test signal generated: ${testSignal.type} @ ${bar.close.toFixed(4)}`);
-        log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)}`, 
-            testSignal.type === 'LONG' ? 'buy' : 'sell');
-        
-        bot.lastFiredMs = now;
-        fireSignal(bot, testSignal, bar, atr, rsi, null);
-        return testSignal;
+    if (JUMP75_TEST_MODE && m5Count > 10) {
+        if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) { // Every minute
+            bot._lastTestSignal = now;
+            
+            // Determine direction based on recent price action
+            const lastFew = bot.m5Candles.slice(-5);
+            const isUptrend = lastFew[lastFew.length - 1].close > lastFew[0].close;
+            
+            const testSignal = {
+                type: isUptrend ? 'LONG' : 'SHORT',
+                score: 70,
+                factors: ['🧪 TEST MODE', isUptrend ? 'Uptrend detected' : 'Downtrend detected'],
+                tpMultiplier: 1.5,
+                slMultiplier: 1.0,
+                isJump75: true
+            };
+            
+            console.log(`[Jump75-TEST] Generating test ${testSignal.type} signal at ${bar.close.toFixed(4)}`);
+            log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)} (TEST MODE)`, 
+                testSignal.type === 'LONG' ? 'buy' : 'sell');
+            
+            fireSignal(bot, testSignal, bar, atr, rsi, null);
+            bot.lastFiredMs = now;
+            return testSignal;
+        }
     }
     
-    // Real Jump75 strategy when ready
+    // ─────────────────────────────────────────────────────────────
+    // REAL STRATEGY - Only runs if test mode didn't fire
+    // ─────────────────────────────────────────────────────────────
     try {
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
@@ -1126,13 +1087,10 @@ async function _runJump75(bot, bar, atr, rsi) {
         return signal;
         
     } catch (error) {
-        console.error('[Jump75] Strategy error:', error);
+        console.error('[Jump75] Error:', error);
         return null;
     }
 }
-// ============================================================
-// END OF _runJump75 FUNCTION
-// ============================================================
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM MULTI-TF CANDLE BUFFERS
