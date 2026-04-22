@@ -1022,20 +1022,20 @@ const JUMP75_TEST_MODE = true; // Set to false for normal operation
         }
     }
 
-// ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - COMPLETE FIXED VERSION
-// ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - COMPLETE FIXED VERSION
-// ─────────────────────────────────────────────────────────────
+// ============================================================
+// QUICK FIX for Jump75 Syntax Error
+// ============================================================
+// Replace the _runJump75 function in signal-bot.js with this version
+// This fixes the "Illegal return statement" error at line 1021
+
 async function _runJump75(bot, bar, atr, rsi) {
-    // Only trade Jump indices (JD10, JD25, JD50, JD75, JD100)
+    // Only trade Jump indices
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(bot.config.symbol)) {
         return null;
     }
     
-    // Check candle buffer status
+    // Check candle buffers
     if (!bot.m5Candles || !bot.m15Candles || !bot.h4Candles) {
         return null;
     }
@@ -1044,34 +1044,36 @@ async function _runJump75(bot, bar, atr, rsi) {
     const m15Count = bot.m15Candles.length;
     const h4Count = bot.h4Candles.length;
     
-    // Log candle counts occasionally
+    // Log occasionally
     if (!bot._lastCandleLog || Date.now() - bot._lastCandleLog > 60000) {
-        console.log(`[Jump75-${bot.config.symbol}] Candles: M5=${m5Count}, M15=${m15Count}, H4=${h4Count}`);
+        console.log(`[Jump75] Candles: M5=${m5Count}, M15=${m15Count}, H4=${h4Count}`);
         bot._lastCandleLog = Date.now();
     }
     
-    // Minimum candle requirements
+    // Minimum requirements
     if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
         return null;
     }
     
-    // Ensure ATR is valid
+    // Validate ATR
     if (!atr || atr === 0 || !isFinite(atr)) {
         return null;
     }
     
-    // Check cooldown
+    // Cooldown check
     const now = Date.now();
-    const cooldownMs = 30000;
-    
-    if ((now - bot.lastFiredMs) < cooldownMs) {
+    if ((now - bot.lastFiredMs) < 30000) {
         return null;
     }
     
-    // TEST MODE: Generate test signal every 2 minutes
-    if (!bot._testSignalTime || now - bot._testSignalTime > 120000) {
+    // ✅ TEST MODE - generates signal every 2 minutes for testing
+    // Set to false for production when real Jump75 strategy is ready
+    const JUMP75_TEST_MODE = true;
+    
+    if (JUMP75_TEST_MODE && (!bot._testSignalTime || now - bot._testSignalTime > 120000)) {
         bot._testSignalTime = now;
         
+        // Simple trend detection from recent candles
         const lastFew = bot.m5Candles.slice(-10);
         const firstClose = lastFew[0]?.close || bar.close;
         const lastClose = lastFew[lastFew.length - 1]?.close || bar.close;
@@ -1081,13 +1083,13 @@ async function _runJump75(bot, bar, atr, rsi) {
             type: isUptrend ? 'LONG' : 'SHORT',
             direction: isUptrend ? 'LONG' : 'SHORT',
             score: 75,
-            factors: ['🧪 TEST MODE', isUptrend ? 'M5 Uptrend' : 'M5 Downtrend'],
+            factors: ['🧪 TEST MODE', isUptrend ? 'Uptrend detected' : 'Downtrend detected'],
             tpMultiplier: 1.5,
             slMultiplier: 1.0,
             isJump75: true
         };
         
-        console.log(`[Jump75-TEST] Test signal at ${bar.close.toFixed(4)}`);
+        console.log(`[Jump75-TEST] Test signal generated: ${testSignal.type} @ ${bar.close.toFixed(4)}`);
         log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)}`, 
             testSignal.type === 'LONG' ? 'buy' : 'sell');
         
@@ -1096,7 +1098,7 @@ async function _runJump75(bot, bar, atr, rsi) {
         return testSignal;
     }
     
-    // Real strategy
+    // Real Jump75 strategy when ready
     try {
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
@@ -1108,8 +1110,6 @@ async function _runJump75(bot, bar, atr, rsi) {
         if (!signal) {
             return null;
         }
-        
-        console.log(`[Jump75] Signal detected!`, signal);
         
         const signalType = signal.type || signal.direction || 'BUY/SELL';
         const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
@@ -1126,10 +1126,13 @@ async function _runJump75(bot, bar, atr, rsi) {
         return signal;
         
     } catch (error) {
-        console.error('[Jump75] Error:', error);
+        console.error('[Jump75] Strategy error:', error);
         return null;
     }
 }
+// ============================================================
+// END OF _runJump75 FUNCTION
+// ============================================================
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM MULTI-TF CANDLE BUFFERS
