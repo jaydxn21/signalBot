@@ -1,5 +1,4 @@
-// js/strategies/jump75.js - IMPROVED VERSION
-// Better entries, tighter stops, higher RR
+// js/strategies/jump75.js - WITH TREND BIAS
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -11,87 +10,111 @@ export const Jump75Strategy = {
         
         // Rate limit - trade every 3 minutes minimum
         const now = Date.now();
-        if (now - this._lastTradeTime < 180000) { // 3 minutes
+        if (now - this._lastTradeTime < 180000) {
             return null;
         }
         
         // Stop after 2 consecutive losses
         if (this._consecutiveLosses >= 2) {
-            if (this._tradeCount % 20 === 0) {
-                console.log(`[Jump75] Paused after ${this._consecutiveLosses} losses`);
-            }
-            // Reset after 10 minutes
             if (now - this._lastTradeTime > 600000) {
                 this._consecutiveLosses = 0;
-                console.log(`[Jump75] Auto-reset after timeout`);
+                console.log(`[Jump75] Reset after timeout`);
             }
             return null;
         }
         
         // Validate data
-        if (!m5Candles || m5Candles.length < 15) return null;
+        if (!m5Candles || m5Candles.length < 20) return null;
+        if (!m15Candles || m15Candles.length < 10) return null;
+        if (!h4Candles || h4Candles.length < 5) return null;
         if (!atr || atr <= 0) return null;
         
         const latestM5 = m5Candles[m5Candles.length - 1];
         const prevM5 = m5Candles[m5Candles.length - 2];
-        const prevM5_5 = m5Candles[m5Candles.length - 6];
-        const prevM5_10 = m5Candles[m5Candles.length - 11];
         
-        // Calculate multiple timeframe trends
-        const trend5 = latestM5.close - prevM5_5.close;
-        const trend10 = latestM5.close - prevM5_10.close;
+        // ============================================================
+        // DETERMINE MARKET TREND using multiple timeframes
+        // ============================================================
         
-        // Require both trends to agree
-        const isUptrend = trend5 > 0 && trend10 > 0;
-        const isDowntrend = trend5 < 0 && trend10 < 0;
+        // M5 trend (20 candles)
+        const m5Trend = this._getTrend(m5Candles, 20);
         
-        if (!isUptrend && !isDowntrend) {
-            return null; // Mixed signals - no trade
+        // M15 trend (10 candles)
+        const m15Trend = this._getTrend(m15Candles, 10);
+        
+        // H4 trend (5 candles - about 1 day)
+        const h4Trend = this._getTrend(h4Candles, 5);
+        
+        // Log trend status periodically
+        if (this._tradeCount % 20 === 0) {
+            console.log(`[Jump75] Trends - M5:${m5Trend} M15:${m15Trend} H4:${h4Trend} | Price: ${latestM5.close.toFixed(2)}`);
         }
         
-        const direction = isUptrend ? 'LONG' : 'SHORT';
+        // ============================================================
+        // ONLY TRADE WITH THE H4 TREND (Higher timeframe bias)
+        // ============================================================
         
-        // Calculate momentum with higher threshold
-        const momentum = Math.abs(latestM5.close - prevM5.close) / atr;
-        
-        // Require stronger momentum for entry
-        if (momentum < 0.7) {
+        // Don't trade if H4 trend is unclear
+        if (h4Trend === 'neutral') {
             return null;
         }
         
-        // Check for pullback to value area
-        const ema21 = this._calculateEMA(m5Candles, 21);
-        if (ema21) {
-            const distanceToEMA = Math.abs(latestM5.close - ema21);
-            const isNearEMA = distanceToEMA < atr * 0.3;
-            
-            // For LONG: want price near or above EMA21 in uptrend
-            // For SHORT: want price near or below EMA21 in downtrend
-            if (isUptrend && latestM5.close < ema21 - atr * 0.2) {
-                return null; // Too far below EMA in uptrend
-            }
-            if (isDowntrend && latestM5.close > ema21 + atr * 0.2) {
-                return null; // Too far above EMA in downtrend
-            }
+        // Calculate momentum
+        const momentum = Math.abs(latestM5.close - prevM5.close) / atr;
+        
+        // Require reasonable momentum
+        if (momentum < 0.5) {
+            return null;
         }
         
-        // Calculate better SL and TP (2:1 reward)
-        const slDist = atr * 0.6;  // Tighter stop
-        const tpDist = atr * 1.2;  // 2:1 reward
+        // Check if we should take a trade
+        let direction = null;
+        let confidence = 0;
+        
+        // LONG signal: H4 uptrend + M5 uptrend (alignment)
+        if (h4Trend === 'bullish' && m5Trend === 'bullish' && momentum > 0.6) {
+            direction = 'LONG';
+            confidence = 75;
+        }
+        // SHORT signal: H4 downtrend + M5 downtrend (alignment)
+        else if (h4Trend === 'bearish' && m5Trend === 'bearish' && momentum > 0.6) {
+            direction = 'SHORT';
+            confidence = 75;
+        }
+        // WEAKER SIGNAL: Only M15 alignment with H4
+        else if (h4Trend === 'bullish' && m15Trend === 'bullish' && momentum > 0.8) {
+            direction = 'LONG';
+            confidence = 65;
+        }
+        else if (h4Trend === 'bearish' && m15Trend === 'bearish' && momentum > 0.8) {
+            direction = 'SHORT';
+            confidence = 65;
+        }
+        
+        if (!direction) {
+            return null;
+        }
+        
+        // Calculate SL and TP (2:1 reward)
+        const slDist = atr * 0.6;
+        const tpDist = atr * 1.2;
         const rr = tpDist / slDist;
         
         this._lastTradeTime = now;
         
-        console.log(`[Jump75] 🎯 ${direction} SIGNAL - Price: ${latestM5.close.toFixed(4)} | Mom: ${momentum.toFixed(2)} | RR: ${rr.toFixed(2)}:1`);
+        console.log(`[Jump75] 🎯 ${direction} SIGNAL!`);
+        console.log(`   Price: ${latestM5.close.toFixed(4)} | Momentum: ${momentum.toFixed(2)}`);
+        console.log(`   Trends: H4=${h4Trend} M15=${m15Trend} M5=${m5Trend}`);
+        console.log(`   RR: ${rr.toFixed(2)}:1 | Confidence: ${confidence}`);
         
         return {
             type: direction,
             direction: direction,
-            score: 75,
+            score: confidence,
             factors: [
                 `${direction === 'LONG' ? '📈' : '📉'} ${direction}`,
+                `H4 ${h4Trend === 'bullish' ? '↑' : '↓'} trend`,
                 `Momentum ${momentum.toFixed(1)}x`,
-                `Trend aligned`,
                 `RR ${rr.toFixed(1)}:1`
             ],
             tpMultiplier: 1.2,
@@ -102,14 +125,35 @@ export const Jump75Strategy = {
         };
     },
     
-    _calculateEMA(candles, period) {
-        if (!candles || candles.length < period) return null;
-        const k = 2 / (period + 1);
-        let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
-        for (let i = period; i < candles.length; i++) {
-            ema = candles[i].close * k + ema * (1 - k);
+    // Helper to determine trend direction
+    _getTrend(candles, lookback) {
+        if (!candles || candles.length < lookback + 1) return 'neutral';
+        
+        const recent = candles.slice(-lookback);
+        const closes = recent.map(c => c.close);
+        const highs = recent.map(c => c.high);
+        const lows = recent.map(c => c.low);
+        
+        const startClose = closes[0];
+        const endClose = closes[closes.length - 1];
+        const highestHigh = Math.max(...highs);
+        const lowestLow = Math.min(...lows);
+        const range = highestHigh - lowestLow;
+        
+        // Calculate price change percentage relative to range
+        const change = endClose - startClose;
+        const changePercent = Math.abs(change) / range;
+        
+        // Bullish: price up and near highs
+        if (change > 0 && changePercent > 0.3) {
+            return 'bullish';
         }
-        return ema;
+        // Bearish: price down and near lows
+        if (change < 0 && changePercent > 0.3) {
+            return 'bearish';
+        }
+        
+        return 'neutral';
     },
     
     checkClose(currentCandle, trade) {
@@ -118,23 +162,23 @@ export const Jump75Strategy = {
         if (trade.type === 'LONG' || trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
                 this._consecutiveLosses = 0;
-                console.log(`[Jump75] ✅ TP HIT! Profit taken`);
+                console.log(`[Jump75] ✅ LONG TP HIT! Profit: ${(currentCandle.close - trade.entry).toFixed(4)}`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.low <= trade.sl) {
                 this._consecutiveLosses++;
-                console.log(`[Jump75] ❌ SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
+                console.log(`[Jump75] ❌ LONG SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         } else {
             if (currentCandle.low <= trade.tp) {
                 this._consecutiveLosses = 0;
-                console.log(`[Jump75] ✅ TP HIT! Profit taken`);
+                console.log(`[Jump75] ✅ SHORT TP HIT! Profit: ${(trade.entry - currentCandle.close).toFixed(4)}`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.high >= trade.sl) {
                 this._consecutiveLosses++;
-                console.log(`[Jump75] ❌ SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
+                console.log(`[Jump75] ❌ SHORT SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         }
