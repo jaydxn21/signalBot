@@ -1,85 +1,115 @@
-// js/strategies/jump75.js - WORKING VERSION
-// This WILL generate trades
+// js/strategies/jump75.js - IMPROVED VERSION
+// Better entries, tighter stops, higher RR
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
     _tradeCount: 0,
+    _consecutiveLosses: 0,
     
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        // Always log first few calls to verify it's being called
         this._tradeCount++;
         
-        if (this._tradeCount <= 10) {
-            console.log(`[Jump75Strategy] Called #${this._tradeCount} - M5 candles: ${m5Candles?.length || 0}`);
-        }
-        
-        // Simple rate limiting - trade every 2 minutes
+        // Rate limit - trade every 3 minutes minimum
         const now = Date.now();
-        if (now - this._lastTradeTime < 120000) { // 2 minutes
+        if (now - this._lastTradeTime < 180000) { // 3 minutes
             return null;
         }
         
-        // Validate we have enough candles
-        if (!m5Candles || m5Candles.length < 10) {
-            if (this._tradeCount % 50 === 0) {
-                console.log(`[Jump75Strategy] Waiting for candles: ${m5Candles?.length || 0}/10`);
+        // Stop after 2 consecutive losses
+        if (this._consecutiveLosses >= 2) {
+            if (this._tradeCount % 20 === 0) {
+                console.log(`[Jump75] Paused after ${this._consecutiveLosses} losses`);
+            }
+            // Reset after 10 minutes
+            if (now - this._lastTradeTime > 600000) {
+                this._consecutiveLosses = 0;
+                console.log(`[Jump75] Auto-reset after timeout`);
             }
             return null;
         }
         
-        if (!atr || atr <= 0) {
-            return null;
-        }
+        // Validate data
+        if (!m5Candles || m5Candles.length < 15) return null;
+        if (!atr || atr <= 0) return null;
         
         const latestM5 = m5Candles[m5Candles.length - 1];
         const prevM5 = m5Candles[m5Candles.length - 2];
+        const prevM5_5 = m5Candles[m5Candles.length - 6];
         const prevM5_10 = m5Candles[m5Candles.length - 11];
         
-        if (!latestM5 || !prevM5) return null;
-        
-        // Simple trading logic: follow the 10-candle trend
+        // Calculate multiple timeframe trends
+        const trend5 = latestM5.close - prevM5_5.close;
         const trend10 = latestM5.close - prevM5_10.close;
-        const direction = trend10 > 0 ? 'LONG' : 'SHORT';
         
-        // Simple momentum filter
+        // Require both trends to agree
+        const isUptrend = trend5 > 0 && trend10 > 0;
+        const isDowntrend = trend5 < 0 && trend10 < 0;
+        
+        if (!isUptrend && !isDowntrend) {
+            return null; // Mixed signals - no trade
+        }
+        
+        const direction = isUptrend ? 'LONG' : 'SHORT';
+        
+        // Calculate momentum with higher threshold
         const momentum = Math.abs(latestM5.close - prevM5.close) / atr;
         
-        // Take trade if momentum is reasonable (not too low)
-        if (momentum > 0.3) {
-            this._lastTradeTime = now;
-            
-            // Calculate SL and TP
-            const slDist = atr * 0.8;
-            const tpDist = atr * 1.2;
-            const rr = tpDist / slDist;
-            
-            console.log(`[Jump75Strategy] 🎯 GENERATING ${direction} SIGNAL!`);
-            console.log(`   Price: ${latestM5.close.toFixed(4)} | Momentum: ${momentum.toFixed(2)} | Trend: ${trend10 > 0 ? 'UP' : 'DOWN'}`);
-            console.log(`   SL: ${slDist.toFixed(4)} away | TP: ${tpDist.toFixed(4)} away | RR: ${rr.toFixed(2)}:1`);
-            
-            return {
-                type: direction,
-                direction: direction,
-                score: 65,
-                factors: [
-                    `${direction === 'LONG' ? '📈' : '📉'} Trend following`,
-                    `Momentum ${momentum.toFixed(1)}x`,
-                    `RR ${rr.toFixed(1)}:1`
-                ],
-                tpMultiplier: 1.2,
-                slMultiplier: 0.8,
-                _slDist: slDist,
-                _tpDist: tpDist,
-                isJump75: true
-            };
+        // Require stronger momentum for entry
+        if (momentum < 0.7) {
+            return null;
         }
         
-        // Log occasionally when no signal
-        if (this._tradeCount % 30 === 0) {
-            console.log(`[Jump75Strategy] No signal - Momentum: ${momentum.toFixed(2)} (need > 0.3)`);
+        // Check for pullback to value area
+        const ema21 = this._calculateEMA(m5Candles, 21);
+        if (ema21) {
+            const distanceToEMA = Math.abs(latestM5.close - ema21);
+            const isNearEMA = distanceToEMA < atr * 0.3;
+            
+            // For LONG: want price near or above EMA21 in uptrend
+            // For SHORT: want price near or below EMA21 in downtrend
+            if (isUptrend && latestM5.close < ema21 - atr * 0.2) {
+                return null; // Too far below EMA in uptrend
+            }
+            if (isDowntrend && latestM5.close > ema21 + atr * 0.2) {
+                return null; // Too far above EMA in downtrend
+            }
         }
         
-        return null;
+        // Calculate better SL and TP (2:1 reward)
+        const slDist = atr * 0.6;  // Tighter stop
+        const tpDist = atr * 1.2;  // 2:1 reward
+        const rr = tpDist / slDist;
+        
+        this._lastTradeTime = now;
+        
+        console.log(`[Jump75] 🎯 ${direction} SIGNAL - Price: ${latestM5.close.toFixed(4)} | Mom: ${momentum.toFixed(2)} | RR: ${rr.toFixed(2)}:1`);
+        
+        return {
+            type: direction,
+            direction: direction,
+            score: 75,
+            factors: [
+                `${direction === 'LONG' ? '📈' : '📉'} ${direction}`,
+                `Momentum ${momentum.toFixed(1)}x`,
+                `Trend aligned`,
+                `RR ${rr.toFixed(1)}:1`
+            ],
+            tpMultiplier: 1.2,
+            slMultiplier: 0.6,
+            _slDist: slDist,
+            _tpDist: tpDist,
+            isJump75: true
+        };
+    },
+    
+    _calculateEMA(candles, period) {
+        if (!candles || candles.length < period) return null;
+        const k = 2 / (period + 1);
+        let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
+        for (let i = period; i < candles.length; i++) {
+            ema = candles[i].close * k + ema * (1 - k);
+        }
+        return ema;
     },
     
     checkClose(currentCandle, trade) {
@@ -87,20 +117,24 @@ export const Jump75Strategy = {
         
         if (trade.type === 'LONG' || trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
-                console.log(`[Jump75Strategy] TP hit at ${currentCandle.close.toFixed(4)}`);
+                this._consecutiveLosses = 0;
+                console.log(`[Jump75] ✅ TP HIT! Profit taken`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.low <= trade.sl) {
-                console.log(`[Jump75Strategy] SL hit at ${currentCandle.close.toFixed(4)}`);
+                this._consecutiveLosses++;
+                console.log(`[Jump75] ❌ SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         } else {
             if (currentCandle.low <= trade.tp) {
-                console.log(`[Jump75Strategy] TP hit at ${currentCandle.close.toFixed(4)}`);
+                this._consecutiveLosses = 0;
+                console.log(`[Jump75] ✅ TP HIT! Profit taken`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.high >= trade.sl) {
-                console.log(`[Jump75Strategy] SL hit at ${currentCandle.close.toFixed(4)}`);
+                this._consecutiveLosses++;
+                console.log(`[Jump75] ❌ SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         }
@@ -108,12 +142,17 @@ export const Jump75Strategy = {
     },
     
     recordOutcome(outcome) {
-        console.log(`[Jump75Strategy] Trade outcome recorded: ${outcome}`);
+        if (outcome === 'TP') {
+            this._consecutiveLosses = 0;
+        } else if (outcome === 'SL') {
+            this._consecutiveLosses++;
+        }
     },
     
     getStats() {
         return {
             tradeCount: this._tradeCount,
+            consecutiveLosses: this._consecutiveLosses,
             lastTradeTime: this._lastTradeTime ? new Date(this._lastTradeTime).toLocaleTimeString() : 'never'
         };
     }
