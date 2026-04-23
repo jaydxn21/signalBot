@@ -1193,19 +1193,33 @@ async function _runJump75(bot, bar, atr, rsi) {
     const m15Count = bot.m15Candles.length;
     const h4Count = bot.h4Candles.length;
     
-    // Log occasionally
+    // Log candle counts every minute
     if (!bot._lastCandleLog || Date.now() - bot._lastCandleLog > 60000) {
+        console.log(`[Jump75] ========== STATUS UPDATE ==========`);
         console.log(`[Jump75] Candles: M5=${m5Count}, M15=${m15Count}, H4=${h4Count}`);
+        console.log(`[Jump75] ATR: ${atr?.toFixed(4) || 'N/A'}`);
+        console.log(`[Jump75] Current Price: ${bar.close.toFixed(4)}`);
+        console.log(`[Jump75] Last fire time: ${bot.lastFiredMs ? new Date(bot.lastFiredMs).toLocaleTimeString() : 'never'}`);
+        
+        // Log last few M5 candles for debugging
+        if (m5Count > 5) {
+            const last5 = bot.m5Candles.slice(-5);
+            console.log(`[Jump75] Last 5 M5 closes: ${last5.map(c => c.close.toFixed(4)).join(' → ')}`);
+        }
         bot._lastCandleLog = Date.now();
     }
     
     // Minimum requirements
     if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
+        if (m5Count < 5) console.log(`[Jump75] Waiting for M5 candles: ${m5Count}/5`);
+        if (m15Count < 5) console.log(`[Jump75] Waiting for M15 candles: ${m15Count}/5`);
+        if (h4Count < 3) console.log(`[Jump75] Waiting for H4 candles: ${h4Count}/3`);
         return null;
     }
     
     // Validate ATR
     if (!atr || atr === 0 || !isFinite(atr)) {
+        console.log(`[Jump75] Invalid ATR: ${atr}`);
         return null;
     }
     
@@ -1246,6 +1260,21 @@ async function _runJump75(bot, bar, atr, rsi) {
     
     // REAL STRATEGY
     try {
+        // Log that we're checking for signals every 30 seconds
+        if (!bot._lastCheckLog || now - bot._lastCheckLog > 30000) {
+            console.log(`[Jump75] 🔍 Checking for entry signals... (Call #${(bot._jump75CallCount || 0) + 1})`);
+            bot._lastCheckLog = now;
+        }
+        
+        // Increment call counter
+        bot._jump75CallCount = (bot._jump75CallCount || 0) + 1;
+        
+        // Log strategy stats every 100 calls
+        if (bot._jump75CallCount % 100 === 0) {
+            const stats = Jump75Strategy.getStats ? Jump75Strategy.getStats() : { callCount: 0, entriesFired: 0 };
+            console.log(`[Jump75] Strategy stats after ${bot._jump75CallCount} calls:`, stats);
+        }
+        
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
             bot.m15Candles,
@@ -1254,8 +1283,15 @@ async function _runJump75(bot, bar, atr, rsi) {
         );
         
         if (!signal) {
+            // Log occasionally that no signal was found
+            if (bot._jump75CallCount % 50 === 0) {
+                console.log(`[Jump75] No signal generated (${bot._jump75CallCount} checks so far)`);
+            }
             return null;
         }
+        
+        console.log(`[Jump75] ✅✅✅ SIGNAL GENERATED! ✅✅✅`);
+        console.log(`[Jump75] Signal:`, JSON.stringify(signal, null, 2));
         
         const signalType = signal.type || signal.direction || 'BUY/SELL';
         const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
@@ -1272,7 +1308,8 @@ async function _runJump75(bot, bar, atr, rsi) {
         return signal;
         
     } catch (error) {
-        console.error('[Jump75] Error:', error);
+        console.error('[Jump75] ❌ CRITICAL ERROR:', error);
+        console.error(error.stack);
         return null;
     }
 }
