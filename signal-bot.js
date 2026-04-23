@@ -850,11 +850,25 @@ function _updateChartH4Levels(botId, bot) {
 }
 
 
+// Replace your existing _engineFor function with this safer version
 function _engineFor(botId) {
-    if (!ChartManager.isSplitMode() && botId === focusedBotId) {
-        return ChartManager.mainEngine();
+    try {
+        if (!ChartManager.isSplitMode() && botId === focusedBotId) {
+            const mainEngine = ChartManager.mainEngine();
+            // Check if engine is disposed
+            if (mainEngine && !mainEngine._isDisposed) {
+                return mainEngine;
+            }
+        }
+        const engine = ChartManager.get(botId);
+        if (engine && !engine._isDisposed) {
+            return engine;
+        }
+        return null;
+    } catch (e) {
+        console.warn('[Chart] Engine access error:', e.message);
+        return null;
     }
-    return ChartManager.get(botId);
 }
 
 // function subscribeBot(bot) {
@@ -1178,6 +1192,22 @@ function processBar(bot, bar, gran) {
 // JUMP75 RUNNER - COMPLETE FIXED VERSION
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
+    
+    // Debug counter
+    if (!bot._debugCounter) bot._debugCounter = 0;
+    bot._debugCounter++;
+    
+    // Log first 10 calls and then every 100th
+    if (bot._debugCounter <= 10 || bot._debugCounter % 100 === 0) {
+        console.log(`[Jump75] _runJump75 called #${bot._debugCounter} at ${new Date().toLocaleTimeString()}`);
+        console.log(`   Symbol: ${bot.config.symbol}`);
+        console.log(`   Price: ${bar.close.toFixed(4)}`);
+        console.log(`   M5 candles: ${bot.m5Candles?.length || 0}`);
+        console.log(`   M15 candles: ${bot.m15Candles?.length || 0}`);
+        console.log(`   H4 candles: ${bot.h4Candles?.length || 0}`);
+        console.log(`   ATR: ${atr?.toFixed(4) || 'N/A'}`);
+    }
+
     // Only trade Jump indices
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(bot.config.symbol)) {
