@@ -1,14 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   SIDEBAR CSS FIXES
-   - Make sidebar scrollable
-   - Fix overlapping content
-   - Improve bot card layout
-   ═══════════════════════════════════════════════════════════════════════════ */
-
 /* ============================================================
-   NEXUS TERMINAL — styles.css v4.2
+   NEXUS TERMINAL — styles.css v4.3
    Frosted Glass · Wave Background · Full Nav Layout
-   Fixed sidebar scrolling · Responsive improvements
+   Fixed sidebar scrolling · Chart display fixes · Responsive
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -27,7 +20,7 @@
     --border-dark:      rgba(255,255,255,0.09);
 
     --nav-rail-w:       60px;
-    --sidebar-w:        280px;   /* wider so bot card breathes */
+    --sidebar-w:        280px;
 
     --accent:           #2563eb;
     --accent-light:     #3b82f6;
@@ -109,7 +102,7 @@ body::before {
     height: 100vh;
     padding: 10px;
     gap: 8px;
-    overflow: visible;
+    overflow: hidden;
 }
 
 /* ── NAV WRAPPER ─────────────────────────────────────────────── */
@@ -322,15 +315,16 @@ header {
     border: 1px solid var(--border-light);
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-card);
-    padding: 14px 14px;
+    padding: 14px;
     
-    /* ✅ KEY FIXES */
-    overflow-y: auto;           /* Enable vertical scrolling */
-    overflow-x: hidden;         /* Prevent horizontal overflow */
+    /* ✅ CRITICAL SCROLLING FIXES */
+    overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    max-height: 100%;           /* Constrain to parent height */
-    min-height: 0;              /* Allow shrinking below content size */
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
 }
 
 /* Scrollbar styling for sidebar */
@@ -364,19 +358,21 @@ header {
 .page-panel.active { display: flex; }
 
 /* ── TERMINAL LAYOUT ────────────────────────────────────────── */
-/* Chart + log stack inside terminal page */
 #page-terminal {
     flex-direction: column;
     gap: 8px;
 }
 
-/* Chart area — wrapper only, no overflow clipping */
+/* Chart area */
 #chart-area {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
     position: relative;
+    background: rgba(255,255,255,0.3);
+    border-radius: var(--r-md);
+    overflow: hidden;
 }
 
 .chart-hud {
@@ -402,7 +398,19 @@ header {
     border-left: 1px solid var(--border-subtle);
 }
 
-#chart { width: 100%; height: 100%; }
+/* Chart container */
+#chart {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+/* Ensure canvas has proper size */
+#chart canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
 
 #chart-placeholder {
     position: absolute;
@@ -413,6 +421,7 @@ header {
     justify-content: center;
     pointer-events: none;
     opacity: 0.055;
+    z-index: 1;
 }
 
 #chart-placeholder h2 {
@@ -430,9 +439,9 @@ header {
     margin-top: 8px;
 }
 
-/* ── LOG AREA — compact ─────────────────────────────────────── */
+/* ── LOG AREA ───────────────────────────────────────────────── */
 #log-area {
-    height: 130px;      /* reduced from 185px */
+    height: 130px;
     flex-shrink: 0;
     background: var(--surface-dark);
     border: 1px solid rgba(255,255,255,0.07);
@@ -472,7 +481,7 @@ header {
     grid-template-columns: repeat(2, 1fr);
     gap: 6px;
     margin-bottom: 12px;
-    flex-shrink: 0;             /* Don't shrink */
+    flex-shrink: 0;
 }
 
 .stat-item {
@@ -508,11 +517,12 @@ header {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1 1 auto;             /* ✅ Flexible, grows/shrinks */
-    overflow-y: auto;           /* ✅ Scrollable */
+    flex: 1;
+    overflow-y: auto;
     margin-bottom: 10px;
     padding-right: 2px;
-    min-height: 0;              /* ✅ Allow shrinking */
+    min-height: 100px;
+    max-height: calc(100vh - 400px);
 }
 
 /* Scrollbar for bot list */
@@ -542,8 +552,7 @@ header {
     cursor: pointer;
     transition: all 0.2s ease;
     box-shadow: var(--shadow-sm);
-    
-    flex-shrink: 0;             /* Maintain card height */
+    flex-shrink: 0;
     width: 100%;
     box-sizing: border-box;
 }
@@ -581,7 +590,6 @@ header {
     color: var(--text-dark);
 }
 
-/* Bot card section divider */
 .bot-card-divider {
     border: none;
     border-top: 1px solid var(--border-subtle);
@@ -921,7 +929,6 @@ input[type="checkbox"] {
 .chart-grid-3      { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 .chart-grid-4      { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 
-/* 3-bot layout: first panel spans full height on left */
 .chart-grid-3 .chart-panel:first-child {
     grid-row: span 2;
 }
@@ -1052,7 +1059,6 @@ input[type="checkbox"] {
     color: rgba(15,23,42,0.2);
 }
 
-/* Split view button in HUD */
 #btn-split-view { display: none; }
 
 /* ── RISK ALERT ANIMATION ───────────────────────────────────── */
@@ -1061,10 +1067,10 @@ input[type="checkbox"] {
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* ── NAV TOOLTIP — hidden, replaced by JS body injection ──── */
+/* ── NAV TOOLTIP ────────────────────────────────────────────── */
 .nav-item .nav-tooltip { display: none !important; }
 
-/* ── OVERLAY PANEL (focus mode only) ───────────────────────── */
+/* ── OVERLAY PANEL ──────────────────────────────────────────── */
 #overlay-panel {
     position: absolute;
     top: 12px;
@@ -1138,7 +1144,6 @@ input[type="checkbox"] {
 }
 .overlay-row span { flex: 1; }
 
-/* Active row highlight */
 .overlay-row:has(input:checked) {
     color: var(--accent);
     font-weight: 500;
@@ -1146,9 +1151,7 @@ input[type="checkbox"] {
 
 .mt5-config-row  { grid-template-columns: 1fr 1fr; }
 
-/* ─────────────────────────────────────────────────────────────
-   STRATEGY STATUS PANEL - FIXED
-   ──────────────────────────────────────────────────────────── */
+/* ── STRATEGY STATUS PANEL ──────────────────────────────────── */
 #strategy-status-panel {
     background: rgba(15, 23, 42, 0.8);
     border-radius: 12px;
@@ -1202,7 +1205,6 @@ input[type="checkbox"] {
     font-family: 'DM Mono', monospace;
 }
 
-/* Active Setup Panel */
 #strategy-status-panel .active-setup {
     background: rgba(139, 92, 246, 0.1);
     border-radius: 8px;
@@ -1238,7 +1240,6 @@ input[type="checkbox"] {
     word-break: break-all;
 }
 
-/* Last Signal Panel */
 #strategy-status-panel .last-signal {
     background: rgba(16, 185, 129, 0.1);
     border-radius: 8px;
@@ -1273,7 +1274,6 @@ input[type="checkbox"] {
     word-break: break-all;
 }
 
-/* Last Event */
 #strategy-status-panel .last-event {
     font-size: 0.55rem;
     color: var(--text-muted);
@@ -1297,11 +1297,10 @@ input[type="checkbox"] {
 .status-confirmation { color: #8b5cf6; text-shadow: 0 0 5px rgba(139, 92, 246, 0.3); }
 .status-entry { color: #10b981; text-shadow: 0 0 5px rgba(16, 185, 129, 0.3); }
 
-/* Glow animation */
 @keyframes glowPulse {
-    0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16, 185, 129, 0); }
-    50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
-    100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16, 185, 129, 0); }
+    0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+    50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
+    100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
 }
 
 .glow-pulse {
@@ -1309,15 +1308,11 @@ input[type="checkbox"] {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   MOBILE RESPONSIVE  (≤768px)
-   Read-only status view — bots, last signal, P&L
+   MOBILE RESPONSIVE (≤768px)
 ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-
-    /* Hide wave background on mobile — performance */
     #wave-canvas { display: none; }
 
-    /* App shell stacks vertically */
     #app-shell {
         flex-direction: column;
         padding: 6px;
@@ -1326,7 +1321,6 @@ input[type="checkbox"] {
         min-height: 100vh;
     }
 
-    /* Nav becomes a horizontal bottom bar */
     #nexus-nav { display: none; }
     #mobile-nav {
         display: flex !important;
@@ -1360,82 +1354,53 @@ input[type="checkbox"] {
     .mobile-nav-btn svg { width: 20px; height: 20px; stroke-width: 1.6; }
     .mobile-nav-btn.active { color: var(--accent); }
 
-    /* Header compact */
     #nexus-header { padding: 0 0 6px; }
-    .header-inner {
-        flex-wrap: wrap;
-        gap: 6px;
-    }
+    .header-inner { flex-wrap: wrap; gap: 6px; }
     .nexus-brand { font-size: 0.9rem; }
     .header-clock { font-size: 0.65rem; }
 
-    /* Main content full width */
     #main-content {
         width: 100%;
-        padding-bottom: 70px; /* space for mobile nav */
+        padding-bottom: 70px;
     }
 
-    /* Workspace full width, no gap */
     #workspace {
         padding: 0 !important;
         gap: 6px !important;
         flex-direction: column;
     }
 
-    /* Bot cards stack */
-    #bot-grid {
-        grid-template-columns: 1fr !important;
-        gap: 8px;
-    }
-
-    /* Bot card compact */
-    .bot-card {
-        padding: 12px 14px;
-    }
+    #bot-grid { grid-template-columns: 1fr !important; gap: 8px; }
+    .bot-card { padding: 12px 14px; }
     .bot-card-header { gap: 8px; }
-    .bot-stats-row   { gap: 8px; flex-wrap: wrap; }
+    .bot-stats-row { gap: 8px; flex-wrap: wrap; }
 
-    /* Hide chart area on mobile terminal — too small */
     #chart-section { display: none; }
 
-    /* Analytics grid single column */
-    .analytics-grid {
-        grid-template-columns: 1fr !important;
-    }
+    .analytics-grid { grid-template-columns: 1fr !important; }
     .analytics-card.span-2 { grid-column: span 1 !important; }
 
-    /* Settings single column */
-    .settings-grid {
-        grid-template-columns: 1fr !important;
-    }
-    .mt5-bridge-card   { grid-column: span 1 !important; }
-    .mt5-status-grid   { grid-template-columns: repeat(2, 1fr) !important; }
-    .mt5-config-row    { grid-template-columns: 1fr !important; }
+    .settings-grid { grid-template-columns: 1fr !important; }
+    .mt5-bridge-card { grid-column: span 1 !important; }
+    .mt5-status-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .mt5-config-row { grid-template-columns: 1fr !important; }
 
-    /* Backtest layout stacks */
-    #bt-layout {
-        flex-direction: column !important;
-    }
+    #bt-layout { flex-direction: column !important; }
     #bt-config-panel {
         width: 100% !important;
         border-right: none !important;
         border-bottom: 1px solid var(--border-light);
     }
 
-    /* Strategy builder stacks */
-    #sb-layout {
-        flex-direction: column !important;
-    }
+    #sb-layout { flex-direction: column !important; }
     #sb-left-panel {
         width: 100% !important;
         border-right: none !important;
         border-bottom: 1px solid var(--border-light);
     }
 
-    /* Tooltips on mobile — show below tap targets */
     [data-tip]::after { display: none; }
 
-    /* Mobile status card — quick glance view */
     #mobile-status-bar {
         display: flex !important;
         gap: 8px;
@@ -1467,6 +1432,5 @@ input[type="checkbox"] {
     }
 }
 
-/* Hide mobile-only elements on desktop */
 #mobile-nav        { display: none; }
 #mobile-status-bar { display: none; }
