@@ -1305,6 +1305,9 @@ async function _runJump75(bot, bar, atr, rsi) {
             console.log(`[Jump75] Strategy stats after ${bot._jump75CallCount} calls:`, stats);
         }
         
+        // In _runJump75, right before calling checkEntry, add:
+        console.log(`[Jump75] Checking entry - Price: ${bar.close.toFixed(2)} | ATR: ${atr.toFixed(2)}`);
+
         const signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
             bot.m15Candles,

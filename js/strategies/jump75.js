@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - WITH TREND BIAS
+// js/strategies/jump75.js - BREAKOUT OPTIMIZED VERSION
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -8,152 +8,148 @@ export const Jump75Strategy = {
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
         this._tradeCount++;
         
-        // Rate limit - trade every 3 minutes minimum
+        // Rate limit - max 1 trade per minute
         const now = Date.now();
-        if (now - this._lastTradeTime < 180000) {
-            return null;
-        }
-        
-        // Stop after 2 consecutive losses
-        if (this._consecutiveLosses >= 2) {
-            if (now - this._lastTradeTime > 600000) {
-                this._consecutiveLosses = 0;
-                console.log(`[Jump75] Reset after timeout`);
-            }
+        if (now - this._lastTradeTime < 60000) {
             return null;
         }
         
         // Validate data
         if (!m5Candles || m5Candles.length < 20) return null;
-        if (!m15Candles || m15Candles.length < 10) return null;
-        if (!h4Candles || h4Candles.length < 5) return null;
         if (!atr || atr <= 0) return null;
         
         const latestM5 = m5Candles[m5Candles.length - 1];
         const prevM5 = m5Candles[m5Candles.length - 2];
         
         // ============================================================
-        // DETERMINE MARKET TREND using multiple timeframes
+        // DYNAMIC RESISTANCE/SUPPORT LEVELS
         // ============================================================
         
-        // M5 trend (20 candles)
-        const m5Trend = this._getTrend(m5Candles, 20);
+        // Calculate recent highs and lows (20 period)
+        const recentHighs = m5Candles.slice(-20).map(c => c.high);
+        const recentLows = m5Candles.slice(-20).map(c => c.low);
+        const resistance = Math.max(...recentHighs);
+        const support = Math.min(...recentLows);
         
-        // M15 trend (10 candles)
-        const m15Trend = this._getTrend(m15Candles, 10);
-        
-        // H4 trend (5 candles - about 1 day)
-        const h4Trend = this._getTrend(h4Candles, 5);
-        
-        // Log trend status periodically
-        if (this._tradeCount % 20 === 0) {
-            console.log(`[Jump75] Trends - M5:${m5Trend} M15:${m15Trend} H4:${h4Trend} | Price: ${latestM5.close.toFixed(2)}`);
-        }
+        // Calculate breakout levels (previous 5 candles)
+        const prevHighs = m5Candles.slice(-6, -1).map(c => c.high);
+        const prevResistance = Math.max(...prevHighs);
         
         // ============================================================
-        // ONLY TRADE WITH THE H4 TREND (Higher timeframe bias)
+        // BREAKOUT DETECTION
         // ============================================================
         
-        // Don't trade if H4 trend is unclear
-        if (h4Trend === 'neutral') {
-            return null;
-        }
+        const isBreakoutUp = latestM5.close > resistance && latestM5.close > prevResistance;
+        const isBreakoutDown = latestM5.close < support;
+        
+        // Calculate breakout strength
+        const breakoutStrength = isBreakoutUp ? 
+            (latestM5.close - resistance) / atr : 
+            (support - latestM5.close) / atr;
         
         // Calculate momentum
         const momentum = Math.abs(latestM5.close - prevM5.close) / atr;
         
-        // Require reasonable momentum
-        if (momentum < 0.5) {
-            return null;
+        // Log breakout detection
+        if (isBreakoutUp || isBreakoutDown) {
+            console.log(`[Jump75] Breakout detected! Direction: ${isBreakoutUp ? 'UP' : 'DOWN'}`);
+            console.log(`   Price: ${latestM5.close.toFixed(2)} | Resistance: ${resistance.toFixed(2)}`);
+            console.log(`   Strength: ${breakoutStrength.toFixed(2)}x ATR | Momentum: ${momentum.toFixed(2)}`);
         }
         
-        // Check if we should take a trade
-        let direction = null;
-        let confidence = 0;
+        // ============================================================
+        // SIGNAL CONDITIONS - LOWERED THRESHOLDS FOR BREAKOUTS
+        // ============================================================
         
-        // LONG signal: H4 uptrend + M5 uptrend (alignment)
-        if (h4Trend === 'bullish' && m5Trend === 'bullish' && momentum > 0.6) {
-            direction = 'LONG';
-            confidence = 75;
+        let signal = null;
+        
+        // SIGNAL: Breakout with confirmation
+        if ((isBreakoutUp || isBreakoutDown) && breakoutStrength > 0.3 && momentum > 0.4) {
+            const direction = isBreakoutUp ? 'LONG' : 'SHORT';
+            
+            // Use tighter SL for breakouts
+            const slDist = atr * 0.5;
+            const tpDist = atr * 1.0;
+            const rr = tpDist / slDist;
+            
+            signal = {
+                type: direction,
+                direction: direction,
+                score: 75,
+                factors: [
+                    `🚀 Breakout ${direction === 'LONG' ? '↑' : '↓'}`,
+                    `Strength ${breakoutStrength.toFixed(1)}x`,
+                    `Momentum ${momentum.toFixed(1)}x`,
+                    `RR ${rr.toFixed(1)}:1`
+                ],
+                tpMultiplier: 1.0,
+                slMultiplier: 0.5,
+                _slDist: slDist,
+                _tpDist: tpDist,
+                isJump75: true
+            };
         }
-        // SHORT signal: H4 downtrend + M5 downtrend (alignment)
-        else if (h4Trend === 'bearish' && m5Trend === 'bearish' && momentum > 0.6) {
-            direction = 'SHORT';
-            confidence = 75;
+        
+        // SIGNAL 2: Momentum with EMA confirmation (for non-breakout moves)
+        if (!signal) {
+            const ema9 = this._calculateEMA(m5Candles, 9);
+            const ema21 = this._calculateEMA(m5Candles, 21);
+            
+            if (ema9 && ema21) {
+                const isBullishTrend = ema9 > ema21 && latestM5.close > ema9;
+                const isBearishTrend = ema9 < ema21 && latestM5.close < ema9;
+                
+                if ((isBullishTrend || isBearishTrend) && momentum > 0.6) {
+                    const direction = isBullishTrend ? 'LONG' : 'SHORT';
+                    const slDist = atr * 0.6;
+                    const tpDist = atr * 1.0;
+                    
+                    signal = {
+                        type: direction,
+                        direction: direction,
+                        score: 65,
+                        factors: [
+                            `${direction === 'LONG' ? '📈' : '📉'} Momentum`,
+                            `EMA ${direction === 'LONG' ? '↑' : '↓'}`,
+                            `RR ${(tpDist/slDist).toFixed(1)}:1`
+                        ],
+                        tpMultiplier: 1.0,
+                        slMultiplier: 0.6,
+                        _slDist: slDist,
+                        _tpDist: tpDist,
+                        isJump75: true
+                    };
+                }
+            }
         }
-        // WEAKER SIGNAL: Only M15 alignment with H4
-        else if (h4Trend === 'bullish' && m15Trend === 'bullish' && momentum > 0.8) {
-            direction = 'LONG';
-            confidence = 65;
-        }
-        else if (h4Trend === 'bearish' && m15Trend === 'bearish' && momentum > 0.8) {
-            direction = 'SHORT';
-            confidence = 65;
-        }
         
-        if (!direction) {
-            return null;
+        if (signal) {
+            this._lastTradeTime = now;
+            this._diagnostics = this._diagnostics || {};
+            this._diagnostics.entriesFired = (this._diagnostics.entriesFired || 0) + 1;
+            
+            console.log(`[Jump75] ✅✅✅ ${signal.type} SIGNAL TAKEN!`);
+            console.log(`   Price: ${latestM5.close.toFixed(2)} | Time: ${new Date().toLocaleTimeString()}`);
+            
+            return signal;
         }
         
-        // Calculate SL and TP (2:1 reward)
-        const slDist = atr * 0.6;
-        const tpDist = atr * 1.2;
-        const rr = tpDist / slDist;
+        // Log every 50 checks
+        if (this._tradeCount % 50 === 0) {
+            console.log(`[Jump75] Monitoring - Price: ${latestM5.close.toFixed(2)} | Res: ${resistance.toFixed(2)} | Sup: ${support.toFixed(2)}`);
+        }
         
-        this._lastTradeTime = now;
-        
-        console.log(`[Jump75] 🎯 ${direction} SIGNAL!`);
-        console.log(`   Price: ${latestM5.close.toFixed(4)} | Momentum: ${momentum.toFixed(2)}`);
-        console.log(`   Trends: H4=${h4Trend} M15=${m15Trend} M5=${m5Trend}`);
-        console.log(`   RR: ${rr.toFixed(2)}:1 | Confidence: ${confidence}`);
-        
-        return {
-            type: direction,
-            direction: direction,
-            score: confidence,
-            factors: [
-                `${direction === 'LONG' ? '📈' : '📉'} ${direction}`,
-                `H4 ${h4Trend === 'bullish' ? '↑' : '↓'} trend`,
-                `Momentum ${momentum.toFixed(1)}x`,
-                `RR ${rr.toFixed(1)}:1`
-            ],
-            tpMultiplier: 1.2,
-            slMultiplier: 0.6,
-            _slDist: slDist,
-            _tpDist: tpDist,
-            isJump75: true
-        };
+        return null;
     },
     
-    // Helper to determine trend direction
-    _getTrend(candles, lookback) {
-        if (!candles || candles.length < lookback + 1) return 'neutral';
-        
-        const recent = candles.slice(-lookback);
-        const closes = recent.map(c => c.close);
-        const highs = recent.map(c => c.high);
-        const lows = recent.map(c => c.low);
-        
-        const startClose = closes[0];
-        const endClose = closes[closes.length - 1];
-        const highestHigh = Math.max(...highs);
-        const lowestLow = Math.min(...lows);
-        const range = highestHigh - lowestLow;
-        
-        // Calculate price change percentage relative to range
-        const change = endClose - startClose;
-        const changePercent = Math.abs(change) / range;
-        
-        // Bullish: price up and near highs
-        if (change > 0 && changePercent > 0.3) {
-            return 'bullish';
+    _calculateEMA(candles, period) {
+        if (!candles || candles.length < period) return null;
+        const k = 2 / (period + 1);
+        let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
+        for (let i = period; i < candles.length; i++) {
+            ema = candles[i].close * k + ema * (1 - k);
         }
-        // Bearish: price down and near lows
-        if (change < 0 && changePercent > 0.3) {
-            return 'bearish';
-        }
-        
-        return 'neutral';
+        return ema;
     },
     
     checkClose(currentCandle, trade) {
@@ -162,42 +158,34 @@ export const Jump75Strategy = {
         if (trade.type === 'LONG' || trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
                 this._consecutiveLosses = 0;
-                console.log(`[Jump75] ✅ LONG TP HIT! Profit: ${(currentCandle.close - trade.entry).toFixed(4)}`);
+                console.log(`[Jump75] ✅ TP HIT! Profit: ${(currentCandle.close - trade.entry).toFixed(2)}`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.low <= trade.sl) {
                 this._consecutiveLosses++;
-                console.log(`[Jump75] ❌ LONG SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
+                console.log(`[Jump75] ❌ SL HIT - Loss streak: ${this._consecutiveLosses}`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         } else {
             if (currentCandle.low <= trade.tp) {
                 this._consecutiveLosses = 0;
-                console.log(`[Jump75] ✅ SHORT TP HIT! Profit: ${(trade.entry - currentCandle.close).toFixed(4)}`);
+                console.log(`[Jump75] ✅ TP HIT! Profit: ${(trade.entry - currentCandle.close).toFixed(2)}`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.high >= trade.sl) {
                 this._consecutiveLosses++;
-                console.log(`[Jump75] ❌ SHORT SL HIT - ${this._consecutiveLosses} consecutive loss(es)`);
+                console.log(`[Jump75] ❌ SL HIT - Loss streak: ${this._consecutiveLosses}`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         }
         return null;
     },
     
-    recordOutcome(outcome) {
-        if (outcome === 'TP') {
-            this._consecutiveLosses = 0;
-        } else if (outcome === 'SL') {
-            this._consecutiveLosses++;
-        }
-    },
-    
     getStats() {
         return {
             tradeCount: this._tradeCount,
             consecutiveLosses: this._consecutiveLosses,
-            lastTradeTime: this._lastTradeTime ? new Date(this._lastTradeTime).toLocaleTimeString() : 'never'
+            entriesFired: this._diagnostics?.entriesFired || 0
         };
     }
 };
