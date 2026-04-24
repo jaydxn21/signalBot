@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - BREAKOUT OPTIMIZED VERSION
+// js/strategies/jump75.js - TREND-FOLLOWING WITH CONFIRMATION
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -8,138 +8,158 @@ export const Jump75Strategy = {
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
         this._tradeCount++;
         
-        // Rate limit - max 1 trade per minute
+        // Rate limit - trade every 2 minutes minimum
         const now = Date.now();
-        if (now - this._lastTradeTime < 60000) {
+        if (now - this._lastTradeTime < 120000) {
+            return null;
+        }
+        
+        // Stop after 2 consecutive losses
+        if (this._consecutiveLosses >= 2) {
+            if (now - this._lastTradeTime > 600000) {
+                this._consecutiveLosses = 0;
+                console.log(`[Jump75] Reset after cooldown`);
+            }
             return null;
         }
         
         // Validate data
-        if (!m5Candles || m5Candles.length < 20) return null;
+        if (!m5Candles || m5Candles.length < 30) return null;
+        if (!m15Candles || m15Candles.length < 10) return null;
         if (!atr || atr <= 0) return null;
         
         const latestM5 = m5Candles[m5Candles.length - 1];
         const prevM5 = m5Candles[m5Candles.length - 2];
+        const prevM5_2 = m5Candles[m5Candles.length - 3];
         
         // ============================================================
-        // DYNAMIC RESISTANCE/SUPPORT LEVELS
+        // DETERMINE TREND USING MULTIPLE TIMEFRAMES
         // ============================================================
         
-        // Calculate recent highs and lows (20 period)
-        const recentHighs = m5Candles.slice(-20).map(c => c.high);
-        const recentLows = m5Candles.slice(-20).map(c => c.low);
-        const resistance = Math.max(...recentHighs);
-        const support = Math.min(...recentLows);
+        // M5 trend (20 candles)
+        const m5Closes = m5Candles.slice(-20).map(c => c.close);
+        const m5Trend = this._getTrendDirection(m5Closes);
         
-        // Calculate breakout levels (previous 5 candles)
-        const prevHighs = m5Candles.slice(-6, -1).map(c => c.high);
-        const prevResistance = Math.max(...prevHighs);
+        // M15 trend (10 candles)
+        const m15Closes = m15Candles.slice(-10).map(c => c.close);
+        const m15Trend = this._getTrendDirection(m15Closes);
         
-        // ============================================================
-        // BREAKOUT DETECTION
-        // ============================================================
+        // H4 trend (5 candles)
+        const h4Closes = h4Candles.slice(-5).map(c => c.close);
+        const h4Trend = this._getTrendDirection(h4Closes);
         
-        const isBreakoutUp = latestM5.close > resistance && latestM5.close > prevResistance;
-        const isBreakoutDown = latestM5.close < support;
+        // Require trend alignment for entry
+        const isBullish = m5Trend === 'up' && m15Trend === 'up' && h4Trend !== 'down';
+        const isBearish = m5Trend === 'down' && m15Trend === 'down' && h4Trend !== 'up';
         
-        // Calculate breakout strength
-        const breakoutStrength = isBreakoutUp ? 
-            (latestM5.close - resistance) / atr : 
-            (support - latestM5.close) / atr;
-        
-        // Calculate momentum
-        const momentum = Math.abs(latestM5.close - prevM5.close) / atr;
-        
-        // Log breakout detection
-        if (isBreakoutUp || isBreakoutDown) {
-            console.log(`[Jump75] Breakout detected! Direction: ${isBreakoutUp ? 'UP' : 'DOWN'}`);
-            console.log(`   Price: ${latestM5.close.toFixed(2)} | Resistance: ${resistance.toFixed(2)}`);
-            console.log(`   Strength: ${breakoutStrength.toFixed(2)}x ATR | Momentum: ${momentum.toFixed(2)}`);
+        if (!isBullish && !isBearish) {
+            // Log trend status occasionally
+            if (this._tradeCount % 30 === 0) {
+                console.log(`[Jump75] Trends - M5:${m5Trend} M15:${m15Trend} H4:${h4Trend} | No alignment`);
+            }
+            return null;
         }
         
         // ============================================================
-        // SIGNAL CONDITIONS - LOWERED THRESHOLDS FOR BREAKOUTS
+        // WAIT FOR PULLBACK TO EMA (Better Entry)
         // ============================================================
         
-        let signal = null;
+        const ema21 = this._calculateEMA(m5Candles, 21);
+        const ema50 = this._calculateEMA(m5Candles, 50);
         
-        // SIGNAL: Breakout with confirmation
-        if ((isBreakoutUp || isBreakoutDown) && breakoutStrength > 0.3 && momentum > 0.4) {
-            const direction = isBreakoutUp ? 'LONG' : 'SHORT';
-            
-            // Use tighter SL for breakouts
-            const slDist = atr * 0.5;
-            const tpDist = atr * 1.0;
-            const rr = tpDist / slDist;
-            
-            signal = {
-                type: direction,
-                direction: direction,
-                score: 75,
-                factors: [
-                    `🚀 Breakout ${direction === 'LONG' ? '↑' : '↓'}`,
-                    `Strength ${breakoutStrength.toFixed(1)}x`,
-                    `Momentum ${momentum.toFixed(1)}x`,
-                    `RR ${rr.toFixed(1)}:1`
-                ],
-                tpMultiplier: 1.0,
-                slMultiplier: 0.5,
-                _slDist: slDist,
-                _tpDist: tpDist,
-                isJump75: true
-            };
-        }
+        if (!ema21 || !ema50) return null;
         
-        // SIGNAL 2: Momentum with EMA confirmation (for non-breakout moves)
-        if (!signal) {
-            const ema9 = this._calculateEMA(m5Candles, 9);
-            const ema21 = this._calculateEMA(m5Candles, 21);
+        // Calculate distance to EMA21
+        const distanceToEMA21 = Math.abs(latestM5.close - ema21);
+        const isNearEMA21 = distanceToEMA21 < atr * 0.4;
+        
+        // Bullish: price near EMA21 and above EMA50
+        if (isBullish && isNearEMA21 && latestM5.close > ema50) {
+            // Check for bounce confirmation
+            const isBouncing = latestM5.close > prevM5.close && prevM5.close < prevM5_2.close;
             
-            if (ema9 && ema21) {
-                const isBullishTrend = ema9 > ema21 && latestM5.close > ema9;
-                const isBearishTrend = ema9 < ema21 && latestM5.close < ema9;
+            if (isBouncing) {
+                const slDist = atr * 0.5;
+                const tpDist = atr * 0.9;
+                const rr = tpDist / slDist;
                 
-                if ((isBullishTrend || isBearishTrend) && momentum > 0.6) {
-                    const direction = isBullishTrend ? 'LONG' : 'SHORT';
-                    const slDist = atr * 0.6;
-                    const tpDist = atr * 1.0;
-                    
-                    signal = {
-                        type: direction,
-                        direction: direction,
-                        score: 65,
-                        factors: [
-                            `${direction === 'LONG' ? '📈' : '📉'} Momentum`,
-                            `EMA ${direction === 'LONG' ? '↑' : '↓'}`,
-                            `RR ${(tpDist/slDist).toFixed(1)}:1`
-                        ],
-                        tpMultiplier: 1.0,
-                        slMultiplier: 0.6,
-                        _slDist: slDist,
-                        _tpDist: tpDist,
-                        isJump75: true
-                    };
-                }
+                this._lastTradeTime = now;
+                this._consecutiveLosses = 0;
+                
+                console.log(`[Jump75] 🎯 LONG entry at EMA21 bounce! Price: ${latestM5.close.toFixed(2)}`);
+                
+                return {
+                    type: 'LONG',
+                    direction: 'LONG',
+                    score: 75,
+                    factors: [`📈 EMA21 bounce`, `Trend aligned`, `RR ${rr.toFixed(1)}:1`],
+                    tpMultiplier: 0.9,
+                    slMultiplier: 0.5,
+                    _slDist: slDist,
+                    _tpDist: tpDist,
+                    isJump75: true
+                };
             }
         }
         
-        if (signal) {
-            this._lastTradeTime = now;
-            this._diagnostics = this._diagnostics || {};
-            this._diagnostics.entriesFired = (this._diagnostics.entriesFired || 0) + 1;
+        // Bearish: price near EMA21 and below EMA50
+        if (isBearish && isNearEMA21 && latestM5.close < ema50) {
+            // Check for rejection confirmation
+            const isRejecting = latestM5.close < prevM5.close && prevM5.close > prevM5_2.close;
             
-            console.log(`[Jump75] ✅✅✅ ${signal.type} SIGNAL TAKEN!`);
-            console.log(`   Price: ${latestM5.close.toFixed(2)} | Time: ${new Date().toLocaleTimeString()}`);
-            
-            return signal;
+            if (isRejecting) {
+                const slDist = atr * 0.5;
+                const tpDist = atr * 0.9;
+                const rr = tpDist / slDist;
+                
+                this._lastTradeTime = now;
+                this._consecutiveLosses = 0;
+                
+                console.log(`[Jump75] 🎯 SHORT entry at EMA21 rejection! Price: ${latestM5.close.toFixed(2)}`);
+                
+                return {
+                    type: 'SHORT',
+                    direction: 'SHORT',
+                    score: 75,
+                    factors: [`📉 EMA21 rejection`, `Trend aligned`, `RR ${rr.toFixed(1)}:1`],
+                    tpMultiplier: 0.9,
+                    slMultiplier: 0.5,
+                    _slDist: slDist,
+                    _tpDist: tpDist,
+                    isJump75: true
+                };
+            }
         }
         
-        // Log every 50 checks
-        if (this._tradeCount % 50 === 0) {
-            console.log(`[Jump75] Monitoring - Price: ${latestM5.close.toFixed(2)} | Res: ${resistance.toFixed(2)} | Sup: ${support.toFixed(2)}`);
+        // Log occasionally
+        if (this._tradeCount % 30 === 0) {
+            console.log(`[Jump75] Waiting for pullback - Price: ${latestM5.close.toFixed(2)} | EMA21: ${ema21.toFixed(2)} | Dist: ${(distanceToEMA21/atr).toFixed(1)}x ATR`);
         }
         
         return null;
+    },
+    
+    _getTrendDirection(closes) {
+        if (!closes || closes.length < 10) return 'neutral';
+        
+        const start = closes[0];
+        const end = closes[closes.length - 1];
+        const percentChange = ((end - start) / start) * 100;
+        
+        // Calculate slope using linear regression
+        const n = closes.length;
+        let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (let i = 0; i < n; i++) {
+            sumX += i;
+            sumY += closes[i];
+            sumXY += i * closes[i];
+            sumX2 += i * i;
+        }
+        const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        
+        if (percentChange > 0.05 || slope > 0.5) return 'up';
+        if (percentChange < -0.05 || slope < -0.5) return 'down';
+        return 'neutral';
     },
     
     _calculateEMA(candles, period) {
@@ -157,24 +177,22 @@ export const Jump75Strategy = {
         
         if (trade.type === 'LONG' || trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
-                this._consecutiveLosses = 0;
-                console.log(`[Jump75] ✅ TP HIT! Profit: ${(currentCandle.close - trade.entry).toFixed(2)}`);
+                console.log(`[Jump75] ✅ LONG TP! Profit: ${(currentCandle.close - trade.entry).toFixed(2)}`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.low <= trade.sl) {
                 this._consecutiveLosses++;
-                console.log(`[Jump75] ❌ SL HIT - Loss streak: ${this._consecutiveLosses}`);
+                console.log(`[Jump75] ❌ LONG SL - ${this._consecutiveLosses} consecutive`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         } else {
             if (currentCandle.low <= trade.tp) {
-                this._consecutiveLosses = 0;
-                console.log(`[Jump75] ✅ TP HIT! Profit: ${(trade.entry - currentCandle.close).toFixed(2)}`);
+                console.log(`[Jump75] ✅ SHORT TP! Profit: ${(trade.entry - currentCandle.close).toFixed(2)}`);
                 return { action: 'CLOSE', reason: 'TP' };
             }
             if (currentCandle.high >= trade.sl) {
                 this._consecutiveLosses++;
-                console.log(`[Jump75] ❌ SL HIT - Loss streak: ${this._consecutiveLosses}`);
+                console.log(`[Jump75] ❌ SHORT SL - ${this._consecutiveLosses} consecutive`);
                 return { action: 'CLOSE', reason: 'SL' };
             }
         }
@@ -185,7 +203,7 @@ export const Jump75Strategy = {
         return {
             tradeCount: this._tradeCount,
             consecutiveLosses: this._consecutiveLosses,
-            entriesFired: this._diagnostics?.entriesFired || 0
+            lastTradeTime: this._lastTradeTime ? new Date(this._lastTradeTime).toLocaleTimeString() : 'never'
         };
     }
 };
