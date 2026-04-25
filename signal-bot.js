@@ -91,6 +91,9 @@ renderWS = new WebSocket('ws://localhost:3000/mt5');
     };
 };
 
+// After creating renderWS, add:
+window.renderWS = renderWS;
+
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
 // ─────────────────────────────────────────────────────────────
