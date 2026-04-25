@@ -36,62 +36,6 @@ import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
 
 // ─────────────────────────────────────────────────────────────
-// WEBSOCKET CONNECTION TO RENDER (MT5 Bridge)
-// ─────────────────────────────────────────────────────────────
-let renderWS = null;
-let pendingSignals = [];
-
-function connectRenderWebSocket() {
-    if (renderWS && (renderWS.readyState === WebSocket.OPEN || renderWS.readyState === WebSocket.CONNECTING)) {
-        return;
-    };
-
-    console.log("[WS] Connecting to Render WebSocket...");
-    renderWS = new WebSocket("wss://nexus-api-khvt.onrender.com/mt5");
-
-    renderWS.onopen = () => {
-        console.log("✅ WebSocket connected to Render");
-        log("Connected to MT5 bridge", "info");
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-online";
-        SessionState.set({ mt5Connected: true });
-
-        if (pendingSignals.length > 0) {
-            console.log(`📤 Flushing ${pendingSignals.length} pending signals...`);
-            for (const sig of pendingSignals) {
-                try { renderWS.send(JSON.stringify(sig)); } catch(e) { console.warn("[WS] flush failed", e); };
-            };
-            pendingSignals = [];
-        };
-    };
-
-    renderWS.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-offline";
-    };
-
-    renderWS.onclose = () => {
-        console.log("WebSocket disconnected, reconnecting in 5s...");
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-offline";
-        SessionState.set({ mt5Connected: false });
-        setTimeout(connectRenderWebSocket, 5000);
-    };
-
-    renderWS.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            if (data.type === "trade_result") {
-                log(`MT5 Trade Result: ${data.outcome} ${data.symbol} P&L: ${data.pnl}`, "info");
-            };
-        } catch(e) {
-            console.log("WebSocket message:", event.data);
-        };
-    };
-};
-
-// ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
 // ─────────────────────────────────────────────────────────────
 const SYMBOL_MAP = {
@@ -240,7 +184,8 @@ function _pointValue(symbol) {
         'frxGBPJPY': 12.50,
     };
     return MAP[symbol] || 0.41;
-};
+}
+
 
 // ─────────────────────────────────────────────────────────────
 // BOT STATE CLASS
@@ -273,8 +218,8 @@ class BotState {
         this.lastM5CloseTime = null;
         this.lastM15CloseTime = null;
         this.lastH4CloseTime = null;
-    };
-};
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // SHARED SINGLETONS
@@ -303,6 +248,7 @@ const MT5_SYMBOL_MAP = {
     'Jump 100 Index':      'Jump 100 Index',
 };
 
+
 // ─────────────────────────────────────────────────────────────
 // PUSH NOTIFICATIONS
 // ─────────────────────────────────────────────────────────────
@@ -311,11 +257,11 @@ const Notify = {
 
     async request() {
         if (!('Notification' in window)) return;
-        if (Notification.permission === 'granted') { this._allowed = true; return; };
+        if (Notification.permission === 'granted') { this._allowed = true; return; }
         if (Notification.permission !== 'denied') {
             const perm = await Notification.requestPermission();
             this._allowed = perm === 'granted';
-        };
+        }
     },
 
     signal(type, symbol, price, label, confidence) {
@@ -327,7 +273,7 @@ const Notify = {
             const n = new Notification(title, { body, icon: '/favicon.ico', tag: `nexus-signal-${Date.now()}` });
             n.onclick = () => { window.focus(); n.close(); };
             setTimeout(() => n.close(), 8000);
-        } catch(e) {};
+        } catch(e) {}
     },
 
     outcome(type, outcome, symbol, pnl) {
@@ -339,7 +285,7 @@ const Notify = {
             const n = new Notification(title, { body, icon: '/favicon.ico', tag: `nexus-outcome-${Date.now()}` });
             n.onclick = () => { window.focus(); n.close(); };
             setTimeout(() => n.close(), 6000);
-        } catch(e) {};
+        } catch(e) {}
     },
 };
 let focusedBotId = null;
@@ -367,8 +313,8 @@ function _initOverlayPanel() {
             const collapsed = panel.classList.toggle('collapsed');
             toggleBtn.textContent = collapsed ? '+' : '−';
         });
-    };
-};
+    }
+}
 
 function _saveOverlayState(botId) {
     const state = {};
@@ -377,7 +323,7 @@ function _saveOverlayState(botId) {
         if (el) state[id] = el.checked;
     });
     overlayState[botId] = state;
-};
+}
 
 function _loadOverlayState(botId) {
     const state = overlayState[botId] || {};
@@ -385,12 +331,12 @@ function _loadOverlayState(botId) {
         const el = document.getElementById(id);
         if (el) el.checked = state[id] || false;
     });
-};
+}
 
 function _showOverlayPanel(show) {
     const panel = document.getElementById('overlay-panel');
     if (panel) panel.style.display = show ? 'block' : 'none';
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // SAVE / RESTORE BOT CONFIGS
@@ -400,7 +346,7 @@ function _saveBotConfigs() {
         .filter(b => b.isActive)
         .map(b => ({ id: b.id, config: b.config }));
     SessionState.set({ botConfigs: active });
-};
+}
 
 function _restoreBotCards() {
     const saved = SessionState.get().botConfigs || [];
@@ -420,15 +366,13 @@ function _restoreBotCards() {
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph && saved.length > 0) ph.style.display = 'none';
     const firstId = saved[0]?.id;
-    if (firstId) { focusedBotId = firstId; };
-};
+    if (firstId) { focusedBotId = firstId; }
+}
 
 // ─────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────
 async function init() {
-    // Connect to MT5 bridge WebSocket
-    connectRenderWebSocket();
     api = new DerivAPI(96293, handleData);
     initChartManager();
 
@@ -438,6 +382,7 @@ async function init() {
     PositionSizing.init(10000);
     PositionSizing.resetSession(10000);
 
+
     if (!Auth.isGuest()) {
         const localTrades = SessionState.get().trades || [];
         if (localTrades.length === 0) {
@@ -446,10 +391,10 @@ async function init() {
                     SessionState.set({ trades: serverTrades });
                     log(`Restored ${serverTrades.length} trades from cloud`, 'info');
                     Analytics.init();
-                };
+                }
             }).catch(() => {});
-        };
-    };
+        }
+    }
 
     const restoredState = SessionState.get();
     const pnlEl = document.getElementById('session-pnl');
@@ -457,7 +402,7 @@ async function init() {
         const pnl = restoredState.sessionPnL;
         pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
         pnlEl.style.color = pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
+    }
     const winsEl   = document.getElementById('stat-wins');
     const lossesEl = document.getElementById('stat-losses');
     const wrEl     = document.getElementById('stat-winrate');
@@ -478,7 +423,7 @@ async function init() {
     } else {
         document.documentElement.removeAttribute('data-authed');
         document.getElementById('auth-overlay').style.display = 'flex';
-    };
+    }
 
     document.getElementById('btn-login').onclick = () => {
         const t = document.getElementById('api-token').value.trim();
@@ -505,7 +450,7 @@ async function init() {
             document.querySelector(`.bot-card[data-bot-id="${b.id}"]`)?.classList.contains('running')
         );
 
-        if (!phantomBot) { hudWrap.style.display = 'none'; return; };
+        if (!phantomBot) { hudWrap.style.display = 'none'; return; }
 
         const session = PhantomStrategy.getSession();
 
@@ -514,24 +459,24 @@ async function init() {
             hudEl.textContent = '🛑 HALTED';
             hudEl.style.color = '#f87171';
             return;
-        };
+        }
         if (session.mode === 'observer') {
             hudWrap.style.display = 'flex';
             hudEl.textContent = '👁 OBSERVING';
             hudEl.style.color = '#a78bfa';
             return;
-        };
+        }
         if (phantomBot.openSignal?.isPhantom) {
             hudWrap.style.display = 'flex';
             const trailLabel = phantomBot.openSignal.scaleOutDone ? 'TRAILING ½' : 'IN TRADE';
             hudEl.textContent = trailLabel;
             hudEl.style.color = '#34d399';
             return;
-        };
+        }
 
         const tf = phantomBot.config.tf || 300;
         const lastCandle = phantomBot.candles?.[phantomBot.candles.length - 1];
-        if (!lastCandle) { hudWrap.style.display = 'none'; return; };
+        if (!lastCandle) { hudWrap.style.display = 'none'; return; }
 
         const candleCloseAt = (lastCandle.time + tf) * 1000;
         const secsLeft = Math.max(0, Math.round((candleCloseAt - Date.now()) / 1000));
@@ -559,7 +504,7 @@ async function init() {
                     card.style.transition = 'box-shadow 0.3s';
                     card.style.boxShadow = '0 0 0 2px #8b5cf6';
                     setTimeout(() => { card.style.boxShadow = ''; }, 2000);
-                };
+                }
                 const overlay = document.getElementById('deploy-overlay');
                 if (overlay) {
                     overlay.style.transition = 'opacity 0.4s';
@@ -568,14 +513,14 @@ async function init() {
                         overlay.style.display = 'none';
                         document.documentElement.removeAttribute('data-deploying');
                     }, 420);
-                };
+                }
             }, 350);
         } catch(e) {
             console.warn('[Deploy] Failed to parse payload', e);
             const overlay = document.getElementById('deploy-overlay');
             if (overlay) overlay.style.display = 'none';
-        };
-    };
+        }
+    }
 
     const quickSym = sessionStorage.getItem('nexus_quick_sym');
     if (quickSym) {
@@ -588,7 +533,7 @@ async function init() {
                 _createBotCard(id, { strategy: 'momentum', symbol: quickSym, tf: 300 });
                 log(`New bot created from Market with symbol ${quickSym}`, 'info');
                 return;
-            };
+            }
             const symSelect = targetCard.querySelector('.bot-symbol-select');
             if (symSelect) {
                 symSelect.value = quickSym;
@@ -597,10 +542,11 @@ async function init() {
                 targetCard.style.transition = 'box-shadow 0.3s';
                 targetCard.style.boxShadow = '0 0 0 2px #06b6d4';
                 setTimeout(() => { targetCard.style.boxShadow = ''; }, 2000);
-            };
+            }
         }, 400);
-    };
-};
+    }
+}
+
 
 // ─────────────────────────────────────────────────────────────
 // START / STOP BOT
@@ -614,7 +560,7 @@ window.startBot = function(id) {
     if (activeBotCount >= maxBots) {
         log(`Risk block: max ${maxBots} bots allowed. Stop one first.`, 'warn');
         return;
-    };
+    }
 
     const maxDailyLoss = Settings.get('maxDailyLoss') || 500;
     const sessionState = SessionState.get();
@@ -622,7 +568,7 @@ window.startBot = function(id) {
         log(`Risk block: daily loss limit $${maxDailyLoss} reached. Trading halted.`, 'warn');
         _showRiskAlert(`Daily loss limit of $${maxDailyLoss} reached. All trading halted.`);
         return;
-    };
+    }
 
     const bot        = new BotState(id, config);
     bots[id]         = bot;
@@ -645,7 +591,7 @@ window.startBot = function(id) {
         subscribeBot(bot);
     } else {
         log(`Bot #${id} queued — waiting for API connection`, 'warn');
-    };
+    }
 
     if (!focusedBotId) window.focusBot(id);
 
@@ -671,8 +617,8 @@ window.stopBot = function(id) {
         if (bot.config.strategy === 'jump75') {
             api.forgetSymbol(bot.config.symbol, 300);
             api.forgetSymbol(bot.config.symbol, 900);
-        };
-    };
+        }
+    }
 
     ChartManager.removeBot(id);
     
@@ -683,13 +629,13 @@ window.stopBot = function(id) {
             engine.clearAnalysis();
         } catch(e) {
             console.warn('[Chart] Failed to clear analysis:', e.message);
-        };
-    };
+        }
+    }
     
     if (ChartManager.count() === 0) {
         const ph = document.getElementById('chart-placeholder-empty');
         if (ph) ph.style.display = 'flex';
-    };
+    }
 
     SessionState.set({ activeBots: Object.values(bots).filter(b => b.isActive).length });
     _saveBotConfigs();
@@ -721,7 +667,7 @@ window.focusBot = function(id) {
             if (bot.openSignal) {
                 const eng = ChartManager.mainEngine();
                 if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
-            };
+            }
         }, 30);
     } else {
         _showOverlayPanel(true);
@@ -735,8 +681,8 @@ window.focusBot = function(id) {
             _drawBotAnalysis(id, bot);
             
             redrawOverlays();
-        };
-    };
+        }
+    }
 };
 
 window.onSplitView = function() {
@@ -758,16 +704,16 @@ function _drawBotAnalysis(botId, bot) {
             console.log(`[Chart] H4 levels drawn for ${bot.config.symbol}`);
         } catch(e) {
             console.warn('[Chart] Failed to draw H4 levels:', e.message);
-        };
-    };
-};
+        }
+    }
+}
 
 function _engineFor(botId) {
     if (!ChartManager.isSplitMode() && botId === focusedBotId) {
         return ChartManager.mainEngine();
-    };
+    }
     return ChartManager.get(botId);
-};
+}
 
 function subscribeBot(bot) {
     Notify.request();
@@ -779,7 +725,7 @@ function subscribeBot(bot) {
         api.subscribe(bot.config.symbol, 14400); // H4
         log(`Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
         return;
-    };
+    }
     
     const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
     bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
@@ -789,7 +735,8 @@ function subscribeBot(bot) {
     api.subscribe(bot.config.symbol, bot.htfGran);
     const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
     log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + ${htfLabel}`, 'info');
-};
+}
+
 
 /**
  * Get recommended analysis config for each strategy
@@ -874,11 +821,11 @@ function _getStrategyAnalysis(strategy) {
         'default': {
             sma: { periods: 20, color: '#2563eb' },      // Trend
             atr: { periods: 14, color: '#f59e0b' }       // Volatility
-        },
+        }
     };
 
     return configs[strategy] || configs['default'];
-};
+}
 
 /**
  * Update H4 levels when new H4 candle arrives
@@ -899,8 +846,38 @@ function _updateChartH4Levels(botId, bot) {
         currentH4.high !== latestH4.high || 
         currentH4.low !== latestH4.low) {
         engine.drawH4Levels(bot.h4Candles);
-    };
-};
+    }
+}
+
+
+function _engineFor(botId) {
+    if (!ChartManager.isSplitMode() && botId === focusedBotId) {
+        return ChartManager.mainEngine();
+    }
+    return ChartManager.get(botId);
+}
+
+function subscribeBot(bot) {
+    Notify.request();
+    
+    // For Jump75 strategy, subscribe to M5, M15, and H4
+    if (bot.config.strategy === 'jump75') {
+        api.subscribe(bot.config.symbol, 300);   // M5
+        api.subscribe(bot.config.symbol, 900);   // M15
+        api.subscribe(bot.config.symbol, 14400); // H4
+        log(`Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
+        return;
+    }
+    
+    const HTF_GRAN_MAP = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
+    bot.htfGran = (bot.config.strategy === 'vortex' || bot.config.strategy === 'phantom')
+        ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
+        : 14400;
+    api.subscribe(bot.config.symbol, bot.config.tf);
+    api.subscribe(bot.config.symbol, bot.htfGran);
+    const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
+    log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + ${htfLabel}`, 'info');
+}
 
 // ─────────────────────────────────────────────────────────────
 // HANDLE DERIV API DATA
@@ -918,11 +895,11 @@ function handleData(data) {
             Object.values(bots).forEach(bot => {
                 if (bot.isActive && bot.config.symbol === sym) {
                     log(`Bot on ${sym} may not function — check account permissions`, 'warn');
-                };
+                }
             });
-        };
+        }
         return;
-    };
+    }
 
     if (data.msg_type === 'authorize') {
         authorised = true;
@@ -935,12 +912,12 @@ function handleData(data) {
             window.setBotOnline(bot.id);
             if (bot.isActive) subscribeBot(bot);
         });
-    };
+    }
 
     if (data.msg_type === 'active_symbols') {
         data.active_symbols.forEach(s => { symbolMap[s.symbol] = s.display_name; });
         log(`${data.active_symbols.length} symbols loaded`, 'info');
-    };
+    }
 
     if (data.msg_type === 'candles') {
         const gran = data.echo_req.granularity;
@@ -965,7 +942,7 @@ function handleData(data) {
                         if (bot.m5Candles.length > 100) bot.m5Candles.shift();
                         bot.lastM5CloseTime = candle.time;
                     });
-                };
+                }
                 
                 if (gran === 900) {
                     history.forEach(candle => {
@@ -973,7 +950,7 @@ function handleData(data) {
                         if (bot.m15Candles.length > 50) bot.m15Candles.shift();
                         bot.lastM15CloseTime = candle.time;
                     });
-                };
+                }
                 
                 if (gran === 14400) {
                     history.forEach(candle => {
@@ -981,8 +958,8 @@ function handleData(data) {
                         if (bot.h4Candles.length > 30) bot.h4Candles.shift();
                         bot.lastH4CloseTime = candle.time;
                     });
-                };
-            };
+                }
+            }
             
             // Store original candles for all strategies
             if (gran === bot.config.tf) {
@@ -999,26 +976,26 @@ function handleData(data) {
                             if (el) {
                                 current[oid] = el.checked;
                                 el.checked = saved[oid] || false;
-                            };
+                            }
                         });
                         _drawOverlaysOnEngine(eng, bot);
                         OVERLAY_IDS.forEach(oid => {
                             const el = document.getElementById(oid);
                             if (el) el.checked = current[oid];
                         });
-                    };
-                };
-            };
+                    }
+                }
+            }
             
             if (gran === 14400 && bot.config.symbol === symbol) {
                 bot.h4Candles = history;
-            };
+            }
             if (gran === bot.htfGran && bot.config.symbol === symbol) {
                 bot.htfCandles = history;
                 if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, history);
-            };
+            }
         });
-    };
+    }
 
     if (data.msg_type === 'ohlc') {
         const gran = data.echo_req.granularity;
@@ -1033,10 +1010,10 @@ function handleData(data) {
         Object.values(bots).forEach(bot => {
             if (bot.isActive && bot.config.symbol === symbol) {
                 processBar(bot, bar, gran);
-            };
+            }
         });
-    };
-};
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // PROCESS BAR
@@ -1047,7 +1024,7 @@ function processBar(bot, bar, gran) {
         if (last && last.time === bar.time) bot.h4Candles[bot.h4Candles.length - 1] = bar;
         else bot.h4Candles.push(bar);
         if (bot.h4Candles.length > 500) bot.h4Candles.shift();
-    };
+    }
     if (gran === bot.htfGran) {
         const lastH = bot.htfCandles[bot.htfCandles.length - 1];
         if (lastH && lastH.time === bar.time) bot.htfCandles[bot.htfCandles.length - 1] = bar;
@@ -1055,7 +1032,7 @@ function processBar(bot, bar, gran) {
         if (bot.htfCandles.length > 500) bot.htfCandles.shift();
         if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, bot.htfCandles);
         if (bot.config.strategy === 'phantom') PhantomStrategy.setHtfCandles(bot.id, bot.htfCandles);
-    };
+    }
 
     // Store candles for Jump75 on each timeframe
     if (bot.config.strategy === 'jump75') {
@@ -1063,18 +1040,18 @@ function processBar(bot, bar, gran) {
             bot.m5Candles.push(bar);
             if (bot.m5Candles.length > 100) bot.m5Candles.shift();
             bot.lastM5CloseTime = bar.time;
-        };
+        }
         if (gran === 900) {
             bot.m15Candles.push(bar);
             if (bot.m15Candles.length > 50) bot.m15Candles.shift();
             bot.lastM15CloseTime = bar.time;
-        };
+        }
         if (gran === 14400) {
             bot.h4Candles.push(bar);
             if (bot.h4Candles.length > 30) bot.h4Candles.shift();
             bot.lastH4CloseTime = bar.time;
-        };
-    };
+        }
+    }
 
     if (gran !== bot.config.tf) return;
 
@@ -1089,7 +1066,7 @@ function processBar(bot, bar, gran) {
     if (!ChartManager.isSplitMode() && bot.id === focusedBotId) {
         const splitEng = ChartManager.get(bot.id);
         if (splitEng && splitEng !== activeEng) splitEng.update(bar);
-    };
+    }
 
     const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
     const atr = Indicators.calculateATR(bot.candles);
@@ -1113,22 +1090,22 @@ function processBar(bot, bar, gran) {
     checkOutcome(bot);
 
     // ── DIRECT STRATEGY RUNNERS ─────────────────────────────────
-    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; };
-    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; };
-    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; };
-    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; };
-    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; };
+    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
+    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
+    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; }
     
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
         if (forexStrategies.includes(bot.config.strategy)) {
             const hour = new Date().getUTCHours();
             if (hour < 7 || hour > 20) return;
-        };
-    };
+        }
+    }
 
     const signal = bot.strategy.analyze(
         bot.config.strategy, bot.candles, bot.h4Candles,
@@ -1148,9 +1125,9 @@ function processBar(bot, bar, gran) {
                 if (h4Last.close < h4ema) {
                     log(`VWAP BUY filtered — H4 trend bearish (price ${h4Last.close.toFixed(4)} < EMA21 ${h4ema.toFixed(4)})`, 'neutral');
                     return;
-                };
-            };
-        };
+                }
+            }
+        }
 
         if (bot.config.strategy === 'range_boundary') {
             const msSinceLastSL = now - bot.lastSLTimeMs;
@@ -1159,8 +1136,8 @@ function processBar(bot, bar, gran) {
                 const minsLeft = Math.ceil((COOLDOWN_MS - msSinceLastSL) / 60000);
                 log(`Range Boundary cooldown — ${minsLeft}m remaining after last SL`, 'neutral');
                 return;
-            };
-        };
+            }
+        }
 
         if (bot.config.strategy === 'h4_kiss') {
             if (bot.h4Candles.length >= 21) {
@@ -1175,27 +1152,27 @@ function processBar(bot, bar, gran) {
                     log(`H4 Kiss first touch @ ${bar.close.toFixed(4)} — waiting for confirmation bar`, 'neutral');
                     return;
                 } else if (candidate) {
-                    if (candidate.dir !== signal.type) { bot.h4KissCandidate = null; return; };
+                    if (candidate.dir !== signal.type) { bot.h4KissCandidate = null; return; }
                     bot.h4KissCandidate = null;
                     log(`H4 Kiss confirmed (2-bar) @ ${bar.close.toFixed(4)}`, 'info');
                 } else {
                     return;
-                };
-            };
-        };
+                }
+            }
+        }
 
         if (bot.config.strategy === 'synthetic_scalp') {
             const barsSinceLastSL = bot.candles.length - bot.lastSLBarIdx;
             if (bot.lastSLBarIdx > 0 && barsSinceLastSL < 2) {
                 log(`Synthetic scalp re-entry blocked — only ${barsSinceLastSL} bar(s) since last SL`, 'neutral');
                 return;
-            };
-        };
+            }
+        }
 
         bot.lastFiredMs = now;
         fireSignal(bot, signal, bar, atr, rsi, isTrending);
-    };
-};
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // JUMP75 RUNNER - COMPLETE FIXED VERSION
@@ -1205,12 +1182,12 @@ async function _runJump75(bot, bar, atr, rsi) {
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(bot.config.symbol)) {
         return null;
-    };
+    }
     
     // Check candle buffers
     if (!bot.m5Candles || !bot.m15Candles || !bot.h4Candles) {
         return null;
-    };
+    }
     
     const m5Count = bot.m5Candles.length;
     const m15Count = bot.m15Candles.length;
@@ -1220,23 +1197,23 @@ async function _runJump75(bot, bar, atr, rsi) {
     if (!bot._lastCandleLog || Date.now() - bot._lastCandleLog > 60000) {
         console.log(`[Jump75] Candles: M5=${m5Count}, M15=${m15Count}, H4=${h4Count}`);
         bot._lastCandleLog = Date.now();
-    };
+    }
     
     // Minimum requirements
     if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
         return null;
-    };
+    }
     
     // Validate ATR
     if (!atr || atr === 0 || !isFinite(atr)) {
         return null;
-    };
+    }
     
     // Check cooldown
     const now = Date.now();
     if ((now - bot.lastFiredMs) < 30000) {
         return null;
-    };
+    }
     
     // TEST MODE - Set to false for production
     const JUMP75_TEST_MODE = false;
@@ -1264,8 +1241,8 @@ async function _runJump75(bot, bar, atr, rsi) {
             fireSignal(bot, testSignal, bar, atr, rsi, null);
             bot.lastFiredMs = now;
             return testSignal;
-        };
-    };
+        }
+    }
     
     // REAL STRATEGY
     try {
@@ -1278,7 +1255,7 @@ async function _runJump75(bot, bar, atr, rsi) {
         
         if (!signal) {
             return null;
-        };
+        }
         
         const signalType = signal.type || signal.direction || 'BUY/SELL';
         const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
@@ -1297,8 +1274,8 @@ async function _runJump75(bot, bar, atr, rsi) {
     } catch (error) {
         console.error('[Jump75] Error:', error);
         return null;
-    };
-};
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM MULTI-TF CANDLE BUFFERS
@@ -1308,7 +1285,7 @@ const _phantomBuffers = {};
 function _getPhantomBuffers(botId) {
     if (!_phantomBuffers[botId]) _phantomBuffers[botId] = { m1: [], m5: [], m15: [] };
     return _phantomBuffers[botId];
-};
+}
 
 function _buildPhantomTFBuffers(bot) {
     const buf = _getPhantomBuffers(bot.id);
@@ -1325,16 +1302,16 @@ function _buildPhantomTFBuffers(bot) {
                 buckets[bucket].high  = Math.max(buckets[bucket].high, c.high);
                 buckets[bucket].low   = Math.min(buckets[bucket].low,  c.low);
                 buckets[bucket].close = c.close;
-            };
-        };
+            }
+        }
         return Object.values(buckets).sort((a, b) => a.time - b.time);
-    };
+    }
 
     buf.m1  = _resample(candles, 60);
     buf.m5  = _resample(candles, 300);
     buf.m15 = _resample(candles, 900);
     return buf;
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM RUNNER
@@ -1358,9 +1335,9 @@ function _runPhantom(bot, bar, atr, rsi) {
                 ? (c.close > bot.openSignal.entry ? 'TP' : 'SL')
                 : (c.close < bot.openSignal.entry ? 'TP' : 'SL');
             _phantomCloseTrade(bot, outcome, pnlAmt, c);
-        };
+        }
         return;
-    };
+    }
 
     if (bot.openSignal) return;
 
@@ -1375,14 +1352,14 @@ function _runPhantom(bot, bar, atr, rsi) {
     if (observerOnly) {
         log(`👻 PHANTOM [OBSERVER] ${signal.type} @ ${bar.close.toFixed(4)} [${signal.tfNames} ${signal.score}] — target hit, watching`, 'neutral');
         return;
-    };
+    }
 
     bot.lastFiredMs = now;
     log(`👻 PHANTOM ${signal.type} @ ${bar.close.toFixed(4)} — ${signal.tfNames} | score ${signal.score} | ${signal.tfCount} TF${signal.tfCount > 1 ? 's' : ''}`, signal.type === 'BUY' ? 'buy' : 'sell');
     if (signal.factors.length) log(`Signals: ${signal.factors.slice(0, 5).join(' · ')}`, 'neutral');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // NOVA RUNNER
@@ -1399,19 +1376,19 @@ function _buildNovaTFBuffers(bot) {
                 buckets[b].high  = Math.max(buckets[b].high, c.high);
                 buckets[b].low   = Math.min(buckets[b].low,  c.low);
                 buckets[b].close = c.close;
-            };
-        };
+            }
+        }
         return Object.values(buckets).sort((a, b) => a.time - b.time);
-    };
+    }
     return { m1: _resample(candles, 60), m5: _resample(candles, 300), m15: _resample(candles, 900) };
-};
+}
 
 function _runNova(bot, bar, atr, rsi) {
     const symCfg = novaSymbolConfig(bot.config.symbol);
     if (!symCfg) {
         log(`NOVA: ${bot.config.symbol} is not a supported Crash/Boom symbol`, 'warn');
         return;
-    };
+    }
 
     const spike = detectSpike(bot.candles, atr);
     if (spike) {
@@ -1429,11 +1406,11 @@ function _runNova(bot, bar, atr, rsi) {
                     : (c.close < bot.openSignal.entry ? 'TP' : 'SL');
                 _novaCloseTrade(bot, outcome, pnlAmt, c);
                 return;
-            };
-        };
-    };
+            }
+        }
+    }
 
-    if (bot.openSignal?.isNova) { _applyTrailingStop(bot, atr); return; };
+    if (bot.openSignal?.isNova) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
     if (NovaStrategy.inCooldown(bot.id)) return;
 
@@ -1453,7 +1430,7 @@ function _runNova(bot, bar, atr, rsi) {
     if (signal.factors.length) log(`Signals: ${signal.factors.slice(0, 5).join(' · ')}`, 'neutral');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 function _novaCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
@@ -1469,14 +1446,14 @@ function _novaCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.registerLoss(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'nova', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
-    };
+    }
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'nova',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
     bot.openSignal = null;
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // PULSE — RUN + CLOSE
@@ -1486,7 +1463,7 @@ function _runPulse(bot, bar, atr, rsi) {
     if (!cfg) {
         log(`PULSE: ${bot.config.symbol} not supported. Use Boom 1000, Crash 1000, or Step Index.`, 'warn');
         return;
-    };
+    }
 
     if (cfg.type === 'crash_boom') {
         const spike = detectSpike(bot.candles, atr);
@@ -1503,12 +1480,12 @@ function _runPulse(bot, bar, atr, rsi) {
                     const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
                     _pulseCloseTrade(bot, 'SL', pnlAmt, c);
                     return;
-                };
-            };
-        };
-    };
+                }
+            }
+        }
+    }
 
-    if (bot.openSignal?.isPulse) { _applyTrailingStop(bot, atr); return; };
+    if (bot.openSignal?.isPulse) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
     if (PulseStrategy.inCooldown(bot.id)) return;
 
@@ -1520,7 +1497,7 @@ function _runPulse(bot, bar, atr, rsi) {
         if (mode === 'target_hit') log('⚡ PULSE target reached — session complete', 'buy');
         if (mode === 'halted')     log('⚡ PULSE halted — daily loss limit hit', 'warn');
         return;
-    };
+    }
 
     const spikeState  = PulseStrategy.getSpikeState(bot.id);
     const recentSpike = spikeState.spike || null;
@@ -1532,7 +1509,7 @@ function _runPulse(bot, bar, atr, rsi) {
     log(`⚡ PULSE ${signal.type} @ ${bar.close.toFixed(4)} | lot ${(bot.config.lotSize || 0.01).toFixed(2)} | level ${level} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 function _pulseCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
@@ -1554,14 +1531,14 @@ function _pulseCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'pulse', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-    };
+    }
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'pulse',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
     bot.openSignal = null;
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // VORTEX — RUN + CLOSE
@@ -1578,11 +1555,11 @@ function _vortexBaseline(bot) {
             const c = slice[i], p = slice[i - 1];
             if (!c || !p) continue;
             trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
-        };
+        }
         if (trs.length === 10) samples.push(trs.reduce((a, b) => a + b) / 10);
-    };
+    }
     return samples.length ? samples.reduce((a, b) => a + b) / samples.length : null;
-};
+}
 
 function _runVortex(bot, bar, atr, rsi) {
     if (!atr) return;
@@ -1613,14 +1590,14 @@ function _runVortex(bot, bar, atr, rsi) {
                 const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
                 _vortexCloseTrade(bot, 'SL', pnlAmt, c);
                 return;
-            };
-        };
-    };
+            }
+        }
+    }
 
-    if (bot.openSignal?.isVortex) { _applyTrailingStop(bot, atr); return; };
+    if (bot.openSignal?.isVortex) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
-    if (VortexStrategy.isHalted(bot.id))      { log(`🌀 VORTEX halted — 5 consecutive losses`, 'warn'); return; };
-    if (VortexStrategy.isTooFrequent(bot.id)) { log(`🌀 VORTEX rate limit — max 3 trades/hr`, 'neutral'); return; };
+    if (VortexStrategy.isHalted(bot.id))      { log(`🌀 VORTEX halted — 5 consecutive losses`, 'warn'); return; }
+    if (VortexStrategy.isTooFrequent(bot.id)) { log(`🌀 VORTEX rate limit — max 3 trades/hr`, 'neutral'); return; }
 
     const cooldownMs = (bot.config.tf || 60) * 2 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
@@ -1634,7 +1611,7 @@ function _runVortex(bot, bar, atr, rsi) {
     log(`   ${signal.factors.join(' · ')}`, 'neutral');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 function _vortexCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
@@ -1654,14 +1631,14 @@ function _vortexCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'vortex', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-    };
+    }
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'vortex',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
     bot.openSignal = null;
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // KISMET — RUN + CLOSE
@@ -1671,7 +1648,7 @@ function _runKismet(bot, bar, atr, rsi) {
     if (!cfg) {
         log(`🎯 KISMET: ${bot.config.symbol} not supported. Use Boom/Crash 1000/500 or Step Index.`, 'warn');
         return;
-    };
+    }
 
     const spike = KismetStrategy.detectSpike(bot.candles, atr);
     if (spike) {
@@ -1685,17 +1662,17 @@ function _runKismet(bot, bar, atr, rsi) {
                 const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
                 _kismetCloseTrade(bot, 'SL', pnlAmt, c);
                 return;
-            };
-        };
-    };
+            }
+        }
+    }
 
-    if (bot.openSignal?.isKismet) { _applyTrailingStop(bot, atr); return; };
+    if (bot.openSignal?.isKismet) { _applyTrailingStop(bot, atr); return; }
     if (bot.openSignal) return;
 
     if (KismetStrategy.isHalted(bot.id)) {
         log(`🎯 KISMET halted — 6 consecutive losses reached`, 'warn');
         return;
-    };
+    }
 
     const cooldownMs = bot.config.tf * 3 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
@@ -1709,7 +1686,7 @@ function _runKismet(bot, bar, atr, rsi) {
     log(`🎯 KISMET ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | score ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // CIPHER RUNNER
@@ -1718,18 +1695,18 @@ function _runCipher(bot, bar, atr, rsi) {
     if (!isCipherSymbol(bot.config.symbol)) {
         log(`⚡ CIPHER: ${bot.config.symbol} not supported. Use cryBTCUSD or BTCUSD.`, 'warn');
         return;
-    };
+    }
  
     if (bot.openSignal?.isCipher) {
         _applyTrailingStop(bot, atr);
         return;
-    };
+    }
     if (bot.openSignal) return;
  
     if (CipherStrategy.isHalted(bot.id)) {
         log(`⚡ CIPHER halted — 5 consecutive losses`, 'warn');
         return;
-    };
+    }
  
     const signal = CipherStrategy.checkEntry(bot.candles, bot.h4Candles, atr, bot.id);
     if (!signal) return;
@@ -1738,7 +1715,7 @@ function _runCipher(bot, bar, atr, rsi) {
     log(`⚡ CIPHER ${signal.type} @ ${bar.close.toFixed(2)} | score ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
  
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // ULTRA SCALPER RUNNER
@@ -1753,9 +1730,9 @@ function _runUltraScalper(bot, bar, atr, rsi) {
             bot.openSignal.sl = newSL;
             const eng = _engineFor(bot.id);
             if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
-        };
+        }
         return;
-    };
+    }
     
     if (bot.openSignal) return;
     
@@ -1766,7 +1743,7 @@ function _runUltraScalper(bot, bar, atr, rsi) {
     log(`⚡ ULTRA SCALPER ${signal.type} @ ${bar.close.toFixed(4)} | Score: ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
     
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // CLOSE TRADE FUNCTIONS
@@ -1789,7 +1766,7 @@ function _cipherCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'cipher', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-    };
+    }
  
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'cipher',
@@ -1798,7 +1775,7 @@ function _cipherCloseTrade(bot, outcome, pnlAmt, bar) {
     });
  
     bot.openSignal = null;
-};
+}
 
 function _ultraScalperCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
@@ -1823,7 +1800,7 @@ function _ultraScalperCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'ultra_scalp', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-    };
+    }
     
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'ultra_scalp',
@@ -1832,7 +1809,7 @@ function _ultraScalperCloseTrade(bot, outcome, pnlAmt, bar) {
     });
     
     bot.openSignal = null;
-};
+}
 
 function _kismetCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
@@ -1851,14 +1828,14 @@ function _kismetCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'kismet', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-    };
+    }
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'kismet',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
         confidence: bot.lastConfidence || null,
     });
     bot.openSignal = null;
-};
+}
 
 function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
     const { type, entry, sl, tp } = bot.openSignal;
@@ -1874,7 +1851,7 @@ function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.registerLoss(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'phantom', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
-    };
+    }
 
     const lotSize        = bot.config.phantomLot || bot.config.lotSize || 0.01;
     const updatedSession = PhantomStrategy.recordTrade(bot.id, outcome, pnlAmt * lotSize);
@@ -1885,7 +1862,7 @@ function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
         log(`👻 PHANTOM — Daily target $${updatedSession.profitTarget} reached! Switching to Observer Mode 👁`, 'buy');
     } else if (updatedSession.mode === 'halted') {
         log(`👻 PHANTOM — Loss limit -$${updatedSession.lossLimit} hit. Session halted. 🛑`, 'sell');
-    };
+    }
 
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'phantom',
@@ -1893,7 +1870,7 @@ function _phantomCloseTrade(bot, outcome, pnlAmt, bar) {
         confidence: bot.lastConfidence || null,
     });
     bot.openSignal = null;
-};
+}
 
 function _updatePhantomBadge(botId, session) {
     const card = document.querySelector(`.bot-card[data-bot-id="${botId}"]`);
@@ -1901,7 +1878,7 @@ function _updatePhantomBadge(botId, session) {
     const badge = card.querySelector('.phantom-session-badge');
     if (!badge) return;
 
-    if (!session.configured) { badge.style.display = 'none'; return; };
+    if (!session.configured) { badge.style.display = 'none'; return; }
     badge.style.display = 'block';
 
     const pnl    = session.realizedPnL;
@@ -1920,7 +1897,7 @@ function _updatePhantomBadge(botId, session) {
             ? `<span style="color:var(--text-muted);margin:0 5px;">·</span><span style="color:rgba(167,139,250,0.7);">Target $${session.profitTarget}</span>`
             : '') +
         modeHtml;
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // FIRE SIGNAL WITH POSITION SIZING
@@ -1937,7 +1914,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     if (!type || type === 'BUY/SELL') {
         console.warn('[fireSignal] Unknown signal type:', signal);
         type = 'BUY'; // Default fallback
-    };
+    }
     
     const label = signal.label || type;
 
@@ -1963,7 +1940,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         const confLabel = `${label} [${confidence.grade}${confidence.score}]`;
         log(`SIGNAL ${type} @ ${bar.close.toFixed(4)} — ${confLabel}`, type === 'BUY' ? 'buy' : 'sell');
         if (confidence.factors.length) log(`Confluence: ${confidence.factors.slice(0, 3).join(' · ')}`, 'neutral');
-    };
+    }
 
     window.registerBotSignal(bot.id, type, bar.close.toFixed(4), label, confidence);
     Notify.signal(type, bot.config.symbol, bar.close, label, confidence);
@@ -2001,7 +1978,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         slMult = signal.slMultiplier || 1.0;
         slDist = atr * slMult;
         tpDist = atr * tpMult;
-    };
+    }
 
     const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
     const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
@@ -2024,7 +2001,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         PositionSizing.reset();
     } catch(e) {
         log(`Position sizing reset failed: ${e.message}`, 'warn');
-    };
+    }
     
     let lotSize = 0.01; // Default fallback
     
@@ -2044,11 +2021,11 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         } else {
             log(`Position sizing not available (${sizing.reason || 'unknown'}) - using fixed 0.01 lot`, 'warn');
             lotSize = 0.01;
-        };
+        }
     } catch(e) {
         log(`Position sizing error: ${e.message} - using fixed 0.01 lot`, 'warn');
         lotSize = 0.01;
-    };
+    }
     
     // Final safety clamp
     lotSize = Math.min(0.1, Math.max(0.01, lotSize));
@@ -2057,14 +2034,14 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     if (signal.isJump75) {
         bot.openSignal.isJump75 = true;
         bot.openSignal.factors = signal.factors || [];
-    };
+    }
     bot.lastConfidence = confidence;
 
     const sigEngine = _engineFor(bot.id);
     if (sigEngine) {
         sigEngine.addMarker(bar.time, type, label);
         sigEngine.drawTradeLevels(sl, tp);
-    };
+    }
 
     // Auto-log training data
     if (document.getElementById('auto-log')?.checked) {
@@ -2084,9 +2061,9 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
                 const seScore = (bearEngulf?1:0) + (allBear?1:0) + (bigBear?1:0);
                 DataLogger.logSignal(type, bar, atr, rsi, ema8, ema21,
                     isTrending, isVol, bScore, seScore, bot.config.symbol, bot.config.tf);
-            };
-        } catch(e) {};
-    };
+            }
+        } catch(e) {}
+    }
 
     // MT5 Push
     if (document.getElementById('auto-mt5')?.checked) {
@@ -2117,12 +2094,12 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
                 document.getElementById('mt5-indicator').className = 'status-dot status-online';
                 SessionState.set({ mt5Connected: true });
                 log(`→ MT5: ${type} ${mt5Symbol} @ ${bar.close} | lot ${clampedLot}`, 'info');
-            };
+            }
         } catch(e) {
             log('MT5 push failed — server unreachable', 'warn');
-        };
-    };
-};
+        }
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // SHARED TRAILING STOP
@@ -2155,15 +2132,8 @@ function _applyTrailingStop(bot, atr) {
 
     const candidate = type === 'BUY' ? price - atr : price + atr;
     let moved = false;
-    if (type === 'BUY' && candidate > sig.trailSL) { 
-        sig.trailSL = candidate; 
-        sig.sl = candidate; 
-        moved = true; 
-    } else if (type === 'SELL' && candidate < sig.trailSL) { 
-        sig.trailSL = candidate; 
-        sig.sl = candidate; 
-        moved = true; 
-    }
+    if (type === 'BUY'  && candidate > sig.trailSL) { sig.trailSL = candidate; sig.sl = candidate; moved = true; }
+    else if (type === 'SELL' && candidate < sig.trailSL) { sig.trailSL = candidate; sig.sl = candidate; moved = true; }
 
     if (moved) {
         const eng = _engineFor(bot.id);
@@ -2191,8 +2161,8 @@ async function _pushMT5Modify(bot, newSL, tp) {
         log(`→ MT5 modify: SL → ${newSL.toFixed(4)}`, 'neutral');
     } catch(e) {
         log('MT5 modify push failed', 'warn');
-    };
-};
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // CHECK OUTCOME
@@ -2213,7 +2183,7 @@ function checkOutcome(bot) {
     } else {
         if (closed.high >= sl) hit = 'SL';
         else if (closed.low  <= tp) hit = 'TP';
-    };
+    }
 
     if (!hit) return;
 
@@ -2243,7 +2213,7 @@ function checkOutcome(bot) {
                         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
                         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'jump75', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
                         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-                    };
+                    }
                     
                     SessionState.pushTrade({
                         time: Date.now(), symbol: bot.config.symbol, strategy: 'jump75',
@@ -2256,7 +2226,7 @@ function checkOutcome(bot) {
                     if (outcomeEngine) {
                         outcomeEngine.clearMarkers();
                         outcomeEngine.clearPriceLines();
-                    };
+                    }
                     return;
                 } else if (closeSignal.action === 'UPDATE_SL') {
                     bot.openSignal.sl = closeSignal.newSL;
@@ -2265,10 +2235,10 @@ function checkOutcome(bot) {
                     if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
                     _pushMT5Modify(bot, bot.openSignal.sl, bot.openSignal.tp);
                     return;
-                };
-            };
-        };
-    };
+                }
+            }
+        }
+    }
 
     // ── PHANTOM SCALE-OUT ─────────────────────────────────────
     if (bot.openSignal.isPhantom && hit === 'TP' && !bot.openSignal.scaleOutDone) {
@@ -2290,7 +2260,7 @@ function checkOutcome(bot) {
         const eng = _engineFor(bot.id);
         if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
         return;
-    };
+    }
 
     // ── PnL calculation using signal lotSize ───────────────────
     const lotSizeUsed = signalLotSize || bot.config.lotSize || bot.config.phantomLot || 0.01;
@@ -2305,13 +2275,13 @@ function checkOutcome(bot) {
     const newEquity = (SessionState.get().sessionPnL || 0) + (hit === 'TP' ? pnlAmt : -pnlAmt);
     PositionSizing.updateAfterTrade(hit, hit === 'TP' ? pnlAmt : -pnlAmt, newEquity + 10000);
 
-    if (bot.openSignal.isPhantom) { _phantomCloseTrade(bot, hit, pnlAmt, closed); return; };
-    if (bot.openSignal.isNova)    { _novaCloseTrade(bot, hit, pnlAmt, closed);    return; };
-    if (bot.openSignal.isPulse)   { _pulseCloseTrade(bot, hit, pnlAmt, closed);   return; };
-    if (bot.openSignal.isKismet)  { _kismetCloseTrade(bot, hit, pnlAmt, closed);  return; };
-    if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; };
-    if (bot.openSignal.isCipher)  { _cipherCloseTrade(bot, hit, pnlAmt, closed);  return; };
-    if (bot.openSignal.isUltraScalper) { _ultraScalperCloseTrade(bot, hit, pnlAmt, closed); return; };
+    if (bot.openSignal.isPhantom) { _phantomCloseTrade(bot, hit, pnlAmt, closed); return; }
+    if (bot.openSignal.isNova)    { _novaCloseTrade(bot, hit, pnlAmt, closed);    return; }
+    if (bot.openSignal.isPulse)   { _pulseCloseTrade(bot, hit, pnlAmt, closed);   return; }
+    if (bot.openSignal.isKismet)  { _kismetCloseTrade(bot, hit, pnlAmt, closed);  return; }
+    if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; }
+    if (bot.openSignal.isCipher)  { _cipherCloseTrade(bot, hit, pnlAmt, closed);  return; }
+    if (bot.openSignal.isUltraScalper) { _ultraScalperCloseTrade(bot, hit, pnlAmt, closed); return; }
 
     if (hit === 'TP') {
         log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
@@ -2330,7 +2300,7 @@ function checkOutcome(bot) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         bot.strategy.registerLoss(bot.config.strategy);
-    };
+    }
 
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: bot.config.strategy,
@@ -2348,20 +2318,20 @@ function checkOutcome(bot) {
 
     if (!Auth.isGuest()) {
         Auth.syncTrades(SessionState.get().trades).catch(() => {});
-    };
+    }
 
     const outcomeEngine = _engineFor(bot.id);
     if (outcomeEngine) {
         outcomeEngine.clearMarkers();
         outcomeEngine.clearPriceLines();
-    };
+    }
 
     bot.openSignal = null;
 
     if (hit === 'SL') {
         bot.lastSLTimeMs = Date.now();
         bot.lastSLBarIdx = bot.candles.length;
-    };
+    }
 
     // ── LOSS PROTECTION (UPDATED: excludes ultra_scalp and jump75) ────────
     if (hit === 'SL' && Settings.get('lossProtection') && 
@@ -2383,8 +2353,8 @@ function checkOutcome(bot) {
             window.stopBot(bot.id);
             _showRiskAlert(`Bot stopped: 5 consecutive losses on ${SYMBOL_MAP[bot.config.symbol] || bot.config.symbol}.`);
             return;
-        };
-    };
+        }
+    }
 
     const maxDailyLoss = Settings.get('maxDailyLoss') || 500;
     const currentPnL   = SessionState.get().sessionPnL;
@@ -2392,8 +2362,8 @@ function checkOutcome(bot) {
         log(`Daily loss limit $${maxDailyLoss} hit — stopping all bots.`, 'warn');
         _showRiskAlert(`Daily loss limit of $${maxDailyLoss} reached. All bots stopped.`);
         Object.keys(bots).forEach(bid => window.stopBot(bid));
-    };
-};
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // STRATEGY STATUS POLLING
@@ -2427,14 +2397,14 @@ async function _pollStrategyStatus() {
                 'Accept': 'application/json'
                 // Removed: 'Cache-Control': 'no-cache'
                 // Removed: 'Pragma': 'no-cache'  ← This was causing CORS error
-            },
+            }
         });
         clearTimeout(timeoutId);
         
         if (!response.ok) {
             console.warn(`[Status] HTTP ${response.status}`);
             throw new Error(`HTTP ${response.status}`);
-        };
+        }
         
         const status = await response.json();
         consecutiveErrors = 0;
@@ -2461,34 +2431,34 @@ async function _pollStrategyStatus() {
             if (statusEl && consecutiveErrors === 1) {
                 statusEl.textContent = 'CONNECTING...';
                 statusEl.style.color = '#f59e0b';
-            };
+            }
             if (lastEventEl && consecutiveErrors === 1) {
                 lastEventEl.textContent = 'Connecting to server...';
                 lastEventEl.style.color = '#f59e0b';
-            };
+            }
         } else if (consecutiveErrors > 3) {
             // After 3 failures, show offline
             if (statusEl) {
                 statusEl.textContent = 'OFFLINE';
                 statusEl.style.color = '#ef4444';
-            };
+            }
             
             if (lastEventEl) {
                 lastEventEl.textContent = `Server offline (${consecutiveErrors} fails) - retrying...`;
                 lastEventEl.style.color = '#ef4444';
-            };
-        };
+            }
+        }
         
     } finally {
         isPolling = false;
-    };
-};
+    }
+}
 
 function _updateStatusUI(status) {
     if (!status) {
         console.warn('[Status] No status data received');
         return;
-    };
+    }
     
     // Get DOM elements
     const statusEl = document.getElementById('strategy-status');
@@ -2524,8 +2494,8 @@ function _updateStatusUI(status) {
         } else {
             statusEl.style.color = 'var(--text-primary)';
             statusEl.style.textShadow = 'none';
-        };
-    };
+        }
+    }
     
     // Update stats counters with fallback property names
     if (breaksEl) {
@@ -2533,21 +2503,21 @@ function _updateStatusUI(status) {
         breaksEl.textContent = breakCount;
         if (breakCount > 0) breaksEl.style.color = '#f59e0b';
         else breaksEl.style.color = '';
-    };
+    }
     
     if (retestsEl) {
         const retestCount = status.retests || status.retestsDetected || status.retestCount || 0;
         retestsEl.textContent = retestCount;
         if (retestCount > 0) retestsEl.style.color = '#8b5cf6';
         else retestsEl.style.color = '';
-    };
+    }
     
     if (entriesEl) {
         const entryCount = status.entries || status.entriesFired || 0;
         entriesEl.textContent = entryCount;
         if (entryCount > 0) entriesEl.style.color = '#10b981';
         else entriesEl.style.color = '';
-    };
+    }
     
     if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
     
@@ -2570,18 +2540,18 @@ function _updateStatusUI(status) {
                 setupDetails.innerHTML = `${dir} @ ${parseFloat(level).toFixed(4)} | ${retests}/${maxRetests} retests | ${age}h old`;
                 
                 console.log('[UI] Setup display updated:', { dir, level, retests, age });
-            };
+            }
             
             const setupTimer = document.getElementById('setup-timer');
             if (setupTimer) {
                 const age = (status.setupAge || 0);
                 setupTimer.textContent = `${age.toFixed(1)}h`;
                 setupTimer.style.color = age > 1.5 ? '#ef4444' : '#f59e0b';
-            };
+            }
         } else {
             setupDiv.style.display = 'none';
-        };
-    };
+        }
+    }
     
     // Update last signal display
     const signalDiv = document.getElementById('last-signal');
@@ -2605,12 +2575,12 @@ function _updateStatusUI(status) {
                     `SL: ${parseFloat(sl).toFixed(4)} TP: ${parseFloat(tp).toFixed(4)}`;
                 
                 console.log('[UI] Signal display updated:', { dir, price, rr });
-            };
+            }
             
             const signalTime = document.getElementById('signal-time');
             if (signalTime && status.timeDetected) {
                 signalTime.textContent = new Date(status.timeDetected).toLocaleTimeString();
-            };
+            }
             
             // Trigger glow animation
             signalDiv.style.animation = 'none';
@@ -2619,8 +2589,8 @@ function _updateStatusUI(status) {
             
         } else {
             signalDiv.style.display = 'none';
-        };
-    };
+        }
+    }
     
     // Update last event text
     if (lastEventEl) {
@@ -2640,15 +2610,15 @@ function _updateStatusUI(status) {
             lastEventEl.style.color = '#f59e0b';
         } else {
             lastEventEl.style.color = '#8b5cf6';
-        };
-    };
-};
+        }
+    }
+}
 
 function _startStatusPolling() {
     if (pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
-    };
+    }
     
     console.log('[Status Polling] Starting... polling every 5 seconds');
     
@@ -2659,15 +2629,15 @@ function _startStatusPolling() {
     
     // Initial poll immediately
     _pollStrategyStatus().catch(e => console.error('[Status] Initial poll error:', e));
-};
+}
 
 function _stopStatusPolling() {
     if (pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
         console.log('[Status Polling] Stopped');
-    };
-};
+    }
+}
 
 // Add CSS animation if not already present
 if (!document.querySelector('#status-glow-style')) {
@@ -2675,21 +2645,21 @@ if (!document.querySelector('#status-glow-style')) {
     style.id = 'status-glow-style';
     style.textContent = `
         @keyframes glowPulse {
-            0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); };
-            50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); };
-            100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); };
-        };
+            0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+            50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); }
+            100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); }
+        }
         
         #strategy-status {
             transition: color 0.2s ease, text-shadow 0.2s ease;
-        };
+        }
         
         .stat-value {
             transition: color 0.2s ease;
-        };
+        }
     `;
     document.head.appendChild(style);
-};
+}
 
 // Initialize polling with proper DOM ready handling
 if (typeof window !== 'undefined') {
@@ -2701,8 +2671,8 @@ if (typeof window !== 'undefined') {
     } else {
         console.log('[Init] Starting status polling immediately');
         _startStatusPolling();
-    };
-};
+    }
+}
 
 // Stop polling when page unloads
 window.addEventListener('beforeunload', _stopStatusPolling);
@@ -2724,7 +2694,7 @@ function redrawOverlays() {
     const engine = _engineFor(focusedBotId);
     if (!engine) return;
     _drawOverlaysOnEngine(engine, bot);
-};
+}
 
 function _drawOverlaysOnEngine(engine, bot) {
     const series = engine.getCandleSeries();
@@ -2737,7 +2707,7 @@ function _drawOverlaysOnEngine(engine, bot) {
     if (document.getElementById('show-orb')?.checked)    OverlayManager.drawORBRange(series, bot.candles);
     if (document.getElementById('show-ob')?.checked)     OverlayManager.drawOrderBlocks(series, bot.candles, engine);
     if (document.getElementById('show-bos')?.checked)    OverlayManager.drawBreakOfStructure(series, bot.candles);
-};
+}
 
 function redrawAllSplitOverlays() {
     if (!ChartManager.isSplitMode()) return;
@@ -2749,7 +2719,7 @@ function redrawAllSplitOverlays() {
         const current = {};
         OVERLAY_IDS.forEach(id => {
             const el = document.getElementById(id);
-            if (el) { current[id] = el.checked; el.checked = saved[id] || false; };
+            if (el) { current[id] = el.checked; el.checked = saved[id] || false; }
         });
         _drawOverlaysOnEngine(eng, bot);
         OVERLAY_IDS.forEach(id => {
@@ -2757,7 +2727,7 @@ function redrawAllSplitOverlays() {
             if (el) el.checked = current[id];
         });
     });
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // RISK ALERT
@@ -2774,12 +2744,12 @@ function _showRiskAlert(message) {
             box-shadow: 0 8px 24px rgba(239,68,68,0.4); animation: riskSlideIn 0.3s ease;
         `;
         document.body.appendChild(alert);
-    };
+    }
     alert.textContent = '⚠ ' + message;
     alert.style.display = 'block';
     clearTimeout(alert._timer);
     alert._timer = setTimeout(() => { alert.style.display = 'none'; }, 6000);
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // LOGOUT
@@ -2805,17 +2775,17 @@ function logout() {
     log('Logged out', 'warn');
     const trades = SessionState.get().trades;
     Auth.syncTrades(trades).finally(() => Auth.logout());
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // CREATE BOT CARD
 // ─────────────────────────────────────────────────────────────
 function _createBotCard(id, savedConfig) {
     const template = document.getElementById('bot-card-template');
-    if (!template) { console.error('bot-card-template missing'); return; };
+    if (!template) { console.error('bot-card-template missing'); return; }
     const clone = template.content.cloneNode(true);
     const card  = clone.querySelector('.bot-card');
-    if (!card) { console.error('.bot-card missing from template'); return; };
+    if (!card) { console.error('.bot-card missing from template'); return; }
 
     card.dataset.botId = id;
 
@@ -2851,14 +2821,14 @@ function _createBotCard(id, savedConfig) {
         if (lotInput && savedConfig.lotSize) lotInput.value = savedConfig.lotSize;
         const phantomLotInput = card.querySelector('.phantom-lot-input');
         if (phantomLotInput && savedConfig.phantomLot) phantomLotInput.value = savedConfig.phantomLot;
-    };
+    }
 
     const updateLabel = () => {
         const labelEl = card.querySelector('.bot-symbol-label');
         if (labelEl) {
             labelEl.textContent = (SYMBOL_MAP[symbolSelect.value] || symbolSelect.value)
                 .replace(' Index', '').trim();
-        };
+        }
     };
     symbolSelect.addEventListener('change', updateLabel);
     updateLabel();
@@ -2870,18 +2840,18 @@ function _createBotCard(id, savedConfig) {
         const isM1Strat = stratSelect.value === 'nova' || stratSelect.value === 'kismet';
         let m1Notice = card.querySelector('.m1-notice');
         if (isM1Strat) {
-            if (tfSelect) { tfSelect.value = '300'; tfSelect.disabled = true; };
+            if (tfSelect) { tfSelect.value = '300'; tfSelect.disabled = true; }
             if (!m1Notice) {
                 m1Notice = document.createElement('div');
                 m1Notice.className = 'm1-notice';
                 m1Notice.style.cssText = 'font-size:9px;color:#f59e0b;margin-top:4px;opacity:0.8;';
                 m1Notice.textContent = '📊 M5 locked — NOVA/KISMET run on M5 for correct R:R';
                 tfSelect?.closest('.bot-field-group')?.appendChild(m1Notice);
-            };
+            }
         } else {
             if (tfSelect) tfSelect.disabled = false;
             if (m1Notice) m1Notice.remove();
-        };
+        }
     };
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
@@ -2896,7 +2866,7 @@ function _createBotCard(id, savedConfig) {
             if (target <= 0 && loss <= 0) {
                 log('PHANTOM: enter a profit target or loss limit first', 'warn');
                 return;
-            };
+            }
             const session = PhantomStrategy.configureSession(target, loss);
             _updatePhantomBadge(id, session);
             configureBtn.textContent = '✓ SESSION CONFIGURED';
@@ -2907,11 +2877,11 @@ function _createBotCard(id, savedConfig) {
             }, 2000);
             log(`👻 PHANTOM session set — Target: $${target} | Limit: $${loss}`, 'info');
         };
-    };
+    }
 
     if (savedConfig?.strategy === 'phantom') {
         _updatePhantomBadge(id, PhantomStrategy.getSession());
-    };
+    }
 
     const toggleBtn = card.querySelector('.bot-toggle-btn');
     toggleBtn.onclick = () => {
@@ -2919,7 +2889,7 @@ function _createBotCard(id, savedConfig) {
             window.startBot(id);
         } else {
             window.stopBot(id);
-        };
+        }
     };
 
     card.querySelector('.bot-remove-btn').onclick = (e) => {
@@ -2935,12 +2905,12 @@ function _createBotCard(id, savedConfig) {
             window.focusBot(id);
             document.querySelectorAll('.bot-card').forEach(c => c.style.outline = 'none');
             card.style.outline = '2px solid var(--accent-light)';
-        };
+        }
     };
 
     document.getElementById('bot-list').appendChild(card);
     if (!savedConfig) log('Bot card created — select a symbol and strategy', 'info');
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // WINDOW HELPERS
@@ -2974,13 +2944,13 @@ window.setBotRunning = function(id, isRunning) {
         card.classList.replace('running', 'stopped');
         btn.textContent = 'START BOT';
         dot.className   = 'status-dot status-offline bot-status-dot';
-    };
+    }
     const activeEl = document.getElementById('stat-active');
     if (activeEl) {
         const count = document.querySelectorAll('.bot-card.running').length;
         activeEl.textContent = count;
         activeEl.style.color = count > 0 ? 'var(--accent)' : 'var(--text-muted)';
-    };
+    }
 };
 
 window.setBotOnline = function(id) {
@@ -3004,44 +2974,44 @@ window.registerBotSignal = function(id, type, price, label, confidence) {
             `;
             const wlRow = card.querySelector('.bot-card-stats');
             if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
-        };
+        }
         badge.textContent = `SIGNAL ${type} · ${confidence.grade} (${confidence.score}%)`;
         badge.style.background = confidence.color + '22';
         badge.style.color      = confidence.color;
         badge.style.border     = `1px solid ${confidence.color}55`;
         clearTimeout(badge._timer);
         badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
-    };
+    }
 };
 
 window.registerBotWin = function(id, pnl) {
     const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
     if (!card) return;
     const bot = bots[id];
-    if (bot) { bot.wins++; bot.pnl += pnl; };
+    if (bot) { bot.wins++; bot.pnl += pnl; }
     const winsEl = card.querySelector('.bot-wins');
     const pnlEl  = card.querySelector('.bot-pnl');
     if (winsEl && bot) winsEl.textContent = bot.wins;
     if (pnlEl  && bot) {
         pnlEl.textContent = bot.pnl.toFixed(2);
         pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
+    }
 };
 
 window.registerBotLoss = function(id, pnl) {
     const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
     if (!card) return;
     const bot = bots[id];
-    if (bot) { bot.losses++; bot.pnl -= pnl; };
+    if (bot) { bot.losses++; bot.pnl -= pnl; }
     const lossEl = card.querySelector('.bot-losses');
     const pnlEl  = card.querySelector('.bot-pnl');
     if (lossEl && bot) lossEl.textContent = bot.losses;
     if (pnlEl  && bot) {
         pnlEl.textContent = bot.pnl.toFixed(2);
         pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
+    }
 };
 
-function log(msg, type = 'neutral') { UIManager.log(msg, type); };
+function log(msg, type = 'neutral') { UIManager.log(msg, type); }
 
 document.addEventListener('DOMContentLoaded', init);
