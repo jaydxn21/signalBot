@@ -47,7 +47,7 @@ function connectRenderWebSocket() {
     };
 
     console.log("[WS] Connecting to Render WebSocket...");
-    renderWS = new WebSocket('ws://192.168.100.194:3000/mt5');
+renderWS = new WebSocket('wss://nexus-api-khvt.onrender.com/mt5');
 window.renderWS = renderWS;
 
     renderWS.onopen = () => {
