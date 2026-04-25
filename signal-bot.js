@@ -50,8 +50,8 @@ function connectRenderWebSocket() {
 renderWS = new WebSocket('ws://localhost:3000/mt5');
 
     renderWS.onopen = () => {
-        console.log("✅ WebSocket connected to Render");
-        log("Connected to MT5 bridge", "info");
+        console.log("✅ Render MT5 WebSocket successfully connected");
+        log("✅ Connected to MT5 bridge (Render)", "info");
         const indicator = document.getElementById("mt5-indicator");
         if (indicator) indicator.className = "status-dot status-online";
         SessionState.set({ mt5Connected: true });
@@ -2089,39 +2089,48 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     };
 
     // MT5 Push
+        // ─────────────────────────────────────────────────────────────
+    // MT5 Push — Use Render WebSocket ONLY (no Vercel fallback)
+    // ─────────────────────────────────────────────────────────────
     if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
-        const mt5Symbol    = MT5_SYMBOL_MAP[bot.config.symbol]
-                          || MT5_SYMBOL_MAP[derivDisplay]
-                          || derivDisplay;
+        const mt5Symbol = MT5_SYMBOL_MAP[bot.config.symbol] 
+                       || MT5_SYMBOL_MAP[derivDisplay] 
+                       || derivDisplay;
 
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
-        try {
-            const res  = await fetch('/api/signal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action:    type.toLowerCase(),
-                    symbol:    mt5Symbol,
-                    price:     bar.close,
-                    sl:        parseFloat(sl.toFixed(5)),
-                    tp:        parseFloat(tp.toFixed(5)),
-                    lotSize:   clampedLot,
-                    label,
-                    timestamp: bar.time * 1000,
-                })
-            });
-            const json = await res.json();
-            if (json.status === 'ok') {
-                document.getElementById('mt5-indicator').className = 'status-dot status-online';
-                SessionState.set({ mt5Connected: true });
-                log(`→ MT5: ${type} ${mt5Symbol} @ ${bar.close} | lot ${clampedLot}`, 'info');
-            };
-        } catch(e) {
-            log('MT5 push failed — server unreachable', 'warn');
+        const signalMsg = {
+            action: type.toLowerCase(),
+            symbol: mt5Symbol,
+            price: parseFloat(bar.close.toFixed(5)),
+            sl: parseFloat(sl.toFixed(5)),
+            tp: parseFloat(tp.toFixed(5)),
+            lotSize: clampedLot,
+            label: label || type,
+            timestamp: Date.now()
         };
-    };
+
+        // Only use Render WebSocket - remove Vercel HTTP fallback completely
+        if (!renderWS || renderWS.readyState !== WebSocket.OPEN) {
+            console.warn(`[MT5] Render WS not open (state: ${renderWS ? renderWS.readyState : 'null'}) - queuing signal`);
+            pendingSignals.push(signalMsg);
+            connectRenderWebSocket();   // force reconnect attempt
+            log(`MT5 signal queued → ${type} ${mt5Symbol} | lot ${clampedLot}`, 'warn');
+        } else {
+            try {
+                renderWS.send(JSON.stringify(signalMsg));
+                console.log(`[MT5] Sent via Render WS: ${type} ${mt5Symbol}`);
+                log(`→ MT5 (WS): ${type} ${mt5Symbol} | lot ${clampedLot}`, 'info');
+                const indicator = document.getElementById('mt5-indicator');
+                if (indicator) indicator.className = 'status-dot status-online';
+            } catch (e) {
+                console.error('[MT5] Failed to send via WS:', e);
+                pendingSignals.push(signalMsg);
+                log('MT5 send failed - queued', 'warn');
+            }
+        }
+    }
 };
 
 // ─────────────────────────────────────────────────────────────
