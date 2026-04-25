@@ -38,44 +38,50 @@ import { Jump75Strategy } from './js/strategies/jump75.js';
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET CONNECTION TO RENDER (MT5 Bridge)
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// WEBSOCKET CONNECTION TO RENDER (NOT LOCAL)
+// ─────────────────────────────────────────────────────────────
 let renderWS = null;
 let pendingSignals = [];
 
 function connectRenderWebSocket() {
     if (renderWS && (renderWS.readyState === WebSocket.OPEN || renderWS.readyState === WebSocket.CONNECTING)) {
         return;
-    };
+    }
 
-    console.log("[WS] Connecting to Render WebSocket...");
-renderWS = new WebSocket('wss://nexus-api-khvt.onrender.com/mt5');
-window.renderWS = renderWS;
+    // ✅ USE RENDER'S SECURE WEBSOCKET (NOT LOCAL)
+    const WS_URL = 'wss://nexus-api-khvt.onrender.com/mt5';
+    console.log('[WS] Connecting to Render:', WS_URL);
+    
+    renderWS = new WebSocket(WS_URL);
+    window.renderWS = renderWS; // Expose for debugging
 
     renderWS.onopen = () => {
-        console.log("✅ WebSocket connected to Render");
-        log("Connected to MT5 bridge", "info");
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-online";
+        console.log('✅ WebSocket connected to Render');
+        log('Connected to MT5 bridge', 'info');
+        const indicator = document.getElementById('mt5-indicator');
+        if (indicator) indicator.className = 'status-dot status-online';
         SessionState.set({ mt5Connected: true });
 
         if (pendingSignals.length > 0) {
             console.log(`📤 Flushing ${pendingSignals.length} pending signals...`);
             for (const sig of pendingSignals) {
-                try { renderWS.send(JSON.stringify(sig)); } catch(e) { console.warn("[WS] flush failed", e); };
-            };
+                try { renderWS.send(JSON.stringify(sig)); } catch(e) { console.warn('[WS] flush failed', e); }
+            }
             pendingSignals = [];
-        };
+        }
     };
 
     renderWS.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-offline";
+        console.error('WebSocket error:', err);
+        const indicator = document.getElementById('mt5-indicator');
+        if (indicator) indicator.className = 'status-dot status-offline';
     };
 
     renderWS.onclose = () => {
-        console.log("WebSocket disconnected, reconnecting in 5s...");
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-offline";
+        console.log('WebSocket disconnected, reconnecting in 5s...');
+        const indicator = document.getElementById('mt5-indicator');
+        if (indicator) indicator.className = 'status-dot status-offline';
         SessionState.set({ mt5Connected: false });
         setTimeout(connectRenderWebSocket, 5000);
     };
@@ -83,12 +89,12 @@ window.renderWS = renderWS;
     renderWS.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            if (data.type === "trade_result") {
-                log(`MT5 Trade Result: ${data.outcome} ${data.symbol} P&L: ${data.pnl}`, "info");
-            };
+            if (data.type === 'trade_result') {
+                log(`MT5 Trade Result: ${data.outcome} ${data.symbol} P&L: ${data.pnl}`, 'info');
+            }
         } catch(e) {
-            console.log("WebSocket message:", event.data);
-        };
+            console.log('WebSocket message:', event.data);
+        }
     };
 };
 
