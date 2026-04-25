@@ -36,12 +36,9 @@ import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
 
 // ─────────────────────────────────────────────────────────────
-// WEBSOCKET CONNECTION TO RENDER (MT5 Bridge)
+// WEBSOCKET CONNECTION TO LOCAL BRIDGE (bridge.cjs)
 // ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// WEBSOCKET CONNECTION TO LOCAL BRIDGE (Recommended)
-// ─────────────────────────────────────────────────────────────
-let renderWS = null;        // This now represents connection to LOCAL bridge
+let renderWS = null;
 let pendingSignals = [];
 
 function connectRenderWebSocket() {
@@ -49,21 +46,21 @@ function connectRenderWebSocket() {
         return;
     }
 
-    const WS_URL = 'ws://localhost:3000/mt5';   // ← Connect to YOUR local bridge
+    const WS_URL = 'ws://localhost:3000/mt5';   // ← Your local bridge
     console.log(`[WS] Connecting to LOCAL BRIDGE: ${WS_URL}`);
 
     renderWS = new WebSocket(WS_URL);
-    window.renderWS = renderWS;
+    window.renderWS = renderWS;   // For manual testing in console
 
     renderWS.onopen = () => {
-        console.log("✅ Connected to LOCAL MT5 Bridge (port 3000)");
+        console.log("✅ Connected to LOCAL MT5 Bridge (localhost:3000)");
         log("✅ Connected to MT5 bridge via local proxy", "info");
         const indicator = document.getElementById("mt5-indicator");
         if (indicator) indicator.className = "status-dot status-online";
         SessionState.set({ mt5Connected: true });
 
         if (pendingSignals.length > 0) {
-            console.log(`📤 Flushing ${pendingSignals.length} pending signals to bridge...`);
+            console.log(`📤 Flushing ${pendingSignals.length} pending signals...`);
             pendingSignals.forEach(sig => {
                 try { renderWS.send(JSON.stringify(sig)); } catch(e) { console.warn("[WS] flush failed", e); }
             });
@@ -72,14 +69,14 @@ function connectRenderWebSocket() {
     };
 
     renderWS.onerror = (err) => {
-        console.error("❌ Local Bridge WebSocket ERROR:", err);
+        console.error("❌ Local Bridge ERROR:", err);
         const indicator = document.getElementById("mt5-indicator");
         if (indicator) indicator.className = "status-dot status-offline";
-        log("Local MT5 bridge not reachable. Is bridge.cjs running?", "warn");
+        log("Cannot connect to local bridge. Is bridge.cjs running?", "warn");
     };
 
     renderWS.onclose = () => {
-        console.log("⚠️ Local bridge disconnected - reconnecting in 5s...");
+        console.log("⚠️ Local bridge disconnected — reconnecting in 5s...");
         const indicator = document.getElementById("mt5-indicator");
         if (indicator) indicator.className = "status-dot status-offline";
         SessionState.set({ mt5Connected: false });
@@ -2096,8 +2093,8 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         } catch(e) {};
     };
 
-    // MT5 Push
-       if (document.getElementById('auto-mt5')?.checked) {
+       // MT5 Push — Send to LOCAL BRIDGE (bridge.cjs)
+    if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
         const mt5Symbol = MT5_SYMBOL_MAP[bot.config.symbol] 
                        || MT5_SYMBOL_MAP[derivDisplay] 
@@ -2106,7 +2103,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
         const signalMsg = {
-            action: type.toLowerCase(),      // 'buy' or 'sell'
+            action: type.toLowerCase(),
             symbol: mt5Symbol,
             price: parseFloat(bar.close.toFixed(5)),
             sl: parseFloat(sl.toFixed(5)),
@@ -2116,21 +2113,19 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
             timestamp: Date.now()
         };
 
-        // Send to LOCAL BRIDGE
         if (!renderWS || renderWS.readyState !== WebSocket.OPEN) {
-            console.warn(`[MT5] Local bridge not connected (state: ${renderWS ? renderWS.readyState : 'undefined'})`);
+            console.warn(`[MT5] Local bridge not ready (state: ${renderWS ? renderWS.readyState : 'undefined'})`);
             pendingSignals.push(signalMsg);
-            connectRenderWebSocket();        // Try to reconnect
-            log(`MT5 signal QUEUED for ${mt5Symbol} (bridge not ready)`, 'warn');
+            connectRenderWebSocket();
+            log(`MT5 signal QUEUED for ${mt5Symbol}`, 'warn');
         } else {
             try {
                 renderWS.send(JSON.stringify(signalMsg));
                 console.log(`[MT5] Sent to local bridge → ${type} ${mt5Symbol} | lot ${clampedLot}`);
-                log(`→ MT5 Bridge: ${type} ${mt5Symbol} | lot ${clampedLot}`, 'info');
+                log(`→ MT5 (Bridge): ${type} ${mt5Symbol} | lot ${clampedLot}`, 'info');
             } catch (e) {
-                console.error('[MT5] Failed to send to bridge:', e);
+                console.error('[MT5] Send to bridge failed:', e);
                 pendingSignals.push(signalMsg);
-                log('MT5 send failed - queued', 'warn');
             }
         }
     }
