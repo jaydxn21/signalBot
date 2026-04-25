@@ -2089,6 +2089,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     };
 
     // MT5 Push
+        // MT5 Push - WebSocket to Local Bridge
     if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
         const mt5Symbol    = MT5_SYMBOL_MAP[bot.config.symbol]
@@ -2097,31 +2098,49 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
-        try {
-            const res  = await fetch('/api/signal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action:    type.toLowerCase(),
-                    symbol:    mt5Symbol,
-                    price:     bar.close,
-                    sl:        parseFloat(sl.toFixed(5)),
-                    tp:        parseFloat(tp.toFixed(5)),
-                    lotSize:   clampedLot,
-                    label,
-                    timestamp: bar.time * 1000,
-                })
-            });
-            const json = await res.json();
-            if (json.status === 'ok') {
-                document.getElementById('mt5-indicator').className = 'status-dot status-online';
-                SessionState.set({ mt5Connected: true });
-                log(`→ MT5: ${type} ${mt5Symbol} @ ${bar.close} | lot ${clampedLot}`, 'info');
-            };
-        } catch(e) {
-            log('MT5 push failed — server unreachable', 'warn');
+        const signalMsg = {
+            action: type.toLowerCase(),
+            symbol: mt5Symbol,
+            price: bar.close,
+            sl: parseFloat(sl.toFixed(5)),
+            tp: parseFloat(tp.toFixed(5)),
+            lotSize: clampedLot,
+            label: label,
+            timestamp: bar.time * 1000
         };
-    };
+
+        // Use global renderWS or create connection
+        if (typeof renderWS === 'undefined' || !renderWS || renderWS.readyState !== WebSocket.OPEN) {
+            log('MT5 bridge not connected - queuing signal', 'warn');
+            if (typeof pendingSignals === 'undefined') window.pendingSignals = [];
+            window.pendingSignals.push(signalMsg);
+            // Try to connect
+            if (typeof connectRenderWebSocket === 'function') {
+                connectRenderWebSocket();
+            } else {
+                // Fallback to HTTP if WebSocket not available
+                try {
+                    const res = await fetch('http://192.168.100.194:3000/api/signal', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(signalMsg)
+                    });
+                    if (res.ok) {
+                        document.getElementById('mt5-indicator').className = 'status-dot status-online';
+                        SessionState.set({ mt5Connected: true });
+                        log(`→ MT5 (HTTP): ${type} ${mt5Symbol} @ ${bar.close} | lot ${clampedLot}`, 'info');
+                    }
+                } catch(e) {
+                    log('MT5 push failed — server unreachable', 'warn');
+                }
+            }
+        } else {
+            renderWS.send(JSON.stringify(signalMsg));
+            log(`→ MT5 (WS): ${type} ${mt5Symbol} @ ${bar.close} | lot ${clampedLot}`, 'info');
+            document.getElementById('mt5-indicator').className = 'status-dot status-online';
+            SessionState.set({ mt5Connected: true });
+        }
+    }
 };
 
 // ─────────────────────────────────────────────────────────────
