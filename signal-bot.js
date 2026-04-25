@@ -2097,10 +2097,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     };
 
     // MT5 Push
-        // ─────────────────────────────────────────────────────────────
-    // MT5 Push — Use Render WebSocket ONLY (no Vercel fallback)
-    // ─────────────────────────────────────────────────────────────
-    if (document.getElementById('auto-mt5')?.checked) {
+       if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
         const mt5Symbol = MT5_SYMBOL_MAP[bot.config.symbol] 
                        || MT5_SYMBOL_MAP[derivDisplay] 
@@ -2109,7 +2106,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
         const signalMsg = {
-            action: type.toLowerCase(),
+            action: type.toLowerCase(),      // 'buy' or 'sell'
             symbol: mt5Symbol,
             price: parseFloat(bar.close.toFixed(5)),
             sl: parseFloat(sl.toFixed(5)),
@@ -2119,21 +2116,19 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
             timestamp: Date.now()
         };
 
-        // Only use Render WebSocket - remove Vercel HTTP fallback completely
+        // Send to LOCAL BRIDGE
         if (!renderWS || renderWS.readyState !== WebSocket.OPEN) {
-            console.warn(`[MT5] Render WS not open (state: ${renderWS ? renderWS.readyState : 'null'}) - queuing signal`);
+            console.warn(`[MT5] Local bridge not connected (state: ${renderWS ? renderWS.readyState : 'undefined'})`);
             pendingSignals.push(signalMsg);
-            connectRenderWebSocket();   // force reconnect attempt
-            log(`MT5 signal queued → ${type} ${mt5Symbol} | lot ${clampedLot}`, 'warn');
+            connectRenderWebSocket();        // Try to reconnect
+            log(`MT5 signal QUEUED for ${mt5Symbol} (bridge not ready)`, 'warn');
         } else {
             try {
                 renderWS.send(JSON.stringify(signalMsg));
-                console.log(`[MT5] Sent via Render WS: ${type} ${mt5Symbol}`);
-                log(`→ MT5 (WS): ${type} ${mt5Symbol} | lot ${clampedLot}`, 'info');
-                const indicator = document.getElementById('mt5-indicator');
-                if (indicator) indicator.className = 'status-dot status-online';
+                console.log(`[MT5] Sent to local bridge → ${type} ${mt5Symbol} | lot ${clampedLot}`);
+                log(`→ MT5 Bridge: ${type} ${mt5Symbol} | lot ${clampedLot}`, 'info');
             } catch (e) {
-                console.error('[MT5] Failed to send via WS:', e);
+                console.error('[MT5] Failed to send to bridge:', e);
                 pendingSignals.push(signalMsg);
                 log('MT5 send failed - queued', 'warn');
             }
