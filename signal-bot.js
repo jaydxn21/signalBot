@@ -47,7 +47,8 @@ function connectRenderWebSocket() {
     };
 
     console.log("[WS] Connecting to Render WebSocket...");
-renderWS = new WebSocket('ws://localhost:3000/mt5');
+    renderWS = new WebSocket('ws://192.168.100.194:3000/mt5');
+window.renderWS = renderWS;
 
     renderWS.onopen = () => {
         console.log("✅ WebSocket connected to Render");
@@ -92,7 +93,6 @@ renderWS = new WebSocket('ws://localhost:3000/mt5');
 };
 
 // After creating renderWS, add:
-window.renderWS = renderWS;
 
 // ─────────────────────────────────────────────────────────────
 // SYMBOL MAP
