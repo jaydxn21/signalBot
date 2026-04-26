@@ -46,11 +46,11 @@ function connectRenderWebSocket() {
         return;
     }
 
-    const WS_URL = 'ws://localhost:3000/';   // ← Your local bridge
+    const WS_URL = 'ws://localhost:3000/';   // ← NO '/mt5' - use root path for frontend
     console.log(`[WS] Connecting to LOCAL BRIDGE: ${WS_URL}`);
 
     renderWS = new WebSocket(WS_URL);
-    window.renderWS = renderWS;   // For manual testing in console
+    window.renderWS = renderWS;
 
     renderWS.onopen = () => {
         console.log("✅ Connected to LOCAL MT5 Bridge (localhost:3000)");
@@ -58,6 +58,13 @@ function connectRenderWebSocket() {
         const indicator = document.getElementById("mt5-indicator");
         if (indicator) indicator.className = "status-dot status-online";
         SessionState.set({ mt5Connected: true });
+
+        // Send identification as frontend
+        renderWS.send(JSON.stringify({
+            type: 'frontend',
+            client: 'signal-bot',
+            timestamp: Date.now()
+        }));
 
         if (pendingSignals.length > 0) {
             console.log(`📤 Flushing ${pendingSignals.length} pending signals...`);
