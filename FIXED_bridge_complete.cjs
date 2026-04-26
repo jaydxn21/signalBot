@@ -32,19 +32,6 @@ const MAX_QUEUE_SIZE = 100;
 // SETUP & LOGGING
 // ═════════════════════════════════════════════════════════════════════════
 
-
-setInterval(() => {
-    localWSServer.clients.forEach((ws) => {
-        if (ws.isAlive === false) {
-            log('Terminating dead MT5 connection', 'warn');
-            return ws.terminate();
-        }
-
-        ws.isAlive = false;
-        ws.ping();
-    });
-}, 5000);
-
 function log(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
     const prefix = {
@@ -69,35 +56,66 @@ log('═════════════════════════
 // ═════════════════════════════════════════════════════════════════════════
 
 function createLocalWebSocketServer() {
-    localWSServer = new WebSocket.Server({ 
-        port: LOCAL_WS_PORT,
-        path: '/' ,// MUST MATCH EA
-        perMessageDeflate: false,
-        clientTracking: true
-    });
-
+    localWSServer = new WebSocket.Server({ port: LOCAL_WS_PORT });
+    
     localWSServer.on('listening', () => {
-        log(`WebSocket ready on ws://127.0.0.1:${LOCAL_WS_PORT}`, 'mt5');
+        log(`Local WebSocket server listening on ws://localhost:${LOCAL_WS_PORT}`, 'mt5');
+        log('📌 MT5 EA should connect to: ws://localhost:3000', 'mt5');
     });
 
-    localWSServer.on('connection', (ws) => {
-    log('MT5 CONNECTED ✅', 'mt5');
+    localWSServer.on('connection', (clientWS, req) => {
+        const clientIP = req.socket.remoteAddress;
+        log(`MT5 EA connected from ${clientIP}`, 'mt5');
 
-    ws.isAlive = true;
+        // Send welcome message
+        clientWS.send(JSON.stringify({
+            type: 'handshake',
+            status: 'connected',
+            timestamp: Date.now(),
+            message: 'Welcome to NEXUS bridge'
+        }));
 
-    ws.on('pong', () => {
-        ws.isAlive = true;
+        // Flush pending signals to this client
+        log(`Flushing ${pendingSignals.length} pending signals to MT5`, 'signal');
+        pendingSignals.forEach(signal => {
+            if (clientWS.readyState === WebSocket.OPEN) {
+                clientWS.send(JSON.stringify(signal));
+            }
+        });
+        pendingSignals = [];
+
+        // Handle messages FROM MT5
+        clientWS.on('message', (data) => {
+            try {
+                const message = data.toString();
+                log(`Message from MT5 EA: ${message.substring(0, 100)}...`, 'mt5');
+                
+                // Forward to Render if needed
+                if (renderWS && renderWS.readyState === WebSocket.OPEN) {
+                    renderWS.send(message);
+                }
+            } catch (e) {
+                log(`Error processing MT5 message: ${e.message}`, 'error');
+            }
+        });
+
+        clientWS.on('close', () => {
+            log('MT5 EA disconnected', 'warn');
+        });
+
+        clientWS.on('error', (err) => {
+            log(`MT5 WebSocket error: ${err.message}`, 'error');
+        });
+
+        clientWS.on('ping', () => {
+            clientWS.pong();
+            log('Ping from MT5 received', 'mt5');
+        });
     });
 
-    ws.on('close', () => {
-        log('MT5 disconnected', 'warn');
-    });
-
-    ws.on('error', (err) => {
-        log(`MT5 error: ${err.message}`, 'error');
-    });
-});
+    log(`WebSocket server created on port ${LOCAL_WS_PORT}`, 'bridge');
 }
+
 // ═════════════════════════════════════════════════════════════════════════
 // CREATE HTTP SERVER (FALLBACK FOR MT5)
 // ═════════════════════════════════════════════════════════════════════════
@@ -251,7 +269,7 @@ function ForwardToMT5(signal) {
         localWSServer.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
                 try {
-                    client.send(message, { binary: false });
+                    client.send(message);
                     forwarded = true;
                     log('✅ Signal sent via WebSocket to MT5', 'signal');
                 } catch (e) {

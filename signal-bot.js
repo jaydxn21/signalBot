@@ -46,7 +46,7 @@ function connectRenderWebSocket() {
         return;
     }
 
-    const WS_URL = 'ws://localhost:3000/mt5';   // ← Your local bridge
+    const WS_URL = 'ws://localhost:3000/';   // ← Your local bridge
     console.log(`[WS] Connecting to LOCAL BRIDGE: ${WS_URL}`);
 
     renderWS = new WebSocket(WS_URL);
