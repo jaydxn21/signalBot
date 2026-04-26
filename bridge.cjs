@@ -1,148 +1,78 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// FIXED bridge.cjs - Bidirectional MT5 <-> Render Bridge (COMPLETE FIX)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// KEY IMPROVEMENTS:
-// ✅ WebSocket server on localhost:3000 (MT5 connects here)
-// ✅ Connects to Render for signals from bot
-// ✅ HTTP polling endpoint for MT5 (fallback)
-// ✅ Better logging and diagnostics
-// ✅ Signal queuing if MT5 disconnects
-// ✅ Proper error handling and reconnects
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
+// bridge.cjs - CommonJS version (using require)
 const WebSocket = require('ws');
 const http = require('http');
-const express = require('express');
 
-const RENDER_WS_URL = 'wss://nexus-api-khvt.onrender.com/mt5';
-const LOCAL_WS_PORT = 3000;
+const WS_PORT = 3000;
 const HTTP_PORT = 8080;
 
-let renderWS = null;
-let localWSServer = null;
-let httpServer = null;
+console.log('🚀 Starting Minimal Bridge (CommonJS)...\n');
 
-// Signal queues
-let pendingSignals = [];
-const MAX_QUEUE_SIZE = 100;
+// WebSocket server
+const wss = new WebSocket.Server({ port: WS_PORT });
 
-// ═════════════════════════════════════════════════════════════════════════
-// SETUP & LOGGING
-// ═════════════════════════════════════════════════════════════════════════
-
-
-setInterval(() => {
-    localWSServer.clients.forEach((ws) => {
-        if (ws.isAlive === false) {
-            log('Terminating dead MT5 connection', 'warn');
-            return ws.terminate();
-        }
-
-        ws.isAlive = false;
-        ws.ping();
-    });
-}, 5000);
-
-function log(message, type = 'info') {
-    const timestamp = new Date().toLocaleTimeString();
-    const prefix = {
-        'info': '✅',
-        'warn': '⚠️',
-        'error': '❌',
-        'bridge': '🌉',
-        'mt5': '💾',
-        'render': '☁️',
-        'signal': '📨'
-    }[type] || '•';
-    
-    console.log(`[${timestamp}] ${prefix} ${message}`);
-}
-
-log('═══════════════════════════════════════════════════════════════');
-log('  NEXUS Bidirectional WebSocket Bridge (FIXED)', 'bridge');
-log('═══════════════════════════════════════════════════════════════');
-
-// ═════════════════════════════════════════════════════════════════════════
-// CREATE LOCAL WEBSOCKET SERVER (MT5 CONNECTS HERE)
-// ═════════════════════════════════════════════════════════════════════════
-
-function createLocalWebSocketServer() {
-    localWSServer = new WebSocket.Server({ 
-        port: LOCAL_WS_PORT,
-        path: '/' ,// MUST MATCH EA
-        perMessageDeflate: false,
-        clientTracking: true
-    });
-
-    localWSServer.on('listening', () => {
-        log(`WebSocket ready on ws://127.0.0.1:${LOCAL_WS_PORT}`, 'mt5');
-    });
-
-    localWSServer.on('connection', (ws) => {
-    log('MT5 CONNECTED ✅', 'mt5');
-
-    ws.isAlive = true;
-
-    ws.on('pong', () => {
-        ws.isAlive = true;
-    });
-
-    ws.on('close', () => {
-        log('MT5 disconnected', 'warn');
-    });
-
-    ws.on('error', (err) => {
-        log(`MT5 error: ${err.message}`, 'error');
-    });
+wss.on('listening', () => {
+    console.log(`✅ WebSocket server on ws://localhost:${WS_PORT}`);
+    console.log(`   Frontend should connect to: ws://localhost:${WS_PORT}/\n`);
 });
-}
-// ═════════════════════════════════════════════════════════════════════════
-// CREATE HTTP SERVER (FALLBACK FOR MT5)
-// ═════════════════════════════════════════════════════════════════════════
 
-function createHTTPServer() {
-    const app = express();
-    app.use(express.json());
+wss.on('connection', (ws, req) => {
+    console.log(`📡 Client connected from ${req.socket.remoteAddress}`);
+    
+    ws.on('message', (data) => {
+        const msg = data.toString();
+        console.log(`📨 Received: ${msg.substring(0, 100)}`);
+        
+        try {
+            const parsed = JSON.parse(msg);
+            ws.send(JSON.stringify({ 
+                type: 'echo', 
+                received: parsed,
+                timestamp: Date.now() 
+            }));
+        } catch(e) {
+            ws.send(`Echo: ${msg}`);
+        }
+    });
+    
+    ws.on('close', () => {
+        console.log('📡 Client disconnected');
+    });
+    
+    ws.send(JSON.stringify({
+        type: 'connected',
+        message: 'Connected to bridge',
+        timestamp: Date.now()
+    }));
+});
 
-    // Health check
-    app.get('/api/health', (req, res) => {
-        res.json({
+wss.on('error', (err) => {
+    console.error('❌ WebSocket error:', err.message);
+});
+
+// HTTP server
+const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+    }
+    
+    if (req.url === '/api/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
             status: 'ok',
             timestamp: Date.now(),
-            mt5_connected: localWSServer?.clients?.size || 0,
-            render_connected: renderWS?.readyState === WebSocket.OPEN
-        });
-    });
-
-    // MT5 polls for signals
-    app.get('/api/signals', (req, res) => {
-        log(`MT5 polling for signals (${pendingSignals.length} pending)`, 'signal');
-        
-        if (pendingSignals.length > 0) {
-            const signal = pendingSignals.shift();
-            return res.json({
-                status: 'signal',
-                data: signal
-            });
-        }
-        
-        res.json({
-            status: 'no_signal',
-            message: 'No pending signals'
-        });
-    });
-
-    // MT5 sends status updates
-    app.post('/api/status', (req, res) => {
-        const { status, message } = req.body;
-        log(`MT5 Status: ${message}`, 'mt5');
-        res.json({ received: true });
-    });
-
-    // Render/Bot test endpoint
-    app.post('/api/test-signal', (req, res) => {
+            clients: wss.clients.size,
+            websocket_port: WS_PORT,
+            http_port: HTTP_PORT,
+            message: 'Bridge is running'
+        }));
+    } 
+    else if (req.url === '/api/test-signal' && req.method === 'GET') {
         const signal = {
             action: 'buy',
             symbol: 'Jump 75 Index',
@@ -153,208 +83,50 @@ function createHTTPServer() {
             timestamp: Date.now()
         };
         
-        log(`Test signal received: ${signal.action} ${signal.symbol}`, 'signal');
-        ForwardToMT5(signal);
+        console.log('📨 Sending test signal to all clients...');
         
-        res.json({
-            status: 'ok',
-            message: 'Test signal forwarded'
-        });
-    });
-
-    httpServer = app.listen(HTTP_PORT, () => {
-        log(`HTTP server listening on port ${HTTP_PORT}`, 'bridge');
-        log(`MT5 can poll signals from: http://localhost:${HTTP_PORT}/api/signals`, 'mt5');
-    });
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// CONNECT TO RENDER (BOT SIGNALS SOURCE)
-// ═════════════════════════════════════════════════════════════════════════
-
-function connectToRender() {
-    if (renderWS && renderWS.readyState === WebSocket.OPEN) {
-        return;
-    }
-
-    log(`Connecting to Render: ${RENDER_WS_URL}`, 'render');
-
-    try {
-        renderWS = new WebSocket(RENDER_WS_URL);
-    } catch (e) {
-        log(`Failed to create WebSocket: ${e.message}`, 'error');
-        setTimeout(connectToRender, 5000);
-        return;
-    }
-
-    renderWS.on('open', () => {
-        log('Connected to Render WebSocket', 'render');
-        
-        // Send handshake
-        renderWS.send(JSON.stringify({
-            type: 'client',
-            client: 'mt5-bridge',
-            timestamp: Date.now()
-        }));
-    });
-
-    // SIGNALS COME IN HERE FROM THE BOT
-    renderWS.on('message', (data) => {
-        try {
-            const message = data.toString();
-            log(`Signal from Render: ${message.substring(0, 150)}...`, 'signal');
-
-            // Parse if JSON
-            let signal;
-            try {
-                signal = JSON.parse(message);
-            } catch {
-                signal = { raw: message };
-            }
-
-            // Forward to MT5
-            ForwardToMT5(signal);
-        } catch (e) {
-            log(`Error processing Render signal: ${e.message}`, 'error');
-        }
-    });
-
-    renderWS.on('close', () => {
-        log('Render connection closed. Reconnecting in 5s...', 'warn');
-        renderWS = null;
-        setTimeout(connectToRender, 5000);
-    });
-
-    renderWS.on('error', (err) => {
-        log(`Render WebSocket error: ${err.message}`, 'error');
-        renderWS = null;
-        setTimeout(connectToRender, 5000);
-    });
-
-    renderWS.on('ping', () => {
-        renderWS.pong();
-    });
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// FORWARD SIGNAL TO MT5
-// ═════════════════════════════════════════════════════════════════════════
-
-function ForwardToMT5(signal) {
-    const message = JSON.stringify(signal);
-
-    // Try WebSocket first
-    let forwarded = false;
-    if (localWSServer && localWSServer.clients) {
-        log(`Forwarding to ${localWSServer.clients.size} MT5 client(s)...`, 'signal');
-        
-        localWSServer.clients.forEach(client => {
+        let sent = 0;
+        wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
-                try {
-                    client.send(message, { binary: false });
-                    forwarded = true;
-                    log('✅ Signal sent via WebSocket to MT5', 'signal');
-                } catch (e) {
-                    log(`Failed to send: ${e.message}`, 'error');
-                }
+                client.send(JSON.stringify(signal));
+                sent++;
             }
         });
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'sent', 
+            signal,
+            clients_notified: sent 
+        }));
     }
-
-    // If no clients, queue for HTTP polling
-    if (!forwarded) {
-        if (pendingSignals.length < MAX_QUEUE_SIZE) {
-            pendingSignals.push(signal);
-            log(`Signal queued for MT5 (${pendingSignals.length} pending)`, 'warn');
-        } else {
-            log('Signal queue full - discarding oldest signal', 'error');
-            pendingSignals.shift();
-            pendingSignals.push(signal);
-        }
+    else if (req.url === '/api/signals' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'no_signal' }));
     }
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// STARTUP
-// ═════════════════════════════════════════════════════════════════════════
-
-log('\n📋 Configuration:', 'bridge');
-log(`   Local WebSocket Port: ${LOCAL_WS_PORT}`, 'bridge');
-log(`   HTTP Polling Port: ${HTTP_PORT}`, 'bridge');
-log(`   Render URL: ${RENDER_WS_URL}`, 'bridge');
-
-log('\n🚀 Starting bridge components...', 'bridge');
-createLocalWebSocketServer();
-createHTTPServer();
-connectToRender();
-
-log('\n✅ Bridge is ready!', 'bridge');
-log('\n📌 Connection flow:', 'bridge');
-log('   1. Trading Bot → Render WebSocket', 'bridge');
-log('   2. Render → This Bridge (local)', 'bridge');
-log('   3. This Bridge → MT5 EA (WebSocket)', 'bridge');
-
-log('\n🔗 Connection methods for MT5:', 'bridge');
-log(`   1. WebSocket: ws://localhost:${LOCAL_WS_PORT}`, 'mt5');
-log(`   2. HTTP Polling: http://localhost:${HTTP_PORT}/api/signals`, 'mt5');
-
-log('\n✨ Bridge is running. Press Ctrl+C to stop.\n', 'bridge');
-
-// ═════════════════════════════════════════════════════════════════════════
-// GRACEFUL SHUTDOWN
-// ═════════════════════════════════════════════════════════════════════════
-
-process.on('SIGINT', () => {
-    log('\nShutting down bridge...', 'warn');
-    
-    if (localWSServer) localWSServer.close();
-    if (httpServer) httpServer.close();
-    if (renderWS) renderWS.close();
-    
-    log('Bridge stopped.', 'info');
-    process.exit(0);
+    else {
+        res.writeHead(404);
+        res.end('Not found');
+    }
 });
 
-// ═════════════════════════════════════════════════════════════════════════
-// MONITORING & DEBUGGING
-// ═════════════════════════════════════════════════════════════════════════
+server.listen(HTTP_PORT, () => {
+    console.log(`✅ HTTP server on http://localhost:${HTTP_PORT}`);
+    console.log(`   Health: http://localhost:${HTTP_PORT}/api/health`);
+    console.log(`   Test: http://localhost:${HTTP_PORT}/api/test-signal`);
+});
 
-setInterval(() => {
-    const mt5Clients = localWSServer?.clients?.size || 0;
-    const renderConnected = renderWS?.readyState === WebSocket.OPEN;
-    const queueSize = pendingSignals.length;
-    
-    log(`Status: MT5=${mt5Clients} | Render=${renderConnected ? 'ON' : 'OFF'} | Queue=${queueSize}`, 'bridge');
-}, 10000);
+console.log('\n📋 Bridge endpoints:');
+console.log(`   WebSocket: ws://localhost:${WS_PORT}/`);
+console.log(`   HTTP Poll: http://localhost:${HTTP_PORT}/api/signals`);
+console.log(`   Health:    http://localhost:${HTTP_PORT}/api/health\n`);
 
-// ═════════════════════════════════════════════════════════════════════════
-// DEBUG API
-// ═════════════════════════════════════════════════════════════════════════
+console.log('✨ Bridge is ready! Press Ctrl+C to stop.\n');
 
-const debugAPI = {
-    getStatus: () => ({
-        mt5_clients: localWSServer?.clients?.size || 0,
-        render_connected: renderWS?.readyState === WebSocket.OPEN,
-        pending_signals: pendingSignals.length,
-        queue: pendingSignals
-    }),
-    
-    sendTestSignal: () => {
-        const signal = {
-            action: 'buy',
-            symbol: 'Jump 75 Index',
-            price: 16565.00,
-            sl: 16555.00,
-            tp: 16575.00,
-            volume: 0.1
-        };
-        log('Debug: Sending test signal to MT5', 'signal');
-        ForwardToMT5(signal);
-    }
-};
-
-log('\n💾 Available for debugging:', 'bridge');
-log('   getStatus() - Show bridge status', 'bridge');
-log('   sendTestSignal() - Send test signal to MT5', 'bridge');
-
-module.exports = { debugAPI };
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down...');
+    wss.close();
+    server.close();
+    console.log('✅ Bridge stopped');
+    process.exit(0);
+});

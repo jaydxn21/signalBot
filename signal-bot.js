@@ -76,11 +76,18 @@ function connectRenderWebSocket() {
     };
 
     renderWS.onerror = (err) => {
-        console.error("❌ Local Bridge ERROR:", err);
-        const indicator = document.getElementById("mt5-indicator");
-        if (indicator) indicator.className = "status-dot status-offline";
-        log("Cannot connect to local bridge. Is bridge.cjs running?", "warn");
-    };
+    console.error("❌ Local Bridge ERROR:", err);
+    console.log("WebSocket readyState:", renderWS.readyState);
+    console.log("WebSocket URL:", renderWS.url);
+    
+    // Try to get more info
+    if (err.message) console.log("Error message:", err.message);
+    if (err.error) console.log("Error object:", err.error);
+    
+    const indicator = document.getElementById("mt5-indicator");
+    if (indicator) indicator.className = "status-dot status-offline";
+    log("Cannot connect to local bridge. Is bridge.cjs running?", "warn");
+};
 
     renderWS.onclose = () => {
         console.log("⚠️ Local bridge disconnected — reconnecting in 5s...");
