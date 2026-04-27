@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - Balanced: H4 Structure + Fib + M5 Confirmation
+// js/strategies/jump75.js - v3: More Selective Fib + Strong Confluence
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -7,70 +7,72 @@ export const Jump75Strategy = {
     _h4SwingLow: null,
 
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        if (!m5Candles || m5Candles.length < 40 || !m15Candles || m15Candles.length < 20 || !h4Candles || h4Candles.length < 8) {
+        if (!m5Candles || m5Candles.length < 50 || !m15Candles || m15Candles.length < 25 || !h4Candles || h4Candles.length < 10) {
             return null;
         }
 
         const now = Date.now();
-        if (now - this._lastTradeTime < 90000) return null; // 1.5 min cooldown
+        if (now - this._lastTradeTime < 180000) return null; // 3 minute cooldown (more selective)
 
-        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 600000) return null;
+        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 900000) return null; // 15 min reset after 3 losses
 
         const latestM5 = m5Candles[m5Candles.length - 1];
         const latestM15 = m15Candles[m15Candles.length - 1];
+        const prevM5 = m5Candles[m5Candles.length - 2];
 
         // Update H4 structure
         this._updateH4Structure(h4Candles);
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
 
         const range = this._h4SwingHigh - this._h4SwingLow;
-        if (range < atr * 4) return null; // Range too small
+        if (range < atr * 6) return null; // Require decent H4 range
 
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
 
-        // Check proximity to key Fib levels on M15
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.65;
-        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * 0.65;
-        const near786 = Math.abs(latestM15.close - fib.fib786) < atr * 0.9;
+        // Proximity to key Fib levels on M15
+        const dist618 = Math.abs(latestM15.close - fib.fib618);
+        const dist50 = Math.abs(latestM15.close - fib.fib50);
+        const near618 = dist618 < atr * 0.55;
+        const near50 = dist50 < atr * 0.55;
 
-        const bullishBias = latestM15.close > this._h4SwingLow;
-        const bearishBias = latestM15.close < this._h4SwingHigh;
+        const bullishBias = latestM15.close > this._h4SwingLow + range * 0.2;
+        const bearishBias = latestM15.close < this._h4SwingHigh - range * 0.2;
 
-        // M5 momentum filter
+        // M5 momentum + candle confirmation
         const m5Momentum = this._getM5Momentum(m5Candles);
+        const isBullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > (atr * 0.3);
+        const isBearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > (atr * 0.3);
 
         let signal = null;
+        let score = 0;
+        let factors = [];
 
         // Bullish Setup
-        if (bullishBias && (near618 || near50) && m5Momentum > 0) {
-            const slDist = atr * 0.75;
-            const tpDist = atr * 1.65;
-
+        if (bullishBias && (near618 || near50) && m5Momentum > 0.3 && isBullishCandle) {
+            score = 82;
+            factors = [`Fib ${near618 ? '61.8%' : '50%'} support`, `Strong M5 momentum`, `Bullish candle`];
+            
             signal = {
                 type: 'LONG',
-                score: 76,
-                factors: [`Fib ${near618 ? '61.8%' : '50%'} bounce`, `M5 momentum`, `H4 structure`],
-                tpMultiplier: 1.65,
-                slMultiplier: 0.75,
-                _slDist: slDist,
-                _tpDist: tpDist,
+                score: score,
+                factors: factors,
+                tpMultiplier: 1.8,
+                slMultiplier: 0.7,
                 isJump75: true
             };
         }
 
         // Bearish Setup
-        if (bearishBias && (near618 || near50) && m5Momentum < 0) {
-            const slDist = atr * 0.75;
-            const tpDist = atr * 1.65;
-
+        if (bearishBias && (near618 || near50) && m5Momentum < -0.3 && isBearishCandle) {
+            score = 82;
+            factors = [`Fib ${near618 ? '61.8%' : '50%'} resistance`, `Strong M5 momentum`, `Bearish candle`];
+            
             signal = {
                 type: 'SHORT',
-                score: 76,
-                factors: [`Fib ${near618 ? '61.8%' : '50%'} rejection`, `M5 momentum`, `H4 structure`],
-                tpMultiplier: 1.65,
-                slMultiplier: 0.75,
-                _slDist: slDist,
-                _tpDist: tpDist,
+                score: score,
+                factors: factors,
+                tpMultiplier: 1.8,
+                slMultiplier: 0.7,
                 isJump75: true
             };
         }
@@ -78,16 +80,22 @@ export const Jump75Strategy = {
         if (signal) {
             this._lastTradeTime = now;
             this._consecutiveLosses = 0;
-            console.log(`[Jump75] ${signal.type} @ Fib level | Price ${latestM15.close.toFixed(2)} | Score ${signal.score}`);
+
+            console.log(`[Jump75] HIGH CONFIDENCE ${signal.type} | Score ${score} | ${factors.join(' · ')} | Price ${latestM15.close.toFixed(2)}`);
             return signal;
+        }
+
+        // Occasional status log
+        if (Math.random() < 0.05) {
+            console.log(`[Jump75] Scanning... Price ${latestM15.close.toFixed(2)} | Fib618 dist ${(dist618/atr).toFixed(1)}xATR | Momentum ${m5Momentum.toFixed(2)}`);
         }
 
         return null;
     },
 
     _updateH4Structure(h4Candles) {
-        if (h4Candles.length < 8) return;
-        const recent = h4Candles.slice(-10);
+        if (h4Candles.length < 10) return;
+        const recent = h4Candles.slice(-12);
         this._h4SwingHigh = Math.max(...recent.map(c => c.high));
         this._h4SwingLow = Math.min(...recent.map(c => c.low));
     },
@@ -95,19 +103,17 @@ export const Jump75Strategy = {
     _calculateFibLevels(low, high) {
         const diff = high - low;
         return {
-            fib382: high - diff * 0.382,
             fib50: high - diff * 0.5,
             fib618: high - diff * 0.618,
-            fib786: high - diff * 0.786
         };
     },
 
     _getM5Momentum(m5Candles) {
-        if (m5Candles.length < 15) return 0;
+        if (m5Candles.length < 20) return 0;
         const ema8 = this._calculateEMA(m5Candles, 8);
         const ema21 = this._calculateEMA(m5Candles, 21);
         if (!ema8 || !ema21) return 0;
-        return ema8 - ema21;
+        return (ema8 - ema21) / ema21 * 100; // percentage momentum
     },
 
     _calculateEMA(candles, period) {
