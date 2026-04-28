@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - v4: Balanced for Jump 75 (More Setups + Quality Filter)
+// js/strategies/jump75.js - v5: Clean Fib Hunter (Closer to Manual Trading)
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -7,91 +7,81 @@ export const Jump75Strategy = {
     _h4SwingLow: null,
 
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        if (!m5Candles || m5Candles.length < 40 || !m15Candles || m15Candles.length < 20 || !h4Candles || h4Candles.length < 8) {
+        if (!m5Candles || m5Candles.length < 60 || !m15Candles || m15Candles.length < 30 || !h4Candles || h4Candles.length < 10) {
             return null;
         }
 
         const now = Date.now();
-        if (now - this._lastTradeTime < 120000) return null; // 2 minute cooldown
+        if (now - this._lastTradeTime < 180000) return null; // 3 min cooldown
 
-        // Reset loss counter after 15 minutes of no trades
-        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime > 900000) {
-            this._consecutiveLosses = 0;
-        }
+        if (this._consecutiveLosses >= 4 && now - this._lastTradeTime < 1200000) return null; // 20 min after 4 losses
 
         const latestM5 = m5Candles[m5Candles.length - 1];
         const latestM15 = m15Candles[m15Candles.length - 1];
         const prevM5 = m5Candles[m5Candles.length - 2];
 
-        // Update H4 structure
+        // H4 Structure
         this._updateH4Structure(h4Candles);
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
 
         const range = this._h4SwingHigh - this._h4SwingLow;
-        if (range < atr * 3.5) return null; // Lowered threshold
+        if (range < atr * 5) return null; // Need decent swing
 
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
 
-        // More forgiving Fib proximity
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.85;
-        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * 0.85;
+        // Stronger Fib reaction required
+        const dist618 = Math.abs(latestM15.close - fib.fib618);
+        const dist50 = Math.abs(latestM15.close - fib.fib50);
+        const near618 = dist618 < atr * 0.6;
+        const near50 = dist50 < atr * 0.6;
 
         const bullishBias = latestM15.close > this._h4SwingLow;
         const bearishBias = latestM15.close < this._h4SwingHigh;
 
-        // Softer M5 momentum + candle filter
+        // Strong M5 confirmation
         const m5Momentum = this._getM5Momentum(m5Candles);
-        const isBullishCandle = latestM5.close > prevM5.close;
-        const isBearishCandle = latestM5.close < prevM5.close;
+        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.4;
+        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.4;
 
         let signal = null;
 
-        // Bullish Setup
-        if (bullishBias && (near618 || near50) && m5Momentum > -0.2 && isBullishCandle) {
-            const slDist = atr * 0.8;
-            const tpDist = atr * 1.7;
-
-            signal = {
-                type: 'LONG',
-                score: 74,
-                factors: [`Fib ${near618 ? '61.8%' : '50%'} reaction`, `M5 bias`, `H4 structure`],
-                tpMultiplier: 1.7,
-                slMultiplier: 0.8,
-                _slDist: slDist,
-                _tpDist: tpDist,
-                isJump75: true
-            };
-        }
-
-        // Bearish Setup
-        if (bearishBias && (near618 || near50) && m5Momentum < 0.2 && isBearishCandle) {
-            const slDist = atr * 0.8;
-            const tpDist = atr * 1.7;
-
-            signal = {
-                type: 'SHORT',
-                score: 74,
-                factors: [`Fib ${near618 ? '61.8%' : '50%'} reaction`, `M5 bias`, `H4 structure`],
-                tpMultiplier: 1.7,
-                slMultiplier: 0.8,
-                _slDist: slDist,
-                _tpDist: tpDist,
-                isJump75: true
-            };
+        if (bullishBias && near618 && m5Momentum > 0.5 && bullishCandle) {
+            signal = this._createSignal('LONG', 81, ['Fib 61.8% strong bounce', 'M5 momentum', 'H4 structure']);
+        } 
+        else if (bearishBias && near618 && m5Momentum < -0.5 && bearishCandle) {
+            signal = this._createSignal('SHORT', 81, ['Fib 61.8% strong rejection', 'M5 momentum', 'H4 structure']);
+        } 
+        else if (bullishBias && near50 && m5Momentum > 0.4 && bullishCandle) {
+            signal = this._createSignal('LONG', 76, ['Fib 50% bounce', 'M5 momentum', 'H4 structure']);
+        } 
+        else if (bearishBias && near50 && m5Momentum < -0.4 && bearishCandle) {
+            signal = this._createSignal('SHORT', 76, ['Fib 50% rejection', 'M5 momentum', 'H4 structure']);
         }
 
         if (signal) {
             this._lastTradeTime = now;
-            console.log(`[Jump75] ${signal.type} Setup | Score ${signal.score} | ${signal.factors.join(' · ')} | @ ${latestM15.close.toFixed(2)}`);
+            this._consecutiveLosses = 0;
+            console.log(`[Jump75] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | Price ${latestM15.close.toFixed(2)}`);
             return signal;
         }
 
         return null;
     },
 
+    _createSignal(type, score, factors) {
+        return {
+            type,
+            score,
+            factors,
+            tpMultiplier: 2.0,
+            slMultiplier: 0.75,
+            isJump75: true
+        };
+    },
+
     _updateH4Structure(h4Candles) {
-        if (h4Candles.length < 8) return;
-        const recent = h4Candles.slice(-12);
+        if (h4Candles.length < 10) return;
+        const recent = h4Candles.slice(-15);
         this._h4SwingHigh = Math.max(...recent.map(c => c.high));
         this._h4SwingLow = Math.min(...recent.map(c => c.low));
     },
@@ -105,11 +95,11 @@ export const Jump75Strategy = {
     },
 
     _getM5Momentum(m5Candles) {
-        if (m5Candles.length < 15) return 0;
+        if (m5Candles.length < 20) return 0;
         const ema8 = this._calculateEMA(m5Candles, 8);
         const ema21 = this._calculateEMA(m5Candles, 21);
         if (!ema8 || !ema21) return 0;
-        return ema8 - ema21;
+        return (ema8 - ema21);
     },
 
     _calculateEMA(candles, period) {
