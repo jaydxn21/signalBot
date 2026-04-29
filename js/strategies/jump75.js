@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - v6: Selective Fib + Strong Confirmation + Trailing Stop
+// js/strategies/jump75.js - v7: High-Quality Fib Hunter + Trailing Stop
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -7,14 +7,14 @@ export const Jump75Strategy = {
     _h4SwingLow: null,
 
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        if (!m5Candles || m5Candles.length < 50 || !m15Candles || m15Candles.length < 25 || !h4Candles || h4Candles.length < 10) {
+        if (!m5Candles || m5Candles.length < 60 || !m15Candles || m15Candles.length < 30 || !h4Candles || h4Candles.length < 10) {
             return null;
         }
 
         const now = Date.now();
-        if (now - this._lastTradeTime < 150000) return null; // 2.5 min cooldown
+        if (now - this._lastTradeTime < 240000) return null; // 4 minute cooldown
 
-        if (this._consecutiveLosses >= 4 && now - this._lastTradeTime < 900000) return null;
+        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 1800000) return null; // 30 min after 3 losses
 
         const latestM5 = m5Candles[m5Candles.length - 1];
         const latestM15 = m15Candles[m15Candles.length - 1];
@@ -24,33 +24,33 @@ export const Jump75Strategy = {
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
 
         const range = this._h4SwingHigh - this._h4SwingLow;
-        if (range < atr * 4.5) return null;
+        if (range < atr * 5) return null;
 
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
 
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.7;
-        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * 0.7;
+        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.55;
+        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * 0.55;
 
-        const bullishBias = latestM15.close > this._h4SwingLow;
-        const bearishBias = latestM15.close < this._h4SwingHigh;
+        const bullishBias = latestM15.close > this._h4SwingLow + range * 0.15;
+        const bearishBias = latestM15.close < this._h4SwingHigh - range * 0.15;
 
         const m5Momentum = this._getM5Momentum(m5Candles);
-        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.35;
-        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.35;
+        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.45;
+        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.45;
 
         let signal = null;
 
-        if (bullishBias && (near618 || near50) && m5Momentum > 0.4 && bullishCandle) {
-            signal = this._createSignal('LONG', 79, [`Fib ${near618 ? '61.8%' : '50%'} bounce`, `M5 momentum`, `H4 structure`]);
+        if (bullishBias && near618 && m5Momentum > 0.6 && bullishCandle) {
+            signal = this._createSignal('LONG', 83, ['Strong Fib 61.8% bounce', 'Strong M5 momentum', 'H4 structure']);
         } 
-        else if (bearishBias && (near618 || near50) && m5Momentum < -0.4 && bearishCandle) {
-            signal = this._createSignal('SHORT', 79, [`Fib ${near618 ? '61.8%' : '50%'} rejection`, `M5 momentum`, `H4 structure`]);
+        else if (bearishBias && near618 && m5Momentum < -0.6 && bearishCandle) {
+            signal = this._createSignal('SHORT', 83, ['Strong Fib 61.8% rejection', 'Strong M5 momentum', 'H4 structure']);
         }
 
         if (signal) {
             this._lastTradeTime = now;
             this._consecutiveLosses = 0;
-            console.log(`[Jump75] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | @ ${latestM15.close.toFixed(2)}`);
+            console.log(`[Jump75] HIGH QUALITY ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | Price ${latestM15.close.toFixed(2)}`);
             return signal;
         }
 
@@ -62,8 +62,8 @@ export const Jump75Strategy = {
             type,
             score,
             factors,
-            tpMultiplier: 2.0,
-            slMultiplier: 0.75,
+            tpMultiplier: 2.2,
+            slMultiplier: 0.8,
             isJump75: true
         };
     },
@@ -101,16 +101,14 @@ export const Jump75Strategy = {
         return ema;
     },
 
-    // ─────────────────────────────────────────────────────────────
-    // TRAILING STOP LOGIC
-    // ─────────────────────────────────────────────────────────────
+    // TRAILING STOP (already included from previous version)
     checkClose(currentCandle, trade) {
         if (!currentCandle || !trade || !trade.tp || !trade.sl) return null;
 
         const typeIsLong = trade.type === 'LONG' || trade.type === 'BUY';
         const price = currentCandle.close;
 
-        // Check TP / SL first
+        // TP / SL check
         if (typeIsLong) {
             if (currentCandle.high >= trade.tp) return { action: 'CLOSE', reason: 'TP' };
             if (currentCandle.low <= trade.sl) {
@@ -125,31 +123,24 @@ export const Jump75Strategy = {
             }
         }
 
-        // Trailing Stop Logic
+        // Trailing Stop
         if (!trade.trailActivated) {
             const tpDist = Math.abs(trade.tp - trade.entry);
-            const halfway = trade.entry + (typeIsLong ? tpDist * 0.5 : -tpDist * 0.5);
-
             const inProfit = typeIsLong ? (price - trade.entry) : (trade.entry - price);
 
             if (inProfit > tpDist * 0.5) {
                 trade.trailActivated = true;
-                trade.trailSL = typeIsLong ? trade.entry : trade.entry; // Breakeven
-                console.log(`[Jump75] Trailing activated — SL moved to breakeven`);
+                trade.trailSL = trade.entry; // Breakeven
+                console.log(`[Jump75] Trailing activated — SL to breakeven`);
                 return { action: 'UPDATE_SL', newSL: trade.trailSL };
             }
-        } 
-        else {
-            // Trail at 1.0 × ATR behind price
-            const trailCandidate = typeIsLong 
-                ? price - atr 
-                : price + atr;
+        } else {
+            const trailCandidate = typeIsLong ? price - atr : price + atr;
 
             if (typeIsLong && trailCandidate > trade.trailSL) {
                 trade.trailSL = trailCandidate;
                 return { action: 'UPDATE_SL', newSL: trade.trailSL };
-            } 
-            else if (!typeIsLong && trailCandidate < trade.trailSL) {
+            } else if (!typeIsLong && trailCandidate < trade.trailSL) {
                 trade.trailSL = trailCandidate;
                 return { action: 'UPDATE_SL', newSL: trade.trailSL };
             }
