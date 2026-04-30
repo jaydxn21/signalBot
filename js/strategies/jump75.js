@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - v12: Balanced Fib Strategy (Trailing Stop moved to MT5 EA)
+// js/strategies/jump75.js - v13: Reduced Loss Focus + Balanced
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -7,12 +7,12 @@ export const Jump75Strategy = {
     _h4SwingLow: null,
 
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        if (!m5Candles || m5Candles.length < 45 || !m15Candles || m15Candles.length < 28 || !h4Candles || h4Candles.length < 10) {
+        if (!m5Candles || m5Candles.length < 50 || !m15Candles || m15Candles.length < 30 || !h4Candles || h4Candles.length < 10) {
             return null;
         }
 
         const now = Date.now();
-        if (now - this._lastTradeTime < 150000) return null; // 2.5 minute cooldown
+        if (now - this._lastTradeTime < 180000) return null; // 3 min cooldown
 
         if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 900000) return null;
 
@@ -24,34 +24,28 @@ export const Jump75Strategy = {
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
 
         const range = this._h4SwingHigh - this._h4SwingLow;
-        if (range < atr * 4.5) return null;
+        if (range < atr * 5) return null;
 
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
 
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.7;
-        const near50  = Math.abs(latestM15.close - fib.fib50)  < atr * 0.8;
+        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.65;
+        const near50  = Math.abs(latestM15.close - fib.fib50)  < atr * 0.75;
 
         const bullishBias = latestM15.close > this._h4SwingLow;
         const bearishBias = latestM15.close < this._h4SwingHigh;
 
         const m5Momentum = this._getM5Momentum(m5Candles);
 
-        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.4;
-        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.4;
+        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.45;
+        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.45;
 
         let signal = null;
 
-        if (bullishBias && near618 && m5Momentum > 0.4 && bullishCandle) {
-            signal = this._createSignal('LONG', 78, ['Fib 61.8% bounce', 'M5 momentum', 'H4 structure']);
+        if (bullishBias && near618 && m5Momentum > 0.45 && bullishCandle) {
+            signal = this._createSignal('LONG', 79, ['Fib 61.8% bounce', 'Strong M5 candle', 'H4 structure']);
         } 
-        else if (bearishBias && near618 && m5Momentum < -0.4 && bearishCandle) {
-            signal = this._createSignal('SHORT', 78, ['Fib 61.8% rejection', 'M5 momentum', 'H4 structure']);
-        } 
-        else if (bullishBias && near50 && m5Momentum > 0.3 && bullishCandle) {
-            signal = this._createSignal('LONG', 73, ['Fib 50% reaction', 'M5 momentum', 'H4 structure']);
-        } 
-        else if (bearishBias && near50 && m5Momentum < -0.3 && bearishCandle) {
-            signal = this._createSignal('SHORT', 73, ['Fib 50% reaction', 'M5 momentum', 'H4 structure']);
+        else if (bearishBias && near618 && m5Momentum < -0.45 && bearishCandle) {
+            signal = this._createSignal('SHORT', 79, ['Fib 61.8% rejection', 'Strong M5 candle', 'H4 structure']);
         }
 
         if (signal) {
@@ -69,8 +63,8 @@ export const Jump75Strategy = {
             type,
             score,
             factors,
-            tpMultiplier: 2.1,
-            slMultiplier: 0.8,
+            tpMultiplier: 2.2,
+            slMultiplier: 0.85,
             isJump75: true
         };
     },
@@ -85,13 +79,13 @@ export const Jump75Strategy = {
     _calculateFibLevels(low, high) {
         const diff = high - low;
         return {
-            fib50:  high - diff * 0.5,
+            fib50: high - diff * 0.5,
             fib618: high - diff * 0.618,
         };
     },
 
     _getM5Momentum(m5Candles) {
-        if (m5Candles.length < 18) return 0;
+        if (m5Candles.length < 20) return 0;
         const ema8 = this._calculateEMA(m5Candles, 8);
         const ema21 = this._calculateEMA(m5Candles, 21);
         if (!ema8 || !ema21) return 0;
@@ -108,7 +102,6 @@ export const Jump75Strategy = {
         return ema;
     },
 
-    // No trailing stop here — handled on MT5 EA side
     checkClose(currentCandle, trade) {
         if (!currentCandle || !trade) return null;
 
