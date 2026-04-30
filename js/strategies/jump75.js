@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - v13: Reduced Loss Focus + Balanced
+// js/strategies/jump75.js - v14: Loss Reduction Focus (Fewer Bad Trades)
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -14,7 +14,8 @@ export const Jump75Strategy = {
         const now = Date.now();
         if (now - this._lastTradeTime < 180000) return null; // 3 min cooldown
 
-        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 900000) return null;
+        // Stronger loss protection
+        if (this._consecutiveLosses >= 2 && now - this._lastTradeTime < 900000) return null;
 
         const latestM5 = m5Candles[m5Candles.length - 1];
         const latestM15 = m15Candles[m15Candles.length - 1];
@@ -24,11 +25,11 @@ export const Jump75Strategy = {
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
 
         const range = this._h4SwingHigh - this._h4SwingLow;
-        if (range < atr * 5) return null;
+        if (range < atr * 5.5) return null; // Require decent swing
 
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
 
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.65;
+        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.6;
         const near50  = Math.abs(latestM15.close - fib.fib50)  < atr * 0.75;
 
         const bullishBias = latestM15.close > this._h4SwingLow;
@@ -36,22 +37,24 @@ export const Jump75Strategy = {
 
         const m5Momentum = this._getM5Momentum(m5Candles);
 
-        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.45;
-        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.45;
+        // Stronger candle filter to avoid weak entries
+        const bullishCandle = latestM5.close > prevM5.close && (latestM5.close - latestM5.open) > atr * 0.5;
+        const bearishCandle = latestM5.close < prevM5.close && (latestM5.open - latestM5.close) > atr * 0.5;
 
         let signal = null;
 
-        if (bullishBias && near618 && m5Momentum > 0.45 && bullishCandle) {
-            signal = this._createSignal('LONG', 79, ['Fib 61.8% bounce', 'Strong M5 candle', 'H4 structure']);
+        // Only take high-conviction setups
+        if (bullishBias && near618 && m5Momentum > 0.5 && bullishCandle) {
+            signal = this._createSignal('LONG', 81, ['Strong Fib 61.8% bounce', 'Strong candle', 'H4 structure']);
         } 
-        else if (bearishBias && near618 && m5Momentum < -0.45 && bearishCandle) {
-            signal = this._createSignal('SHORT', 79, ['Fib 61.8% rejection', 'Strong M5 candle', 'H4 structure']);
+        else if (bearishBias && near618 && m5Momentum < -0.5 && bearishCandle) {
+            signal = this._createSignal('SHORT', 81, ['Strong Fib 61.8% rejection', 'Strong candle', 'H4 structure']);
         }
 
         if (signal) {
             this._lastTradeTime = now;
             this._consecutiveLosses = 0;
-            console.log(`[Jump75] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | Price ${latestM15.close.toFixed(2)}`);
+            console.log(`[Jump75] HIGH QUALITY ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | @ ${latestM15.close.toFixed(2)}`);
             return signal;
         }
 
@@ -63,15 +66,15 @@ export const Jump75Strategy = {
             type,
             score,
             factors,
-            tpMultiplier: 2.2,
-            slMultiplier: 0.85,
+            tpMultiplier: 2.3,     // Wider TP
+            slMultiplier: 0.85,    // Slightly wider SL
             isJump75: true
         };
     },
 
     _updateH4Structure(h4Candles) {
         if (h4Candles.length < 10) return;
-        const recent = h4Candles.slice(-15);
+        const recent = h4Candles.slice(-16);
         this._h4SwingHigh = Math.max(...recent.map(c => c.high));
         this._h4SwingLow = Math.min(...recent.map(c => c.low));
     },
