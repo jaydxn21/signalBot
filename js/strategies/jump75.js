@@ -1,80 +1,104 @@
-// js/strategies/jump75.js - v16: High Quality Trades Only
+// js/strategies/jump75.js - v17: Balanced Signal Generation
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
     _consecutiveLosses: 0,
     _h4SwingHigh: null,
     _h4SwingLow: null,
-    _dailyTrend: null,      // Track daily trend
-    _hourlyTrend: null,     // Track hourly trend
 
-    async checkEntry(m5Candles, m15Candles, h4Candles, dailyCandles, hourlyCandles, atr) {
-        // More data required for better decisions
-        if (!m5Candles || m5Candles.length < 60 || !m15Candles || m15Candles.length < 30 || 
-            !h4Candles || h4Candles.length < 12 || !dailyCandles || dailyCandles.length < 5) {
+    async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
+        // Reduced data requirements for more signals
+        if (!m5Candles || m5Candles.length < 30 || !m15Candles || m15Candles.length < 20 || !h4Candles || h4Candles.length < 6) {
             return null;
         }
 
         const now = Date.now();
-        // Longer cooldown after losses
-        if (now - this._lastTradeTime < 180000) return null; // 3 min cooldown
+        // Shorter cooldown
+        if (now - this._lastTradeTime < 60000) return null; // 1 min cooldown
 
-        // After 3 losses, wait 15 minutes
-        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 900000) return null;
+        // After 3 losses, wait 5 minutes (not 15)
+        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < 300000) return null;
 
         const latestM15 = m15Candles[m15Candles.length - 1];
+        const latestM5 = m5Candles[m5Candles.length - 1];
+        const prevM5 = m5Candles[m5Candles.length - 2];
         
-        // Calculate trends
-        this._updateTrends(dailyCandles, hourlyCandles);
-        
-        // Update H4 structure
         this._updateH4Structure(h4Candles);
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
 
-        // ONLY trade with the trend (BIG improvement)
-        const dailyTrend = this._getDailyTrend(dailyCandles);
-        const hourlyTrend = this._getHourlyTrend(hourlyCandles);
-        
         const range = this._h4SwingHigh - this._h4SwingLow;
-        // Require stronger range for entry
-        if (range < atr * 5.0) return null;
+        if (range < atr * 3.5) return null;  // Reduced requirement
 
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
 
-        // Use 61.8% ONLY (more reliable than 50%)
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.6;
-        
-        // Strong momentum requirement
-        const m5Momentum = this._getM5Momentum(m5Candles);
-        const m15Momentum = this._getM15Momentum(m15Candles);
-        
-        // Confluence check
-        const emaAlignment = this._checkEMAAlignment(m5Candles);
-        
-        // Volume confirmation (using range as proxy)
-        const volumeConfirmed = (latestM15.high - latestM15.low) > atr * 0.4;
-        
-        let signal = null;
+        // Wider zones for entry
+        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * 0.9;
+        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * 1.0;
 
-        // LONG conditions - ONLY if trends align
-        if (dailyTrend === 'BULLISH' && hourlyTrend !== 'BEARISH' && near618 && m5Momentum > 0.4 && m15Momentum > 0.2 && emaAlignment && volumeConfirmed) {
-            signal = this._createSignal('LONG', 85, ['Daily uptrend', 'Fib 61.8%', 'Strong momentum', 'EMA alignment']);
+        // Simpler momentum
+        const m5Momentum = this._getM5Momentum(m5Candles);
+        const m15Trend = this._getM15Trend(m15Candles);
+        
+        const bullishCandle = latestM5.close > prevM5.close;
+        const bearishCandle = latestM5.close < prevM5.close;
+        
+        // Price position relative to H4 structure
+        const aboveLow = latestM15.close > this._h4SwingLow;
+        const belowHigh = latestM15.close < this._h4SwingHigh;
+
+        let signal = null;
+        let signalScore = 0;
+
+        // HIGH QUALITY SIGNALS (85+)
+        // Fib 61.8% + strong momentum + trend
+        if (near618 && m5Momentum > 0.5 && bullishCandle && aboveLow && m15Trend === 'UP') {
+            signal = this._createSignal('LONG', 88, ['Fib 61.8% bounce', 'Strong momentum', 'M15 uptrend']);
+            signalScore = 88;
         }
-        // SHORT conditions - ONLY if trends align
-        else if (dailyTrend === 'BEARISH' && hourlyTrend !== 'BULLISH' && near618 && m5Momentum < -0.4 && m15Momentum < -0.2 && emaAlignment && volumeConfirmed) {
-            signal = this._createSignal('SHORT', 85, ['Daily downtrend', 'Fib 61.8%', 'Strong momentum', 'EMA alignment']);
+        else if (near618 && m5Momentum < -0.5 && bearishCandle && belowHigh && m15Trend === 'DOWN') {
+            signal = this._createSignal('SHORT', 88, ['Fib 61.8% rejection', 'Strong momentum', 'M15 downtrend']);
+            signalScore = 88;
         }
-        // Lower quality signals - higher score required
-        else if (dailyTrend !== 'CONTRARY' && near618 && Math.abs(m5Momentum) > 0.5 && Math.abs(m15Momentum) > 0.3) {
-            if (m5Momentum > 0) {
-                signal = this._createSignal('LONG', 70, ['Fib 61.8%', 'Strong momentum']);
-            } else if (m5Momentum < 0) {
-                signal = this._createSignal('SHORT', 70, ['Fib 61.8%', 'Strong momentum']);
+        
+        // MEDIUM QUALITY SIGNALS (75-84)
+        else if (near618 && Math.abs(m5Momentum) > 0.3 && (bullishCandle || bearishCandle)) {
+            if (m5Momentum > 0 && aboveLow) {
+                signal = this._createSignal('LONG', 78, ['Fib 61.8%', 'Momentum']);
+                signalScore = 78;
+            } else if (m5Momentum < 0 && belowHigh) {
+                signal = this._createSignal('SHORT', 78, ['Fib 61.8%', 'Momentum']);
+                signalScore = 78;
+            }
+        }
+        
+        // LOWER QUALITY BUT VALID SIGNALS (65-74)
+        else if ((near618 || near50) && Math.abs(m5Momentum) > 0.2) {
+            const zone = near618 ? '61.8%' : '50%';
+            if (m5Momentum > 0 && aboveLow) {
+                signal = this._createSignal('LONG', 68, [`Fib ${zone}`, 'M5 momentum']);
+                signalScore = 68;
+            } else if (m5Momentum < 0 && belowHigh) {
+                signal = this._createSignal('SHORT', 68, [`Fib ${zone}`, 'M5 momentum']);
+                signalScore = 68;
+            }
+        }
+        
+        // CONFIRMATION SIGNALS (60-64) - When price respects level with volume
+        else if ((near618 || near50) && this._hasVolumeConfirmation(m5Candles)) {
+            const zone = near618 ? '61.8%' : '50%';
+            if (latestM15.close > latestM15.open && aboveLow) {
+                signal = this._createSignal('LONG', 62, [`Fib ${zone}`, 'Volume confirmation']);
+                signalScore = 62;
+            } else if (latestM15.close < latestM15.open && belowHigh) {
+                signal = this._createSignal('SHORT', 62, [`Fib ${zone}`, 'Volume confirmation']);
+                signalScore = 62;
             }
         }
 
         if (signal) {
             this._lastTradeTime = now;
+            // Reset consecutive losses on signal (not on trade result)
+            // Loss tracking happens in checkClose
             console.log(`[Jump75] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | Price ${latestM15.close.toFixed(2)}`);
             return signal;
         }
@@ -83,60 +107,58 @@ export const Jump75Strategy = {
     },
 
     _createSignal(type, score, factors) {
+        // Adjust TP/SL multipliers based on signal quality
+        let tpMultiplier = 2.0;
+        let slMultiplier = 1.0;
+        
+        if (score >= 85) {
+            tpMultiplier = 2.5;  // Higher TP for better signals
+            slMultiplier = 1.0;
+        } else if (score >= 75) {
+            tpMultiplier = 2.2;
+            slMultiplier = 1.0;
+        } else if (score >= 65) {
+            tpMultiplier = 1.8;
+            slMultiplier = 0.9;
+        } else {
+            tpMultiplier = 1.5;
+            slMultiplier = 0.8;
+        }
+        
         return {
             type,
             score,
             factors,
-            tpMultiplier: 2.5,          // Wider TP (was 2.1)
-            slMultiplier: 1.2,           // Wider SL (was 0.85)
+            tpMultiplier,
+            slMultiplier,
             isJump75: true
         };
     },
 
-    _getDailyTrend(dailyCandles) {
-        if (dailyCandles.length < 10) return 'NEUTRAL';
-        const ema20 = this._calculateEMA(dailyCandles, 20);
-        const ema50 = this._calculateEMA(dailyCandles, 50);
-        if (!ema20 || !ema50) return 'NEUTRAL';
-        
-        const latest = dailyCandles[dailyCandles.length - 1];
-        if (latest.close > ema20 && ema20 > ema50) return 'BULLISH';
-        if (latest.close < ema20 && ema20 < ema50) return 'BEARISH';
-        return 'NEUTRAL';
-    },
-
-    _getHourlyTrend(hourlyCandles) {
-        if (hourlyCandles.length < 20) return 'NEUTRAL';
-        const ema8 = this._calculateEMA(hourlyCandles, 8);
-        const ema21 = this._calculateEMA(hourlyCandles, 21);
+    _getM15Trend(m15Candles) {
+        if (m15Candles.length < 20) return 'NEUTRAL';
+        const ema8 = this._calculateEMA(m15Candles, 8);
+        const ema21 = this._calculateEMA(m15Candles, 21);
         if (!ema8 || !ema21) return 'NEUTRAL';
         
-        const latest = hourlyCandles[hourlyCandles.length - 1];
-        if (latest.close > ema8 && ema8 > ema21) return 'BULLISH';
-        if (latest.close < ema8 && ema8 < ema21) return 'BEARISH';
+        const latest = m15Candles[m15Candles.length - 1];
+        const prev = m15Candles[m15Candles.length - 2];
+        
+        if (latest.close > ema8 && ema8 > ema21 && latest.close > prev.close) return 'UP';
+        if (latest.close < ema8 && ema8 < ema21 && latest.close < prev.close) return 'DOWN';
         return 'NEUTRAL';
     },
 
-    _checkEMAAlignment(m5Candles) {
-        if (m5Candles.length < 30) return false;
-        const ema8 = this._calculateEMA(m5Candles, 8);
-        const ema21 = this._calculateEMA(m5Candles, 21);
-        const ema50 = this._calculateEMA(m5Candles, 50);
-        if (!ema8 || !ema21 || !ema50) return false;
-        
+    _hasVolumeConfirmation(m5Candles) {
+        if (m5Candles.length < 10) return false;
         const latest = m5Candles[m5Candles.length - 1];
-        // Check if price is above EMAs and EMAs are aligned
-        return (latest.close > ema8 && ema8 > ema21 && ema21 > ema50) ||
-               (latest.close < ema8 && ema8 < ema21 && ema21 < ema50);
-    },
-
-    _updateTrends(dailyCandles, hourlyCandles) {
-        // Trends are calculated on the fly in checkEntry
+        const avgVolume = m5Candles.slice(-10).reduce((s, c) => s + (c.volume || 0), 0) / 10;
+        return (latest.volume || 0) > avgVolume * 1.2;
     },
 
     _updateH4Structure(h4Candles) {
-        if (h4Candles.length < 12) return;
-        const recent = h4Candles.slice(-20);
+        if (h4Candles.length < 8) return;
+        const recent = h4Candles.slice(-14);
         this._h4SwingHigh = Math.max(...recent.map(c => c.high));
         this._h4SwingLow = Math.min(...recent.map(c => c.low));
     },
@@ -150,23 +172,14 @@ export const Jump75Strategy = {
     },
 
     _getM5Momentum(m5Candles) {
-        if (m5Candles.length < 20) return 0;
+        if (m5Candles.length < 15) return 0;
         const ema8 = this._calculateEMA(m5Candles, 8);
         const ema21 = this._calculateEMA(m5Candles, 21);
         if (!ema8 || !ema21) return 0;
-        // Normalize momentum
+        
+        // Normalize by ATR for better comparison
         const atr = this._calculateATR(m5Candles, 14);
-        if (atr === 0) return ema8 - ema21;
-        return (ema8 - ema21) / atr;
-    },
-
-    _getM15Momentum(m15Candles) {
-        if (m15Candles.length < 20) return 0;
-        const ema8 = this._calculateEMA(m15Candles, 8);
-        const ema21 = this._calculateEMA(m15Candles, 21);
-        if (!ema8 || !ema21) return 0;
-        const atr = this._calculateATR(m15Candles, 14);
-        if (atr === 0) return ema8 - ema21;
+        if (atr === 0) return (ema8 - ema21) / 10;
         return (ema8 - ema21) / atr;
     },
 
@@ -202,22 +215,19 @@ export const Jump75Strategy = {
         if (trade.type === 'LONG' || trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
                 closeAction = { action: 'CLOSE', reason: 'TP' };
+                this._consecutiveLosses = 0; // Reset on win
             } else if (currentCandle.low <= trade.sl) {
                 closeAction = { action: 'CLOSE', reason: 'SL' };
+                this._consecutiveLosses++;
             }
         } else {
             if (currentCandle.low <= trade.tp) {
                 closeAction = { action: 'CLOSE', reason: 'TP' };
+                this._consecutiveLosses = 0;
             } else if (currentCandle.high >= trade.sl) {
                 closeAction = { action: 'CLOSE', reason: 'SL' };
+                this._consecutiveLosses++;
             }
-        }
-        
-        // Track consecutive losses on SL
-        if (closeAction && closeAction.reason === 'SL') {
-            this._consecutiveLosses++;
-        } else if (closeAction && closeAction.reason === 'TP') {
-            this._consecutiveLosses = Math.max(0, this._consecutiveLosses - 1);
         }
         
         return closeAction;
