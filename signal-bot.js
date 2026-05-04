@@ -1683,25 +1683,52 @@ function _vortexCloseTrade(bot, outcome, pnlAmt, bar) {
 };
 
 // ─────────────────────────────────────────────────────────────
-// KISMET — RUN + CLOSE
+// KISMET RUNNER (Updated with Volatility Indices Support)
 // ─────────────────────────────────────────────────────────────
 function _runKismet(bot, bar, atr, rsi) {
     const cfg = kismetSymbolConfig(bot.config.symbol);
+    
+    // Use new Volatility Indices strategy for V*/JD* symbols
+    const isVolatilityIndex = bot.config.symbol.match(/^(V|JD)(10|25|50|75|100|150)/);
+    
+    if (isVolatilityIndex) {
+        const signal = KismetVolatilityIndices.checkEntry(
+            bot.config.symbol, 
+            bot.candles, 
+            atr, 
+            bot.id
+        );
+        
+        if (!signal) return;
+
+        if (KismetVolatilityIndices.isHalted?.(bot.id)) {
+            log(`🎯 KISMET VOL — Halted (6 consecutive losses)`, 'warn');
+            return;
+        }
+
+        bot.lastFiredMs = Date.now();
+        log(`🎯 KISMET VOL ${signal.type} @ ${bar.close.toFixed(4)} | ${signal.mode} | score ${signal.score}`, signal.type === 'BUY' ? 'buy' : 'sell');
+        
+        fireSignal(bot, signal, bar, atr, rsi, null);
+        return;
+    }
+
+    // Original Kismet for Crash/Boom/Step
     if (!cfg) {
-        log(`🎯 KISMET: ${bot.config.symbol} not supported. Use Boom/Crash 1000/500 or Step Index.`, 'warn');
+        log(`🎯 KISMET: ${bot.config.symbol} not supported.`, 'warn');
         return;
     };
 
     const spike = KismetStrategy.detectSpike(bot.candles, atr);
     if (spike) {
         KismetStrategy.recordSpike(bot.id, spike, bot.config.tf || 60);
-        log(`🎯 KISMET spike — ${spike.direction === 'up' ? '↑' : '↓'} ${spike.magnitude.toFixed(1)}× ATR on ${cfg.name}`, 'neutral');
+        log(`🎯 KISMET spike — ${spike.direction === 'up' ? '↑' : '↓'} ${spike.magnitude.toFixed(1)}× ATR`, 'neutral');
         if (bot.openSignal?.isKismet) {
             if (KismetStrategy.checkAdverseSpike(bot.openSignal, spike)) {
                 log(`🎯 KISMET adverse spike — emergency exit`, 'warn');
                 const lotSize = bot.config.lotSize || 0.01;
-                const c       = bot.candles[bot.candles.length - 2];
-                const pnlAmt  = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
+                const c = bot.candles[bot.candles.length - 2];
+                const pnlAmt = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
                 _kismetCloseTrade(bot, 'SL', pnlAmt, c);
                 return;
             };
@@ -1725,10 +1752,10 @@ function _runKismet(bot, bar, atr, rsi) {
     if (signal.mode === 'drift_reentry' && signal.score < 70) return;
 
     bot.lastFiredMs = Date.now();
-    log(`🎯 KISMET ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | score ${signal.score} | ${signal.factors.join(' · ')}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    log(`🎯 KISMET ${signal.type} [${signal.mode}] @ ${bar.close.toFixed(4)} | score ${signal.score}`, signal.type === 'BUY' ? 'buy' : 'sell');
 
     fireSignal(bot, signal, bar, atr, rsi, null);
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // CIPHER RUNNER
