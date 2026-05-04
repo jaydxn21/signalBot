@@ -585,7 +585,18 @@ export const KismetVolatilityIndices = {
     },
 };
 
-export default KismetStrategy;
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPORTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { 
+    KismetVolatilityIndices,
+    getVolatilityIndexConfig,
+    kismetSymbolConfig   // Keep this if it exists elsewhere, or remove if not needed
+};
+
+// Default export for backward compatibility
+export default KismetVolatilityIndices;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPECTED PERFORMANCE
