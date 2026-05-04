@@ -585,7 +585,7 @@ export const KismetVolatilityIndices = {
     },
 };
 
-export default KismetVolatilityIndices;
+export default KismetVolatility;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPECTED PERFORMANCE
