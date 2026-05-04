@@ -590,7 +590,6 @@ export const KismetVolatilityIndices = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export { 
-    KismetVolatilityIndices,
     getVolatilityIndexConfig,
     kismetSymbolConfig   // Keep this if it exists elsewhere, or remove if not needed
 };
