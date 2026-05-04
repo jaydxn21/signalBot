@@ -1685,15 +1685,18 @@ function _vortexCloseTrade(bot, outcome, pnlAmt, bar) {
 // ─────────────────────────────────────────────────────────────
 // KISMET RUNNER - FIXED + VOLATILITY INDICES SUPPORT
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// KISMET RUNNER - FULLY FIXED + VOLATILITY INDICES SUPPORT
+// ─────────────────────────────────────────────────────────────
 function _runKismet(bot, bar, atr, rsi) {
     const symbol = bot.config.symbol;
 
-    // === NEW VOLATILITY INDICES STRATEGY (V10-V150, JD10-JD150) ===
+    // === 1. VOLATILITY INDICES (V10-V150, JD10-JD150) - NEW STRATEGY ===
     const isVolatilityIndex = /^(V|JD)(10|25|50|75|100|150)/.test(symbol);
 
     if (isVolatilityIndex) {
         if (typeof KismetVolatilityIndices?.checkEntry !== 'function') {
-            log(`[KISMET] Volatility strategy not loaded`, 'warn');
+            log(`[KISMET VOL] Strategy not loaded`, 'warn');
             return;
         }
 
@@ -1701,7 +1704,9 @@ function _runKismet(bot, bar, atr, rsi) {
 
         if (!signal) return;
 
-        if (KismetVolatilityIndices.isHalted && KismetVolatilityIndices.isHalted(bot.id)) {
+        // Check halt status
+        if (typeof KismetVolatilityIndices.isHalted === 'function' && 
+            KismetVolatilityIndices.isHalted(bot.id)) {
             log(`🎯 KISMET VOL — Halted (6 consecutive losses)`, 'warn');
             return;
         }
@@ -1714,17 +1719,29 @@ function _runKismet(bot, bar, atr, rsi) {
         return;
     }
 
-    // === LEGACY KISMET (Crash/Boom/Step Index) ===
-    const cfg = kismetSymbolConfig(symbol);
+    // === 2. LEGACY KISMET (Crash 1000, Boom 1000, Step Index, etc.) ===
+    const cfg = kismetSymbolConfig ? kismetSymbolConfig(symbol) : null;
+    
     if (!cfg) {
-        log(`🎯 KISMET: ${symbol} not supported`, 'warn');
+        log(`🎯 KISMET: ${symbol} not supported in legacy mode`, 'warn');
         return;
     }
 
-    const spike = KismetStrategy?.detectSpike?.(bot.candles, atr); // Safe check
+    const spike = KismetStrategy?.detectSpike?.(bot.candles, atr);
     if (spike) {
-        // ... your original spike logic if you still have KismetStrategy object
-        log(`🎯 KISMET spike detected on ${symbol}`, 'neutral');
+        KismetStrategy.recordSpike?.(bot.id, spike, bot.config.tf || 60);
+        log(`🎯 KISMET spike — ${spike.direction === 'up' ? '↑' : '↓'} ${spike.magnitude.toFixed(1)}× ATR`, 'neutral');
+        
+        if (bot.openSignal?.isKismet) {
+            if (KismetStrategy.checkAdverseSpike?.(bot.openSignal, spike)) {
+                log(`🎯 KISMET adverse spike — emergency exit`, 'warn');
+                const lotSize = bot.config.lotSize || 0.01;
+                const c = bot.candles[bot.candles.length - 2];
+                const pnlAmt = lotSize * _pointValue(bot.config.symbol) * Math.abs(c.close - bot.openSignal.entry);
+                _kismetCloseTrade(bot, 'SL', pnlAmt, c);
+                return;
+            }
+        }
     }
 
     if (bot.openSignal?.isKismet) { 
@@ -1733,10 +1750,14 @@ function _runKismet(bot, bar, atr, rsi) {
     }
     if (bot.openSignal) return;
 
-    const cooldownMs = bot.config.tf * 3 * 1000;
+    if (KismetStrategy?.isHalted?.(bot.id)) {
+        log(`🎯 KISMET halted — 6 consecutive losses reached`, 'warn');
+        return;
+    }
+
+    const cooldownMs = (bot.config.tf || 300) * 3 * 1000;
     if ((Date.now() - bot.lastFiredMs) < cooldownMs) return;
 
-    // Fallback to legacy check if available
     const signal = KismetStrategy?.checkEntry?.(symbol, bot.candles, atr, bot.id);
     if (!signal) return;
 
