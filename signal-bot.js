@@ -20,7 +20,7 @@ import { MomentumStrategy }  from './js/strategies/momentum.js';
 import { PhantomStrategy, PhantomReversalCheck } from './js/strategies/phantom.js';
 import { NovaStrategy, novaSymbolConfig, detectSpike } from './js/strategies/nova.js';
 import { PulseStrategy, pulseSymbolConfig } from './js/strategies/pulse.js';
-import KismetVolatilityIndices, { kismetSymbolConfig } from './js/strategies/kismet.js';
+import KismetVolatilityIndices from './js/strategies/kismet.js';  // Default import only
 import { VortexStrategy } from './js/strategies/vortex.js';
 import { DataLogger }        from './js/data-logger.js';
 import { UIManager }         from './js/ui-manager.js';
