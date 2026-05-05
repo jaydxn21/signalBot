@@ -628,6 +628,17 @@ window.startBot = function(id) {
     const config = window.getBotConfig(id);
     if (!config) return;
 
+    // Apply Jump75 quality mode if strategy is jump75
+if (config.strategy === 'jump75') {
+    const savedMode = window._botQualityModes?.[id] || 1;
+    if (window.Jump75Strategy) {
+        window.Jump75Strategy.QUALITY_MODE = savedMode;
+        const modeConfig = window.Jump75Strategy._getModeConfig();
+        log(`🎯 Jump75 Quality Mode: ${modeConfig.displayName}`, 'info');
+        log(`   Min Score: ${modeConfig.minScore} | Cooldown: ${modeConfig.cooldownMs/60000}m | Range: ${modeConfig.minRangeATR}x ATR`, 'info');
+    }
+}
+
     const maxBots = Settings.get('maxBots') || 3;
     const activeBotCount = Object.values(bots).filter(b => b.isActive).length;
     if (activeBotCount >= maxBots) {
@@ -2946,6 +2957,76 @@ function _createBotCard(id, savedConfig) {
     };
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
+
+    // ── QUALITY MODE SELECTOR FOR JUMP75 ─────────────────────────────
+function _setupQualityModeForCard(card, botId) {
+    const stratSelect = card.querySelector('.bot-strategy-select');
+    const modeSelector = card.querySelector('.quality-mode-selector');
+    const modeSelect = card.querySelector('.quality-mode-select');
+    const modeBadge = card.querySelector('.quality-mode-badge');
+    const modeInfo = card.querySelector('.quality-mode-info');
+    
+    if (!modeSelector || !modeSelect) return;
+    
+    const QUALITY_MODE_DESCRIPTIONS = {
+        0: { name: 'QUANTITY', emoji: '🚀', trades: '100-120/day', tp: '1.2-1.8x', sl: '0.7-0.9x', trend: 'Optional', vol: 'Optional' },
+        1: { name: 'BALANCED', emoji: '⚖️', trades: '50-70/day', tp: '1.5-2.2x', sl: '0.8-1.0x', trend: 'Required', vol: 'Optional' },
+        2: { name: 'QUALITY', emoji: '🎯', trades: '20-30/day', tp: '1.8-2.5x', sl: '0.9-1.0x', trend: 'Required', vol: 'Required' },
+        3: { name: 'ULTRA', emoji: '👑', trades: '5-10/day', tp: '2.0-3.0x', sl: '1.0x', trend: 'Required', vol: 'Required' }
+    };
+    
+    function updateQualityDisplay(modeValue) {
+        const mode = QUALITY_MODE_DESCRIPTIONS[modeValue];
+        if (!mode) return;
+        modeBadge.textContent = `${mode.emoji} ${mode.name}`;
+        const colors = { 0: '#ec4899', 1: '#2563eb', 2: '#059669', 3: '#9333ea' };
+        const color = colors[modeValue];
+        modeBadge.style.background = color + '15';
+        modeBadge.style.color = color;
+        modeInfo.innerHTML = `${mode.trades} | TP: ${mode.tp} | SL: ${mode.sl} | Trend: ${mode.trend}`;
+    }
+    
+    // Show/hide when strategy changes
+    const originalChange = stratSelect.onchange;
+    stratSelect.addEventListener('change', () => {
+        if (stratSelect.value === 'jump75') {
+            modeSelector.style.display = 'block';
+            const savedMode = window._botQualityModes?.[botId] || 1;
+            modeSelect.value = savedMode;
+            updateQualityDisplay(savedMode);
+            if (window.Jump75Strategy) {
+                window.Jump75Strategy.QUALITY_MODE = parseInt(savedMode);
+            }
+        } else {
+            modeSelector.style.display = 'none';
+        }
+    });
+    
+    // Handle mode change
+    modeSelect.addEventListener('change', () => {
+        const mode = parseInt(modeSelect.value);
+        updateQualityDisplay(mode);
+        if (!window._botQualityModes) window._botQualityModes = {};
+        window._botQualityModes[botId] = mode;
+        if (window.Jump75Strategy) {
+            window.Jump75Strategy.QUALITY_MODE = mode;
+        }
+        log(`🎯 Jump75 Quality Mode: ${QUALITY_MODE_DESCRIPTIONS[mode].name}`, 'info');
+    });
+    
+    // Initial check
+    if (stratSelect.value === 'jump75') {
+        modeSelector.style.display = 'block';
+        modeSelect.value = 1;
+        updateQualityDisplay(1);
+        if (!window._botQualityModes) window._botQualityModes = {};
+        window._botQualityModes[botId] = 1;
+    }
+}
+
+// Call this function inside _createBotCard after the card is created
+// Add this line where other setup functions are called:
+_setupQualityModeForCard(card, id);
 
     const configureBtn = card.querySelector('.phantom-configure-btn');
     if (configureBtn) {

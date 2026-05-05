@@ -373,6 +373,27 @@
             <div class="phantom-session-badge" style="display:none;margin-top:7px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:5px;font-size:0.61rem;font-family:'DM Mono',monospace;letter-spacing:0.05em;"></div>
         </div>
  
+
+        <!-- Quality Mode Selector (Jump75 only) -->
+<div class="quality-mode-selector" style="display:none;margin:8px 0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <span class="stat-label">🎯 Quality Mode</span>
+        <span class="quality-mode-badge" style="font-size:0.57rem;padding:2px 6px;border-radius:4px;background:rgba(37,99,235,0.15);color:#2563eb;font-weight:600;">⚖️ BALANCED</span>
+    </div>
+    
+    <select class="quality-mode-select" style="width:100%;margin-bottom:6px;">
+        <option value="0">🚀 QUANTITY (100+/day, 60% WR)</option>
+        <option value="1" selected>⚖️ BALANCED (50-70/day, 65% WR)</option>
+        <option value="2">🎯 QUALITY (20-30/day, 70% WR)</option>
+        <option value="3">👑 ULTRA (5-10/day, 80% WR)</option>
+    </select>
+    
+    <div class="quality-mode-info" style="font-size:0.57rem;color:var(--text-muted);line-height:1.6;padding:6px;background:rgba(37,99,235,0.05);border-radius:4px;border-left:2px solid rgba(37,99,235,0.2);">
+        TP: 1.5-2.2x ATR | SL: 0.8-1.0x ATR | Trend: Required
+    </div>
+</div>
+
+
         <div style="display:flex;gap:6px;margin-bottom:10px;">
             <div style="flex:1;min-width:0;">
                 <div class="stat-label" style="margin-bottom:4px;">Symbol</div>
