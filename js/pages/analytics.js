@@ -1,7 +1,11 @@
-// js/pages/analytics.js
+// js/pages/analytics.js - COMPLETE UPDATED VERSION
 import { SessionState } from '../session-state.js';
 
 const JA_OFFSET = 5 * 3600 * 1000; // ms
+const BRIDGE_URL = 'http://localhost:8080';
+
+let mt5Trades = [];
+let mt5Stats = { total_trades: 0, wins: 0, net_pnl: 0, win_rate: 0, profit_factor: 0 };
 
 function _jaMidnight() {
     const now = Date.now() - JA_OFFSET;
@@ -12,21 +16,90 @@ export const Analytics = {
 
     init() {
         _render();
-        _renderMT5();
-        _pollMT5();
-        setInterval(_pollMT5, 5000);
+        _fetchMT5Trades();
+        _fetchMT5Stats();
+        setInterval(_fetchMT5Trades, 10000);
+        setInterval(_fetchMT5Stats, 30000);
         setInterval(_render, 5000);
-        // Daily P&L reset at Jamaica midnight
         _scheduleMidnightReset();
+        
+        // Listen for storage updates from other tabs
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'nexus_session_state') {
+                _render();
+            }
+        });
     },
 
     recordTrade() { _render(); },
+    
+    refreshMT5() {
+        _fetchMT5Trades();
+        _fetchMT5Stats();
+    },
 
     reset() {
         SessionState.set({ trades: [], wins: 0, losses: 0, sessionPnL: 0, winRate: 0 });
         _render();
     },
 };
+
+// ─────────────────────────────────────────────────────────────
+// MT5 TRADE FETCHING
+// ─────────────────────────────────────────────────────────────
+async function _fetchMT5Trades() {
+    try {
+        const r = await fetch(`${BRIDGE_URL}/api/trade-results?limit=200`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) {
+            mt5Trades = data;
+            _renderMT5(mt5Trades);
+        }
+    } catch(e) {
+        console.warn('[Analytics] Failed to fetch MT5 trades:', e.message);
+    }
+}
+
+async function _fetchMT5Stats() {
+    try {
+        const r = await fetch(`${BRIDGE_URL}/api/trade-stats`);
+        if (!r.ok) return;
+        const data = await r.json();
+        mt5Stats = data;
+        _updateMT5StatsDisplay();
+    } catch(e) {
+        console.warn('[Analytics] Failed to fetch MT5 stats:', e.message);
+    }
+}
+
+function _updateMT5StatsDisplay() {
+    const badge = document.getElementById('an-mt5-badge');
+    if (badge) {
+        if (mt5Stats.total_trades === 0) {
+            badge.textContent = 'WAITING FOR EA';
+            badge.className = 'mt5-badge';
+        } else {
+            badge.textContent = `LIVE · ${mt5Stats.total_trades} trades`;
+            badge.className = 'mt5-badge live';
+        }
+    }
+    
+    // Update profit factor display
+    const pfEl = document.getElementById('an-mt5-pf');
+    if (pfEl && mt5Stats.profit_factor) {
+        pfEl.textContent = mt5Stats.profit_factor.toFixed(2);
+        pfEl.style.color = mt5Stats.profit_factor >= 1 ? 'var(--accent2)' : 'var(--accent3)';
+    }
+    
+    // Update drift display
+    const driftEl = document.getElementById('an-mt5-drift');
+    if (driftEl && mt5Stats.total_trades > 0) {
+        const simPnL = SessionState.get().sessionPnL || 0;
+        const drift = mt5Stats.net_pnl - simPnL;
+        driftEl.innerHTML = `<span style="color:${drift >= 0 ? 'var(--accent2)' : 'var(--accent3)'}">${drift >= 0 ? '+' : ''}${drift.toFixed(2)}</span> vs simulation`;
+    }
+}
 
 // ─────────────────────────────────────────────────────────────
 // MIDNIGHT RESET
@@ -38,7 +111,7 @@ function _scheduleMidnightReset() {
     setTimeout(() => {
         _archiveDayStats();
         Analytics.reset();
-        _scheduleMidnightReset(); // reschedule for next day
+        _scheduleMidnightReset();
     }, msUntil);
 }
 
@@ -51,7 +124,7 @@ function _archiveDayStats() {
         trades:  s.total,
         winRate: s.winRate,
     });
-    SessionState.set({ dailyHistory: days.slice(-30) }); // keep 30 days
+    SessionState.set({ dailyHistory: days.slice(-30) });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -132,6 +205,20 @@ function _stats() {
         equity.push(running);
     });
 
+    // Avg duration (simple approximation)
+    let avgDuration = '—';
+    if (trades.length > 0) {
+        const durations = trades.filter(t => t.time && t.close_time).map(t => {
+            const closeTime = t.close_time || (t.time + 3600000);
+            return closeTime - t.time;
+        }).filter(d => d > 0 && d < 86400000);
+        if (durations.length) {
+            const avgMs = durations.reduce((a, b) => a + b, 0) / durations.length;
+            const minutes = Math.round(avgMs / 60000);
+            avgDuration = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+        }
+    }
+
     return {
         total, wins: wins.length, losses: losses.length, winRate,
         totalPnL, maxDrawdown, avgRR,
@@ -140,6 +227,7 @@ function _stats() {
         avgConf, highConfWR,
         byHour, equity, byStrategy,
         todayTrades: trades.filter(t => t.time >= _jaMidnight()).length,
+        avgDuration,
         trades,
     };
 }
@@ -152,7 +240,8 @@ function _empty() {
         worstSymbol: '—', worstWR: 0,
         avgConf: null, highConfWR: null,
         byHour: Array(24).fill(null).map(() => ({ w: 0, l: 0 })),
-        equity: [], byStrategy: {}, todayTrades: 0, trades: [],
+        equity: [], byStrategy: {}, todayTrades: 0, avgDuration: '—',
+        trades: [],
     };
 }
 
@@ -178,12 +267,11 @@ function _render() {
     _set('an-today-trades',  s.todayTrades);
     _set('an-win-rate',      s.total === 0 ? '—' : `${s.winRate}%`);
     _set('an-avg-rr',        s.avgRR);
+    _set('an-avg-duration',  s.avgDuration);
     _set('an-total-pnl',     s.total === 0 ? '+$0.00' : `${pos ? '+' : '-'}$${Math.abs(s.totalPnL).toFixed(2)}`);
     _set('an-max-drawdown',  s.total === 0 ? '$0.00' : `-$${s.maxDrawdown.toFixed(2)}`);
-    _set('an-best-strategy', s.bestStrategy);
-    _set('an-best-wr',       s.bestWR ? `${s.bestWR}% WR` : '—');
-    _set('an-worst-symbol',  s.worstSymbol);
-    _set('an-worst-wr',      s.worstWR ? `${s.worstWR}% WR` : '—');
+    _set('an-best-strategy', s.bestStrategy === '—' ? '—' : s.bestStrategy.toUpperCase());
+    _set('an-worst-symbol',  s.worstSymbol === '—' ? '—' : s.worstSymbol);
 
     // Confidence intelligence
     _set('an-avg-conf',      s.avgConf !== null ? `${s.avgConf}%` : '—');
@@ -209,7 +297,7 @@ function _render() {
     _drawStrategyChart(s.byStrategy);
     _drawConfidenceChart(s.trades);
 
-    // Live confidence preview — shows even before trade closes
+    // Live confidence preview
     _renderLiveConfidence();
 
     const notice = document.getElementById('an-empty-notice');
@@ -305,7 +393,6 @@ function _drawHourChart(byHour) {
         ctx.fillStyle = color;
         ctx.fillRect(bx, H - (barH * wr) - 12, barW - pad, barH * wr);
 
-        // Hour label every 3 hours
         if (hr % 3 === 0) {
             ctx.fillStyle   = 'rgba(100,116,139,0.6)';
             ctx.font        = '8px DM Mono, monospace';
@@ -375,7 +462,6 @@ function _drawConfidenceChart(trades) {
         return;
     }
 
-    // Bucket by score ranges 0-20, 20-40, 40-60, 60-80, 80-100
     const buckets = [0, 20, 40, 60, 80].map(min => {
         const max    = min + 20;
         const bucket = withConf.filter(t => t.confidence.score >= min && t.confidence.score < max + (max === 100 ? 1 : 0));
@@ -411,7 +497,6 @@ function _drawConfidenceChart(trades) {
 
 // ─────────────────────────────────────────────────────────────
 // LIVE CONFIDENCE PREVIEW
-// Shows active signals with confidence scores before trade closes
 // ─────────────────────────────────────────────────────────────
 function _renderLiveConfidence() {
     const container = document.getElementById('an-live-confidence');
@@ -425,7 +510,6 @@ function _renderLiveConfidence() {
         return;
     }
 
-    // Sort by time desc, only show signals from last 10 minutes
     const recent = entries
         .filter(e => Date.now() - e.time < 600000)
         .sort((a, b) => b.time - a.time);
@@ -438,20 +522,20 @@ function _renderLiveConfidence() {
     container.innerHTML = recent.map(e => {
         const age     = Math.floor((Date.now() - e.time) / 1000);
         const ageStr  = age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`;
-        const sym     = e.symbol.replace('frx','').replace('cry','').replace('_','');
+        const sym     = (e.symbol || '').replace('frx','').replace('cry','').replace('_','');
         const factors = (e.factors || []).slice(0, 4);
+        const color = e.color || '#8b5cf6';
 
         return `
         <div class="live-conf-row" style="
             display:flex;align-items:flex-start;gap:12px;
             padding:10px 14px;border-radius:var(--r-sm);
-            background:${e.color}11;border:1px solid ${e.color}33;
+            background:${color}11;border:1px solid ${color}33;
             margin-bottom:6px;
         ">
-            <!-- Score ring -->
             <div style="
                 width:44px;height:44px;border-radius:50%;flex-shrink:0;
-                background:conic-gradient(${e.color} ${e.score * 3.6}deg, rgba(15,23,42,0.08) 0deg);
+                background:conic-gradient(${color} ${(e.score || 50) * 3.6}deg, rgba(15,23,42,0.08) 0deg);
                 display:flex;align-items:center;justify-content:center;
                 position:relative;
             ">
@@ -460,28 +544,26 @@ function _renderLiveConfidence() {
                     background:var(--surface-white);
                     display:flex;flex-direction:column;align-items:center;justify-content:center;
                 ">
-                    <span style="font-size:0.62rem;font-weight:800;color:${e.color};font-family:var(--font-mono);line-height:1;">${e.score}</span>
-                    <span style="font-size:0.48rem;color:${e.color};font-weight:700;">${e.grade}</span>
+                    <span style="font-size:0.62rem;font-weight:800;color:${color};font-family:var(--font-mono);line-height:1;">${e.score || 50}</span>
+                    <span style="font-size:0.48rem;color:${color};font-weight:700;">${e.grade || 'B'}</span>
                 </div>
             </div>
 
-            <!-- Signal info -->
             <div style="flex:1;min-width:0;">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
                     <span style="
                         font-size:0.6rem;font-weight:700;letter-spacing:0.08em;
                         color:${e.type === 'BUY' ? '#10b981' : '#ef4444'};
                         font-family:var(--font-mono);
-                    ">${e.type}</span>
+                    ">${e.type || 'SIGNAL'}</span>
                     <span style="font-size:0.65rem;font-weight:600;color:var(--text-dark);">${sym}</span>
-                    <span style="font-size:0.58rem;color:var(--text-muted);">@ ${e.price?.toFixed(4) || '—'}</span>
-                    <span style="font-size:0.55rem;color:var(--text-muted);margin-left:auto;">${ageStr}</span>
+                    <span style="font-size:0.58rem;color:var(--text-muted);margin-left:auto;">${ageStr}</span>
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:4px;">
                     ${factors.map(f => `
                         <span style="
                             font-size:0.52rem;padding:2px 6px;border-radius:4px;
-                            background:${e.color}18;color:${e.color};
+                            background:${color}18;color:${color};
                             font-family:var(--font-mono);letter-spacing:0.03em;
                         ">${f}</span>
                     `).join('')}
@@ -508,20 +590,8 @@ function _setBadge(id, isUp, text) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MT5 REAL TRADES
+// MT5 REAL TRADES RENDERING
 // ─────────────────────────────────────────────────────────────
-async function _pollMT5() {
-    try {
-        // Change this line:
-        const r = await fetch('https://nexus-api-khvt.onrender.com/api/trade-results');
-        
-        if (!r.ok) return;
-        const data = await r.json();
-        // Note: Your server returns the array directly, not { results }
-        if (Array.isArray(data)) _renderMT5(data);
-    } catch(_) {}
-}
-
 function _renderMT5(results = []) {
     const closed = results.filter(t => t.pnl !== undefined && t.pnl !== null);
 
@@ -561,6 +631,16 @@ function _renderMT5(results = []) {
             : 'var(--text-muted)';
     }
 
+    // Profit factor
+    const totalWins = closed.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+    const totalLosses = Math.abs(closed.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
+    const profitFactor = totalLosses > 0 ? (totalWins / totalLosses).toFixed(2) : totalWins > 0 ? '∞' : '—';
+    const pfEl = document.getElementById('an-mt5-pf');
+    if (pfEl) {
+        pfEl.textContent = profitFactor;
+        pfEl.style.color = (profitFactor !== '—' && parseFloat(profitFactor) >= 1) ? 'var(--accent2)' : 'var(--accent3)';
+    }
+
     // Trade log
     const logEl = document.getElementById('an-mt5-trade-log');
     if (!logEl) return;
@@ -572,9 +652,10 @@ function _renderMT5(results = []) {
         const pnl     = t.pnl || 0;
         const time    = t.close_time ? new Date(t.close_time * 1000).toLocaleTimeString() : '—';
         const isWin   = pnl > 0;
+        const symbol = t.symbol || '—';
         return `<div style="display:flex;gap:10px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border-light);font-size:0.62rem;font-family:'DM Mono',monospace;">
             <span style="color:${isWin ? 'var(--accent2)' : 'var(--accent3)'};">${isWin ? '▲' : '▼'}</span>
-            <span style="color:var(--text-primary);flex:1;">${t.symbol || '—'}</span>
+            <span style="color:var(--text-primary);flex:1;">${symbol}</span>
             <span style="color:var(--text-sub);">${time}</span>
             <span style="color:${isWin ? 'var(--accent2)' : 'var(--accent3)'};font-weight:600;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span>
         </div>`;

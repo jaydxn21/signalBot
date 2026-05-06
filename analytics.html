@@ -6,6 +6,126 @@
     <title>NEXUS | Analytics</title>
     <link rel="icon" href="favicon.ico">
     <link rel="stylesheet" href="css/styles.css">
+    <style>
+        /* MT5 Real Trades Section Styles */
+        .mt5-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .mt5-badge {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+        .mt5-badge.live {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+        .mt5-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .mt5-stat-card {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .mt5-stat-label {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        .mt5-stat-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            font-family: 'DM Mono', monospace;
+        }
+        .mt5-trade-log {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .mt5-trade-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--border-light);
+            font-size: 0.62rem;
+            font-family: 'DM Mono', monospace;
+        }
+        .mt5-trade-row:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .mt5-pnl-positive {
+            color: #10b981;
+        }
+        .mt5-pnl-negative {
+            color: #ef4444;
+        }
+        .refresh-mt5-btn {
+            background: none;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            color: var(--text-muted);
+            font-size: 0.55rem;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-family: 'DM Mono', monospace;
+            transition: all 0.2s;
+        }
+        .refresh-mt5-btn:hover {
+            background: rgba(37, 99, 235, 0.15);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .drift-indicator {
+            font-size: 0.55rem;
+            margin-top: 4px;
+            padding: 6px 8px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 6px;
+            text-align: center;
+        }
+        .profit-factor {
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+        .mt5-summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .mt5-summary-item {
+            text-align: center;
+            flex: 1;
+        }
+        .mt5-summary-label {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+        .mt5-summary-value {
+            font-size: 0.85rem;
+            font-weight: 700;
+            font-family: 'DM Mono', monospace;
+        }
+    </style>
 </head>
 <body>
 
@@ -46,37 +166,70 @@
 
                 <!-- Cumulative P&L — full width -->
                 <div class="analytics-card dark span-2">
-                    <div class="stat-label">Cumulative P&amp;L</div>
+                    <div class="stat-label">Cumulative P&amp;L (Simulated)</div>
                     <div id="an-total-pnl" class="analytics-big-num">+$0.00</div>
                     <div id="an-pnl-bars" class="mini-bars" style="height:60px;margin-top:14px;"></div>
                 </div>
 
-                <!-- MT5 Real P&L vs Simulated -->
+                <!-- MT5 Real P&L vs Simulated - UPDATED -->
                 <div class="analytics-card dark span-2" id="an-mt5-card">
-                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                        <div class="stat-label" style="margin:0;">MT5 REAL TRADES</div>
-                        <span id="an-mt5-badge" class="analytics-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">WAITING FOR EA</span>
+                    <div class="mt5-header">
+                        <div class="stat-label" style="margin:0;">📊 MT5 REAL TRADES</div>
+                        <span id="an-mt5-badge" class="mt5-badge">WAITING FOR EA</span>
+                        <button id="refresh-mt5-btn" class="refresh-mt5-btn">⟳ Refresh</button>
                     </div>
-                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
-                        <div>
-                            <div class="stat-label">REAL P&L</div>
-                            <div id="an-mt5-pnl" class="analytics-big-num" style="font-size:1.4rem;">$0.00</div>
+                    
+                    <!-- Stats Grid -->
+                    <div class="mt5-stats-grid">
+                        <div class="mt5-stat-card">
+                            <div class="mt5-stat-label">REAL P&L</div>
+                            <div id="an-mt5-pnl" class="mt5-stat-value" style="font-size:1rem;">$0.00</div>
                         </div>
-                        <div>
-                            <div class="stat-label">REAL WIN RATE</div>
-                            <div id="an-mt5-wr" class="analytics-big-num" style="font-size:1.4rem;">—</div>
+                        <div class="mt5-stat-card">
+                            <div class="mt5-stat-label">REAL WIN RATE</div>
+                            <div id="an-mt5-wr" class="mt5-stat-value" style="font-size:1rem;">—</div>
                         </div>
-                        <div>
-                            <div class="stat-label">MT5 TRADES</div>
-                            <div id="an-mt5-trades" class="analytics-big-num" style="font-size:1.4rem;">0</div>
+                        <div class="mt5-stat-card">
+                            <div class="mt5-stat-label">MT5 TRADES</div>
+                            <div id="an-mt5-trades" class="mt5-stat-value" style="font-size:1rem;">0</div>
                         </div>
-                        <div>
-                            <div class="stat-label">SIM vs REAL DRIFT</div>
-                            <div id="an-mt5-drift" class="analytics-big-num" style="font-size:1.4rem;">—</div>
+                        <div class="mt5-stat-card">
+                            <div class="mt5-stat-label">PROFIT FACTOR</div>
+                            <div id="an-mt5-pf" class="mt5-stat-value" style="font-size:1rem;">—</div>
                         </div>
                     </div>
-                    <div id="an-mt5-trade-log" style="max-height:160px;overflow-y:auto;">
-                        <div style="font-size:0.62rem;color:var(--text-muted);text-align:center;padding:16px;font-style:italic;">No MT5 trade results yet — EA will post results here when trades close.</div>
+                    
+                    <!-- Summary Row -->
+                    <div class="mt5-summary">
+                        <div class="mt5-summary-item">
+                            <div class="mt5-summary-label">AVG WIN</div>
+                            <div id="an-mt5-avg-win" class="mt5-summary-value mt5-pnl-positive">$0.00</div>
+                        </div>
+                        <div class="mt5-summary-item">
+                            <div class="mt5-summary-label">AVG LOSS</div>
+                            <div id="an-mt5-avg-loss" class="mt5-summary-value mt5-pnl-negative">$0.00</div>
+                        </div>
+                        <div class="mt5-summary-item">
+                            <div class="mt5-summary-label">BEST TRADE</div>
+                            <div id="an-mt5-best" class="mt5-summary-value mt5-pnl-positive">$0.00</div>
+                        </div>
+                        <div class="mt5-summary-item">
+                            <div class="mt5-summary-label">WORST TRADE</div>
+                            <div id="an-mt5-worst" class="mt5-summary-value mt5-pnl-negative">$0.00</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Drift Indicator -->
+                    <div class="drift-indicator">
+                        <span>📈 SIM vs REAL DRIFT:</span>
+                        <span id="an-mt5-drift" style="font-weight:700;">—</span>
+                    </div>
+                    
+                    <!-- Trade Log -->
+                    <div class="mt5-trade-log" id="an-mt5-trade-log">
+                        <div style="font-size:0.62rem;color:var(--text-muted);text-align:center;padding:16px;font-style:italic;">
+                            No MT5 trade results yet — EA will post results here when trades close.
+                        </div>
                     </div>
                 </div>
 
@@ -101,14 +254,13 @@
                     <span id="an-worst-badge" class="analytics-badge badge-down">—</span>
                 </div>
 
-                <!-- Avg Duration placeholder -->
+                <!-- Avg Duration -->
                 <div class="analytics-card">
                     <div class="stat-label">Avg Trade Duration</div>
                     <div id="an-avg-duration" class="analytics-big-num">—</div>
                     <span style="font-size:0.62rem;color:var(--text-muted);">per signal</span>
                 </div>
 
-                <!-- No data notice — hidden when trades exist -->
                 <!-- Confidence intelligence -->
                 <div class="analytics-card">
                     <div class="analytics-label">AVG CONFIDENCE</div>
@@ -124,7 +276,7 @@
 
                 <!-- Equity curve -->
                 <div class="analytics-card span-2" style="min-height:140px;">
-                    <div class="analytics-label">EQUITY CURVE</div>
+                    <div class="analytics-label">EQUITY CURVE (SIMULATED)</div>
                     <canvas id="an-equity-canvas" style="width:100%;height:120px;margin-top:8px;display:block;"></canvas>
                 </div>
 
@@ -175,6 +327,16 @@
     import { Analytics } from './js/pages/analytics.js';
     document.addEventListener('DOMContentLoaded', () => {
         Analytics.init();
+        
+        // Refresh button functionality
+        const refreshBtn = document.getElementById('refresh-mt5-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                if (Analytics.refreshMT5) {
+                    Analytics.refreshMT5();
+                }
+            });
+        }
     });
 </script>
 

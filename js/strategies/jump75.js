@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// JUMP75 STRATEGY v18+ - QUALITY MODE SELECTOR
+// JUMP75 STRATEGY v20 - ADAPTIVE HYBRID WITH ONLINE LEARNING
 // ═══════════════════════════════════════════════════════════════════════════
 // Modes: 0=QUANTITY, 1=BALANCED (default), 2=QUALITY, 3=ULTRA
-// Change QUALITY_MODE value to switch trading styles
+// Features:
+//   - Adaptive mode selection (FIB vs BREAKOUT based on recent performance)
+//   - Online learning - learns which strategy works better in real-time
+//   - Auto-switches between retracement and breakout strategies
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const Jump75Strategy = {
@@ -18,6 +21,19 @@ export const Jump75Strategy = {
     // Change this ONE value to switch modes
     // 0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA
     QUALITY_MODE: 1,  // Default: BALANCED
+
+    // ═══ ADAPTIVE LEARNING VARIABLES ═══
+    _modePerformance: {
+        FIB: { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 },
+        BREAKOUT: { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 }
+    },
+    _currentMode: 'FIB',      // Starts with FIB, adapts based on performance
+    _modeConfidence: 0.5,      // 0-1 confidence in current mode
+    _lastSwitchTime: 0,
+    _learningRate: 0.1,        // How fast to adapt (0.05 = slow, 0.2 = fast)
+    _minTradesToSwitch: 5,     // Minimum trades before switching modes
+    _performanceWindow: 20,    // Look back at last N trades
+    _recentTrades: [],          // Trade memory for learning
 
     // ───────────────────────────────────────────────────────────────
     // MODE CONFIGURATIONS
@@ -109,6 +125,215 @@ export const Jump75Strategy = {
     },
 
     // ───────────────────────────────────────────────────────────────
+    // ADAPTIVE MODE SELECTION
+    // ───────────────────────────────────────────────────────────────
+    
+    _calculateModeScore(mode) {
+        const perf = this._modePerformance[mode];
+        if (perf.trades < this._minTradesToSwitch) return 0.5;
+        
+        const winRate = perf.trades > 0 ? perf.wins / perf.trades : 0.5;
+        const avgPnL = perf.trades > 0 ? perf.totalPnL / perf.trades : 0;
+        
+        // Recency weighting - recent trades matter more
+        let recencyBonus = 0;
+        const recentModeTrades = this._recentTrades.filter(t => t.mode === mode).slice(0, 10);
+        if (recentModeTrades.length > 0) {
+            const recentWins = recentModeTrades.filter(t => t.outcome === 'TP').length;
+            recencyBonus = (recentWins / recentModeTrades.length) * 0.3;
+        }
+        
+        // Score: 60% win rate, 30% recency, 10% PnL magnitude
+        let score = (winRate * 0.6) + recencyBonus + (Math.min(Math.abs(avgPnL), 5) / 50);
+        return Math.min(0.95, Math.max(0.05, score));
+    },
+    
+    _selectAdaptiveMode() {
+        const fibScore = this._calculateModeScore('FIB');
+        const breakoutScore = this._calculateModeScore('BREAKOUT');
+        
+        const oldMode = this._currentMode;
+        
+        // Switch if other mode has significantly better score (15%+ better)
+        if (breakoutScore > fibScore + 0.15 && breakoutScore > 0.55) {
+            this._currentMode = 'BREAKOUT';
+            this._modeConfidence = breakoutScore;
+        } else if (fibScore > breakoutScore + 0.15 && fibScore > 0.55) {
+            this._currentMode = 'FIB';
+            this._modeConfidence = fibScore;
+        }
+        
+        if (oldMode !== this._currentMode && Date.now() - this._lastSwitchTime > 3600000) {
+            this._lastSwitchTime = Date.now();
+            console.log(`[Jump75-ADAPT] 🔄 Mode switch: ${oldMode} → ${this._currentMode} (Confidence: ${Math.round(this._modeConfidence*100)}%)`);
+        }
+        
+        return this._currentMode;
+    },
+    
+    recordTradeResult(mode, outcome, pnl) {
+        if (!this._modePerformance[mode]) {
+            this._modePerformance[mode] = { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 };
+        }
+        
+        if (outcome === 'TP') {
+            this._modePerformance[mode].wins++;
+        } else {
+            this._modePerformance[mode].losses++;
+        }
+        this._modePerformance[mode].totalPnL += pnl;
+        this._modePerformance[mode].trades++;
+        
+        // Store recent trade
+        this._recentTrades.unshift({ mode, outcome, pnl, time: Date.now() });
+        if (this._recentTrades.length > this._performanceWindow) {
+            this._recentTrades.pop();
+        }
+        
+        // Adaptive learning rate - improve faster after losses
+        if (outcome === 'SL') {
+            this._learningRate = Math.min(0.25, this._learningRate + 0.02);
+        } else {
+            this._learningRate = Math.max(0.05, this._learningRate - 0.005);
+        }
+        
+        // Log performance update
+        if (this._modePerformance[mode].trades % 5 === 0) {
+            const winRate = Math.round((this._modePerformance[mode].wins / this._modePerformance[mode].trades) * 100);
+            console.log(`[Jump75-Learn] 📊 ${mode} performance: ${winRate}% win rate (${this._modePerformance[mode].trades} trades) | Learning rate: ${Math.round(this._learningRate*100)}%`);
+        }
+    },
+
+    // ───────────────────────────────────────────────────────────────
+    // BREAKOUT DETECTION (NEW)
+    // ───────────────────────────────────────────────────────────────
+    
+    _detectBreakout(m5Candles, m15Candles, h4Candles, atr, config) {
+        if (m5Candles.length < 20) return null;
+        
+        const lastM5 = m5Candles[m5Candles.length - 1];
+        const prevM5 = m5Candles[m5Candles.length - 2];
+        const lastM15 = m15Candles[m15Candles.length - 1];
+        
+        // Calculate momentum
+        const ema8 = this._calculateEMA(m5Candles, 8);
+        const ema21 = this._calculateEMA(m5Candles, 21);
+        if (!ema8 || !ema21) return null;
+        
+        const momentum = (ema8 - ema21) / atr;
+        
+        // Volume confirmation
+        const volumeConfirmed = this._hasVolumeConfirmation(m5Candles);
+        const volumeOk = !config.requireVolume || volumeConfirmed;
+        
+        // Breakout detection conditions
+        const strongGreenCandle = lastM5.close > lastM5.open && 
+                                   (lastM5.close - lastM5.open) > atr * 0.4;
+        const strongRedCandle = lastM5.close < lastM5.open && 
+                                 (lastM5.open - lastM5.close) > atr * 0.4;
+        const consecutiveGreen = lastM5.close > lastM5.open && 
+                                  prevM5.close > prevM5.open;
+        const consecutiveRed = lastM5.close < lastM5.open && 
+                                prevM5.close < prevM5.open;
+        const aboveEMAs = lastM15.close > ema8 && ema8 > ema21;
+        const momentumStrong = Math.abs(momentum) > 0.4;
+        
+        // Breakout BUY - catch early trend
+        if (strongGreenCandle && momentumStrong && aboveEMAs && volumeOk && momentum > 0) {
+            const scoreBoost = consecutiveGreen ? 10 : 5;
+            return {
+                type: 'LONG',
+                score: 75 + scoreBoost,
+                factors: ['🔥 BREAKOUT', 'Strong momentum', 'Above EMAs', consecutiveGreen ? '2nd green candle' : 'Volume surge'],
+                mode: 'BREAKOUT'
+            };
+        }
+        
+        // Breakout SELL
+        if (strongRedCandle && momentumStrong && !aboveEMAs && volumeOk && momentum < 0) {
+            const scoreBoost = consecutiveRed ? 10 : 5;
+            return {
+                type: 'SHORT',
+                score: 75 + scoreBoost,
+                factors: ['🔥 BREAKDOWN', 'Strong momentum', 'Below EMAs', consecutiveRed ? '2nd red candle' : 'Volume surge'],
+                mode: 'BREAKOUT'
+            };
+        }
+        
+        return null;
+    },
+    
+    // ───────────────────────────────────────────────────────────────
+    // FIBONACCI RETRACEMENT DETECTION
+    // ───────────────────────────────────────────────────────────────
+    
+    _detectFibonacciRetracement(m5Candles, m15Candles, h4Candles, atr, config) {
+        if (!this._h4SwingHigh || !this._h4SwingLow) return null;
+        
+        const latestM15 = m15Candles[m15Candles.length - 1];
+        const latestM5 = m5Candles[m5Candles.length - 1];
+        const prevM5 = m5Candles[m5Candles.length - 2];
+        
+        const range = this._h4SwingHigh - this._h4SwingLow;
+        if (range < atr * config.minRangeATR) return null;
+        
+        const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
+        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * config.nearFibATR;
+        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * (config.nearFibATR + 0.2);
+        
+        const m5Momentum = this._getM5Momentum(m5Candles);
+        const bullishCandle = latestM5.close > prevM5.close;
+        const bearishCandle = latestM5.close < prevM5.close;
+        const aboveLow = latestM15.close > this._h4SwingLow;
+        const belowHigh = latestM15.close < this._h4SwingHigh;
+        
+        const m15Trend = this._getM15Trend(m15Candles);
+        const trendOk = !config.requireTrend || m15Trend !== 'NEUTRAL';
+        const volumeOk = !config.requireVolume || this._hasVolumeConfirmation(m5Candles);
+        
+        // Fibonacci LONG
+        if (near618 && m5Momentum > config.minMomentum && bullishCandle && aboveLow && trendOk && volumeOk) {
+            return {
+                type: 'LONG',
+                score: 78,
+                factors: ['📊 Fib 61.8% bounce', 'Momentum confirmation', 'H4 structure'],
+                mode: 'FIB'
+            };
+        }
+        
+        // Fibonacci SHORT
+        if (near618 && m5Momentum < -config.minMomentum && bearishCandle && belowHigh && trendOk && volumeOk) {
+            return {
+                type: 'SHORT',
+                score: 78,
+                factors: ['📊 Fib 61.8% rejection', 'Momentum confirmation', 'H4 structure'],
+                mode: 'FIB'
+            };
+        }
+        
+        // Fib 50% (lower quality)
+        if (near50 && Math.abs(m5Momentum) > config.minMomentum * 0.8 && trendOk) {
+            if (m5Momentum > 0 && aboveLow) {
+                return {
+                    type: 'LONG',
+                    score: 68,
+                    factors: ['📊 Fib 50% reaction', 'Entry confirmed'],
+                    mode: 'FIB'
+                };
+            } else if (m5Momentum < 0 && belowHigh) {
+                return {
+                    type: 'SHORT',
+                    score: 68,
+                    factors: ['📊 Fib 50% reaction', 'Entry confirmed'],
+                    mode: 'FIB'
+                };
+            }
+        }
+        
+        return null;
+    },
+
+    // ───────────────────────────────────────────────────────────────
     // SESSION MANAGEMENT
     // ───────────────────────────────────────────────────────────────
     initSession() {
@@ -120,14 +345,18 @@ export const Jump75Strategy = {
             this._consecutiveLosses = 0;
             this._dailyStartTime = now.getTime();
             const config = this._getModeConfig();
-            console.log(`[Jump75 ${config.name}] New session started`);
+            console.log(`[Jump75 ${config.name}] New session started - Adaptive learning active`);
         }
     },
 
-    recordTrade(outcome, pnl) {
+    recordTrade(outcome, pnl, mode = null) {
         this._tradesCount++;
         this._dailyProfit += pnl;
-        const config = this._getModeConfig();
+        
+        if (mode) {
+            this.recordTradeResult(mode, outcome, pnl);
+        }
+        
         if (outcome === 'TP') {
             this._consecutiveLosses = 0;
         } else {
@@ -136,7 +365,7 @@ export const Jump75Strategy = {
     },
 
     // ───────────────────────────────────────────────────────────────
-    // MAIN ENTRY CHECK
+    // MAIN ENTRY CHECK (ADAPTIVE)
     // ───────────────────────────────────────────────────────────────
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
         this.initSession();
@@ -153,95 +382,71 @@ export const Jump75Strategy = {
         if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < config.lossCooldownMs) return null;
 
         const latestM15 = m15Candles[m15Candles.length - 1];
-        const latestM5 = m5Candles[m5Candles.length - 1];
-        const prevM5 = m5Candles[m5Candles.length - 2];
         
+        // Update H4 structure
         this._updateH4Structure(h4Candles);
-        if (!this._h4SwingHigh || !this._h4SwingLow) return null;
-
-        const range = this._h4SwingHigh - this._h4SwingLow;
-        if (range < atr * config.minRangeATR) return null;
-
-        const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
-        const near618 = Math.abs(latestM15.close - fib.fib618) < atr * config.nearFibATR;
-        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * (config.nearFibATR + 0.2);
-
-        const m5Momentum = this._getM5Momentum(m5Candles);
-        const m15Trend = this._getM15Trend(m15Candles);
-        const bullishCandle = latestM5.close > prevM5.close;
-        const bearishCandle = latestM5.close < prevM5.close;
-        const aboveLow = latestM15.close > this._h4SwingLow;
-        const belowHigh = latestM15.close < this._h4SwingHigh;
-        const volumeConfirmed = this._hasVolumeConfirmation(m5Candles);
-
+        
+        // Select which mode to use based on recent performance
+        const activeMode = this._selectAdaptiveMode();
+        
         let signal = null;
-        let signalScore = 0;
-
-        // TIER 1: HIGHEST QUALITY (Score 85+)
-        if (near618 && Math.abs(m5Momentum) > 0.5 && (bullishCandle || bearishCandle)) {
-            const trendOk = !config.requireTrend || (m5Momentum > 0 && m15Trend === 'UP') || (m5Momentum < 0 && m15Trend === 'DOWN');
-            const volumeOk = !config.requireVolume || volumeConfirmed;
-            if (trendOk && volumeOk) {
-                if (m5Momentum > 0 && aboveLow) {
-                    signal = this._createSignal('LONG', 88, ['Fib 61.8%', 'Strong momentum', 'H4 structure'], config);
-                    signalScore = 88;
-                } else if (m5Momentum < 0 && belowHigh) {
-                    signal = this._createSignal('SHORT', 88, ['Fib 61.8%', 'Strong momentum', 'H4 structure'], config);
-                    signalScore = 88;
-                }
+        
+        // Try BREAKOUT mode if it's selected or if confidence is high
+        if (activeMode === 'BREAKOUT' || this._modePerformance.BREAKOUT.trades < 3) {
+            signal = this._detectBreakout(m5Candles, m15Candles, h4Candles, atr, config);
+            if (signal) {
+                signal.adaptiveMode = 'BREAKOUT';
             }
         }
         
-        // TIER 2: HIGH QUALITY (Score 75-84)
-        if (!signal && near618 && Math.abs(m5Momentum) > config.minMomentum) {
-            const trendOk = !config.requireTrend || m15Trend !== 'NEUTRAL';
-            if (trendOk) {
-                if (m5Momentum > 0 && aboveLow) {
-                    signal = this._createSignal('LONG', 78, ['Fib 61.8%', 'Momentum'], config);
-                    signalScore = 78;
-                } else if (m5Momentum < 0 && belowHigh) {
-                    signal = this._createSignal('SHORT', 78, ['Fib 61.8%', 'Momentum'], config);
-                    signalScore = 78;
-                }
+        // Try FIB mode if breakout didn't fire or if FIB is selected
+        if (!signal && (activeMode === 'FIB' || this._modePerformance.FIB.trades < 3)) {
+            signal = this._detectFibonacciRetracement(m5Candles, m15Candles, h4Candles, atr, config);
+            if (signal) {
+                signal.adaptiveMode = 'FIB';
             }
         }
         
-        // TIER 3: MEDIUM QUALITY (Score 65-74)
-        if (!signal && (near618 || near50) && Math.abs(m5Momentum) > config.minMomentum * 0.8) {
-            const zone = near618 ? '61.8%' : '50%';
-            if (m5Momentum > 0 && aboveLow) {
-                signal = this._createSignal('LONG', 68, [`Fib ${zone}`, 'Entry confirmed'], config);
-                signalScore = 68;
-            } else if (m5Momentum < 0 && belowHigh) {
-                signal = this._createSignal('SHORT', 68, [`Fib ${zone}`, 'Entry confirmed'], config);
-                signalScore = 68;
+        // If both modes failed, try the other mode as fallback
+        if (!signal) {
+            if (activeMode === 'BREAKOUT') {
+                signal = this._detectFibonacciRetracement(m5Candles, m15Candles, h4Candles, atr, config);
+                if (signal) signal.adaptiveMode = 'FIB';
+            } else {
+                signal = this._detectBreakout(m5Candles, m15Candles, h4Candles, atr, config);
+                if (signal) signal.adaptiveMode = 'BREAKOUT';
             }
         }
         
-        // TIER 4: LOWER QUALITY (Score 55-64) - Only in QUANTITY mode
-        if (!signal && config.minScore <= 60 && (near618 || near50) && volumeConfirmed) {
-            const zone = near618 ? '61.8%' : '50%';
-            if (latestM15.close > latestM15.open && aboveLow) {
-                signal = this._createSignal('LONG', 60, [`Fib ${zone}`, 'Volume confirmed'], config);
-                signalScore = 60;
-            } else if (latestM15.close < latestM15.open && belowHigh) {
-                signal = this._createSignal('SHORT', 60, [`Fib ${zone}`, 'Volume confirmed'], config);
-                signalScore = 60;
-            }
+        if (!signal) return null;
+        
+        // Quality filter
+        if (signal.score < config.minScore) return null;
+        
+        // Store mode for result tracking
+        this._lastTradeTime = now;
+        
+        // Different TP/SL for different modes
+        if (signal.adaptiveMode === 'BREAKOUT') {
+            signal.tpMultiplier = 1.5;  // Shorter target for breakouts (catch early momentum)
+            signal.slMultiplier = 0.8;  // Tighter SL for breakouts
+            signal.riskPercent = 0.5;   // Lower risk for breakouts (quick scalps)
+        } else {
+            signal.tpMultiplier = 2.2;  // Wider target for retracements
+            signal.slMultiplier = 1.0;  // Normal SL for retracements
+            signal.riskPercent = 0.75;  // Normal risk
         }
-
-        // Quality gate - reject signals below mode threshold
-        if (signal && signalScore < config.minScore) {
-            return null;
-        }
-
-        if (signal) {
-            this._lastTradeTime = now;
-            console.log(`[Jump75 ${config.name}] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | Price ${latestM15.close.toFixed(2)}`);
-            return signal;
-        }
-
-        return null;
+        
+        // Log signal with performance stats
+        const fibWR = this._modePerformance.FIB.trades > 0 ? 
+            Math.round((this._modePerformance.FIB.wins / this._modePerformance.FIB.trades) * 100) : 0;
+        const breakoutWR = this._modePerformance.BREAKOUT.trades > 0 ? 
+            Math.round((this._modePerformance.BREAKOUT.wins / this._modePerformance.BREAKOUT.trades) * 100) : 0;
+        
+        console.log(`[Jump75 ${config.name}] 🎯 ${signal.adaptiveMode} mode → ${signal.type} signal | Score ${signal.score} | ${signal.factors.join(' · ')}`);
+        console.log(`   Performance: FIB: ${fibWR}% (${this._modePerformance.FIB.trades}) | BREAKOUT: ${breakoutWR}% (${this._modePerformance.BREAKOUT.trades}) | Active: ${activeMode}`);
+        
+        return signal;
     },
 
     _createSignal(type, score, factors, config) {
@@ -334,35 +539,76 @@ export const Jump75Strategy = {
     checkClose(currentCandle, trade) {
         if (!currentCandle || !trade) return null;
         let closeAction = null;
+        let outcome = null;
+        let pnl = 0;
+        
         if (trade.type === 'LONG' || trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
+                outcome = 'TP';
+                pnl = (trade.tp - trade.entry) * (trade.lotSize || 0.01);
                 closeAction = { action: 'CLOSE', reason: 'TP' };
-                this.recordTrade('TP', (trade.tp - trade.entry) * (trade.lotSize || 0.01));
             } else if (currentCandle.low <= trade.sl) {
+                outcome = 'SL';
+                pnl = (trade.entry - trade.sl) * (trade.lotSize || 0.01);
                 closeAction = { action: 'CLOSE', reason: 'SL' };
-                this.recordTrade('SL', (trade.entry - trade.sl) * (trade.lotSize || 0.01));
             }
         } else {
             if (currentCandle.low <= trade.tp) {
+                outcome = 'TP';
+                pnl = (trade.entry - trade.tp) * (trade.lotSize || 0.01);
                 closeAction = { action: 'CLOSE', reason: 'TP' };
-                this.recordTrade('TP', (trade.entry - trade.tp) * (trade.lotSize || 0.01));
             } else if (currentCandle.high >= trade.sl) {
+                outcome = 'SL';
+                pnl = (trade.sl - trade.entry) * (trade.lotSize || 0.01);
                 closeAction = { action: 'CLOSE', reason: 'SL' };
-                this.recordTrade('SL', (trade.sl - trade.entry) * (trade.lotSize || 0.01));
             }
         }
+        
+        if (closeAction) {
+            // Record trade with adaptive mode if available
+            const mode = trade.adaptiveMode || (trade.factors?.includes('BREAKOUT') ? 'BREAKOUT' : 'FIB');
+            this.recordTrade(outcome, pnl, mode);
+            
+            if (outcome === 'TP') {
+                this._consecutiveLosses = 0;
+            } else {
+                this._consecutiveLosses++;
+            }
+        }
+        
         return closeAction;
     },
 
     getStats() {
         const config = this._getModeConfig();
+        const fibPerf = this._modePerformance.FIB;
+        const breakoutPerf = this._modePerformance.BREAKOUT;
+        
         return {
             mode: config.name,
             displayName: config.displayName,
             dailyProfit: this._dailyProfit,
             tradesCount: this._tradesCount,
             consecutiveLosses: this._consecutiveLosses,
-            winRate: this._tradesCount > 0 ? (((this._tradesCount - this._consecutiveLosses) / this._tradesCount) * 100).toFixed(1) : 0
+            winRate: this._tradesCount > 0 ? (((this._tradesCount - this._consecutiveLosses) / this._tradesCount) * 100).toFixed(1) : 0,
+            adaptiveMode: this._currentMode,
+            learningRate: Math.round(this._learningRate * 100),
+            performance: {
+                FIB: {
+                    wins: fibPerf.wins,
+                    losses: fibPerf.losses,
+                    trades: fibPerf.trades,
+                    winRate: fibPerf.trades > 0 ? Math.round((fibPerf.wins / fibPerf.trades) * 100) : 0,
+                    avgPnL: fibPerf.trades > 0 ? (fibPerf.totalPnL / fibPerf.trades).toFixed(2) : 0
+                },
+                BREAKOUT: {
+                    wins: breakoutPerf.wins,
+                    losses: breakoutPerf.losses,
+                    trades: breakoutPerf.trades,
+                    winRate: breakoutPerf.trades > 0 ? Math.round((breakoutPerf.wins / breakoutPerf.trades) * 100) : 0,
+                    avgPnL: breakoutPerf.trades > 0 ? (breakoutPerf.totalPnL / breakoutPerf.trades).toFixed(2) : 0
+                }
+            }
         };
     },
 
@@ -374,7 +620,27 @@ export const Jump75Strategy = {
         }
         this.QUALITY_MODE = modeNumber;
         const config = this._getModeConfig();
-        console.log(`[Jump75] Mode switched to ${config.displayName}`);
+        console.log(`[Jump75] Quality mode switched to ${config.displayName}`);
+        return true;
+    },
+
+    forceAdaptiveMode(mode) {
+        if (mode !== 'FIB' && mode !== 'BREAKOUT') return false;
+        this._currentMode = mode;
+        console.log(`[Jump75] ⚡ Force adaptive mode: ${mode}`);
+        return true;
+    },
+
+    resetLearning() {
+        this._modePerformance = {
+            FIB: { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 },
+            BREAKOUT: { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 }
+        };
+        this._recentTrades = [];
+        this._currentMode = 'FIB';
+        this._learningRate = 0.1;
+        this._modeConfidence = 0.5;
+        console.log(`[Jump75] 🧠 Learning data reset - starting fresh`);
         return true;
     },
 
