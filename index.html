@@ -382,14 +382,11 @@
     </div>
     
     <select class="quality-mode-select" style="width:100%;margin-bottom:6px;">
-        <option value="0">🚀 QUANTITY (100+/day, 60% WR)</option>
-        <option value="1" selected>⚖️ BALANCED (50-70/day, 65% WR)</option>
-        <option value="2">🎯 QUALITY (20-30/day, 70% WR)</option>
-        <option value="3">👑 ULTRA (5-10/day, 80% WR)</option>
+        <!-- Dynamically populated by setupQualityModeSelector() -->
     </select>
     
     <div class="quality-mode-info" style="font-size:0.57rem;color:var(--text-muted);line-height:1.6;padding:6px;background:rgba(37,99,235,0.05);border-radius:4px;border-left:2px solid rgba(37,99,235,0.2);">
-        TP: 1.5-2.2x ATR | SL: 0.8-1.0x ATR | Trend: Required
+        <!-- Dynamically updated by updateQualityModeDisplay() -->
     </div>
 </div>
 

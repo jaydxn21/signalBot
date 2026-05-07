@@ -1977,7 +1977,7 @@ function _updatePhantomBadge(botId, session) {
     const pnlCol = pnl >= 0 ? '#34d399' : '#f87171';
 
     let modeHtml = '';
-    if (session.mode === 'observer') modeHtml = ' &nbsp;<span style="color:#a78bfa;">👁 OBSERVER</span>';
+    if (session.mode === 'observer') modeHtml = ' &nbsp;<span style="color:#a78bfa;">👁 OBSERVING</span>';
     if (session.mode === 'halted')   modeHtml = ' &nbsp;<span style="color:#f87171;">🛑 HALTED</span>';
 
     badge.innerHTML =
@@ -2611,7 +2611,7 @@ function _updateStatusUI(status) {
         
         if (isActiveSetup && hasBreakLevel) {
             setupDiv.style.display = 'block';
-            const setupDetails = document.getElementById('setup-details');
+            const setupDetails = document.getElementById('signal-details');
             if (setupDetails) {
                 const level = status.lastBreakLevel || status.breakLevel || '?';
                 const dir = status.lastBreakDirection || status.direction || '?';
@@ -2619,7 +2619,9 @@ function _updateStatusUI(status) {
                 const retests = status.retestCount || 0;
                 const maxRetests = status.maxRetests || 3;
                 
-                setupDetails.innerHTML = `${dir} @ ${parseFloat(level).toFixed(4)} | ${retests}/${maxRetests} retests | ${age}h old`;
+                setupDetails.innerHTML = `
+                    ${dir} @ ${parseFloat(level).toFixed(4)} | ${retests}/${maxRetests} retests | ${age}h old
+                `;
                 
                 console.log('[UI] Setup display updated:', { dir, level, retests, age });
             };
@@ -3063,6 +3065,10 @@ window.registerBotSignal = function(id, type, price, label, confidence) {
         badge.style.background = confidence.color + '22';
         badge.style.color      = confidence.color;
         badge.style.border     = `1px solid ${confidence.color}55`;
+        badge.style.borderRadius = '6px';
+        badge.style.padding = '3px 8px';
+        badge.style.fontSize = '0.65rem';
+        badge.style.fontWeight = '600';
         clearTimeout(badge._timer);
         badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
     };
