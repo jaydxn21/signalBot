@@ -2034,7 +2034,6 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     };
 
     window.registerBotSignal(bot.id, type, bar.close.toFixed(4), label, confidence);
-    Notify.signal(type, bot.config.symbol, bar.close, label, confidence);
 
     const liveConf = SessionState.get().liveConfidence || {};
     liveConf[bot.id] = {
@@ -3096,7 +3095,7 @@ window.registerBotLoss = function(id, pnl) {
     const lossEl = card.querySelector('.bot-losses');
     const pnlEl  = card.querySelector('.bot-pnl');
     if (lossEl && bot) lossEl.textContent = bot.losses;
-    if (pnlEl  && bot) {
+    if ( pnlEl  && bot) {
         pnlEl.textContent = bot.pnl.toFixed(2);
         pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
     };
