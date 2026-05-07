@@ -2860,6 +2860,107 @@ function logout() {
     Auth.syncTrades(trades).finally(() => Auth.logout());
 };
 
+
+function setupQualityModeSelector(card, id) {
+
+    // Wrapper
+    const container = card.querySelector(".quality-mode-selector");
+
+    // Actual <select>
+    const select = card.querySelector(".quality-mode-select");
+
+    // Badge
+    const badge = card.querySelector(".quality-mode-badge");
+
+    // Info panel
+    const info = card.querySelector(".quality-mode-info");
+
+    if (!container || !select) {
+        console.warn(`[Bot ${id}] Quality mode UI missing`);
+        return;
+    }
+
+    // Show UI
+    container.style.display = "block";
+
+    // Get all modes from strategy
+    const modes = Jump75Strategy.getAllModes();
+
+    // Populate dropdown
+    select.innerHTML = "";
+
+    Object.entries(modes).forEach(([modeNumber, config]) => {
+
+        const option = document.createElement("option");
+
+        option.value = modeNumber;
+        option.textContent = config.displayName;
+
+        select.appendChild(option);
+    });
+
+    // Set current mode
+    select.value = Jump75Strategy.QUALITY_MODE;
+
+    // UI updater
+    function updateQualityModeDisplay() {
+
+        const config = Jump75Strategy.getCurrentConfig();
+
+        // Badge
+        if (badge) {
+
+            const emojiMap = {
+                QUANTITY: "⚡",
+                BALANCED: "⚖️",
+                QUALITY: "🎯",
+                ULTRA: "🔥"
+            };
+
+            badge.textContent =
+                `${emojiMap[config.name] || "⚙️"} ${config.name}`;
+        }
+
+        // Info panel
+        if (info) {
+
+            info.innerHTML = `
+                Score: <b>${config.minScore}</b> |
+                Momentum: <b>${config.minMomentum}</b><br>
+                Cooldown: <b>${Math.round(config.cooldownMs / 60000)}m</b> |
+                Risk: <b>${config.riskPercent}%</b>
+            `;
+        }
+
+        console.log(
+            `[Bot ${id}] Mode → ${config.displayName}`
+        );
+    }
+
+    // Initial UI sync
+    updateQualityModeDisplay();
+
+    // Change handler
+    select.addEventListener("change", (e) => {
+
+        const mode = Number(e.target.value);
+
+        // Update strategy
+        Jump75Strategy.setMode(mode);
+
+        // Refresh UI
+        updateQualityModeDisplay();
+
+        // Store mode on card
+        card.dataset.qualityMode = mode;
+
+        console.log(
+            `[Bot ${id}] Switched to ${Jump75Strategy.getCurrentConfig().displayName}`
+        );
+    });
+}
+
+
 // ─────────────────────────────────────────────────────────────
 // CREATE BOT CARD
 // ─────────────────────────────────────────────────────────────
