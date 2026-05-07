@@ -1,12 +1,14 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// NEXUS Signal Queue Bridge v2.0 - WITH TRADE RESULTS TRACKING
+// NEXUS Signal Queue Bridge v2.1 - COMPLETE WITH HEARTBEAT & FLOATING PnL
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Features:
 //   - Queues signals for MT5 to poll
 //   - Receives trade results from MT5
 //   - Stores trade history for analytics
-//   - Provides API endpoint for frontend to fetch real MT5 results
+//   - Heartbeat endpoint for EA connection monitoring
+//   - Floating PnL tracking from MT5
+//   - Provides API endpoints for frontend
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -46,7 +48,6 @@ class TradeHistory {
     
     save() {
         try {
-            // Keep only last 1000 trades
             if (this.trades.length > 1000) {
                 this.trades = this.trades.slice(-1000);
             }
@@ -88,6 +89,8 @@ class TradeHistory {
             avg_win: wins.length ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0,
             avg_loss: losses.length ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0) / losses.length) : 0,
             profit_factor: losses.length ? (wins.reduce((s, t) => s + t.pnl, 0) / Math.abs(losses.reduce((s, t) => s + t.pnl, 0))) : 0,
+            best_trade: wins.length ? Math.max(...wins.map(t => t.pnl)) : 0,
+            worst_trade: losses.length ? Math.min(...losses.map(t => t.pnl)) : 0,
             last_update: Date.now()
         };
     }
@@ -133,6 +136,18 @@ class SignalQueue {
 const signalQueue = new SignalQueue();
 
 // ═════════════════════════════════════════════════════════════════════════
+// FLOATING PnL STORAGE
+// ═════════════════════════════════════════════════════════════════════════
+
+let latestFloatingPnL = {
+    equity: 0,
+    balance: 0,
+    floating_pnl: 0,
+    timestamp: 0,
+    last_heartbeat: 0
+};
+
+// ═════════════════════════════════════════════════════════════════════════
 // LOGGING UTILITY
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -148,7 +163,9 @@ function log(msg, type = 'info') {
         'ws': '🌐',
         'bot': '🤖',
         'trade': '💰',
-        'storage': '💾'
+        'storage': '💾',
+        'heartbeat': '💓',
+        'floating': '📊'
     }[type] || '•';
     
     console.log(`[${time}] ${emoji} ${msg}`);
@@ -196,7 +213,7 @@ app.get('/api/signals', (req, res) => {
     }
 });
 
-// ✅ MT5 SENDS TRADE RESULTS BACK (NEW ENDPOINT)
+// ✅ MT5 SENDS TRADE RESULTS BACK
 app.post('/api/trade-result', (req, res) => {
     const trade = req.body;
     
@@ -208,6 +225,36 @@ app.post('/api/trade-result', (req, res) => {
         log(`Invalid trade result received`, 'warn');
         res.json({ status: 'error', message: 'Invalid trade data' });
     }
+});
+
+// ✅ HEARTBEAT FROM MT5 (EA sends this every 30 seconds)
+app.get('/api/heartbeat', (req, res) => {
+    latestFloatingPnL.last_heartbeat = Date.now();
+    log(`Heartbeat received from MT5 EA`, 'heartbeat');
+    res.json({ 
+        status: 'alive', 
+        timestamp: Date.now(),
+        trades_recorded: tradeHistory.getAllTrades().length
+    });
+});
+
+// ✅ FLOATING PnL FROM MT5
+app.post('/api/floating-pnl', (req, res) => {
+    const { equity, balance, floating_pnl, timestamp } = req.body;
+    latestFloatingPnL = {
+        equity: equity || 0,
+        balance: balance || 0,
+        floating_pnl: floating_pnl || 0,
+        timestamp: timestamp || Date.now(),
+        last_heartbeat: latestFloatingPnL.last_heartbeat
+    };
+    log(`Floating PnL: Equity=$${equity}, Balance=$${balance}, Floating=$${floating_pnl}`, 'floating');
+    res.json({ status: 'ok' });
+});
+
+// ✅ GET FLOATING PnL (for frontend)
+app.get('/api/floating-pnl', (req, res) => {
+    res.json(latestFloatingPnL);
 });
 
 // ✅ FRONTEND FETCHES TRADE HISTORY
@@ -222,12 +269,28 @@ app.get('/api/trade-stats', (req, res) => {
     res.json(tradeHistory.getStats());
 });
 
+// ✅ EA CONNECTION STATUS (for frontend)
+app.get('/api/ea-status', (req, res) => {
+    const now = Date.now();
+    const isConnected = (now - latestFloatingPnL.last_heartbeat) < 60000; // Connected if heartbeat within last 60 seconds
+    
+    res.json({
+        connected: isConnected,
+        last_heartbeat: latestFloatingPnL.last_heartbeat,
+        seconds_ago: isConnected ? Math.floor((now - latestFloatingPnL.last_heartbeat) / 1000) : null,
+        floating_pnl: latestFloatingPnL.floating_pnl,
+        equity: latestFloatingPnL.equity,
+        balance: latestFloatingPnL.balance
+    });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         signals_queued: signalQueue.size(),
         trades_recorded: tradeHistory.getAllTrades().length,
+        ea_connected: (Date.now() - latestFloatingPnL.last_heartbeat) < 60000,
         timestamp: Date.now(),
         render_connected: renderWS && renderWS.readyState === WebSocket.OPEN
     });
@@ -271,6 +334,14 @@ app.post('/api/test-trade', (req, res) => {
     
     tradeHistory.addTrade(testTrade);
     res.json({ status: 'ok', message: 'Test trade recorded' });
+});
+
+// Clear all trades (for testing)
+app.delete('/api/trades', (req, res) => {
+    tradeHistory.trades = [];
+    tradeHistory.save();
+    log('All trades cleared', 'warn');
+    res.json({ status: 'ok', message: 'All trades cleared' });
 });
 
 const server = http.createServer(app);
@@ -341,7 +412,7 @@ function connectToRender() {
         renderWS.send(JSON.stringify({
             type: 'bridge',
             client: 'signal-bridge-v2',
-            version: '2.0',
+            version: '2.1',
             timestamp: Date.now()
         }));
     });
@@ -387,7 +458,8 @@ function connectToRender() {
 // ═════════════════════════════════════════════════════════════════════════
 
 console.log('\n╔═══════════════════════════════════════════════════════════╗');
-console.log('║     NEXUS Signal Queue Bridge v2.0 - WITH TRADE TRACKING   ║');
+console.log('║     NEXUS Signal Queue Bridge v2.1 - COMPLETE            ║');
+console.log('║     WITH HEARTBEAT & FLOATING PnL                        ║');
 console.log('╚═══════════════════════════════════════════════════════════╝\n');
 
 // Start HTTP server
@@ -395,6 +467,8 @@ server.listen(HTTP_PORT, () => {
     log(`HTTP server on http://localhost:${HTTP_PORT}`, 'info');
     log(`MT5 polls: http://127.0.0.1:${HTTP_PORT}/api/signals`, 'info');
     log(`MT5 sends results: POST http://127.0.0.1:${HTTP_PORT}/api/trade-result`, 'info');
+    log(`MT5 heartbeat: GET http://127.0.0.1:${HTTP_PORT}/api/heartbeat`, 'info');
+    log(`MT5 floating PnL: POST http://127.0.0.1:${HTTP_PORT}/api/floating-pnl`, 'info');
     log(`Health:    http://127.0.0.1:${HTTP_PORT}/api/health`, 'info');
 });
 
@@ -409,8 +483,10 @@ log(`   2. Render → This bridge (localhost:${WS_PORT})`, 'info');
 log(`   3. Signal queued in memory`, 'info');
 log(`   4. MT5 polls http://127.0.0.1:${HTTP_PORT}/api/signals`, 'info');
 log(`   5. MT5 receives signal ✅`, 'info');
-log(`   6. When trade closes, MT5 POSTS result back → /api/trade-result`, 'info');
-log(`   7. Frontend displays real MT5 P&L in Analytics`, 'info');
+log(`   6. MT5 sends heartbeat every 30s → /api/heartbeat`, 'info');
+log(`   7. MT5 sends floating PnL every 30s → /api/floating-pnl`, 'info');
+log(`   8. When trade closes, MT5 POSTS result → /api/trade-result`, 'info');
+log(`   9. Frontend displays real MT5 P&L in Analytics`, 'info');
 
 // ═════════════════════════════════════════════════════════════════════════
 // MONITORING
@@ -421,12 +497,14 @@ setInterval(() => {
     const status = {
         queue_size: signalQueue.size(),
         render_connected: renderWS && renderWS.readyState === WebSocket.OPEN ? 'ON' : 'OFF',
+        ea_connected: (Date.now() - latestFloatingPnL.last_heartbeat) < 60000,
         total_trades: stats.total_trades,
         net_pnl: stats.net_pnl,
-        win_rate: stats.win_rate
+        win_rate: stats.win_rate,
+        floating_pnl: latestFloatingPnL.floating_pnl
     };
     
-    log(`Status: Queue=${status.queue_size} | Trades=${status.total_trades} | PnL=$${status.net_pnl.toFixed(2)} | WR=${status.win_rate}% | Render=${status.render_connected}`, 'info');
+    log(`Status: Queue=${status.queue_size} | Trades=${status.total_trades} | PnL=$${status.net_pnl.toFixed(2)} | WR=${status.win_rate}% | EA=${status.ea_connected ? 'ON' : 'OFF'} | Render=${status.render_connected}`, 'info');
 }, 15000);
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -445,4 +523,4 @@ process.on('SIGINT', () => {
     process.exit(0);
 });
 
-module.exports = { signalQueue, tradeHistory };
+module.exports = { signalQueue, tradeHistory, latestFloatingPnL };

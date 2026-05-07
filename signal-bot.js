@@ -627,64 +627,65 @@ async function init() {
 window.startBot = function(id) {
     const config = window.getBotConfig(id);
     if (!config) return;
-
-    // Apply Jump75 quality mode if strategy is jump75
-if (config.strategy === 'jump75') {
-    const savedMode = window._botQualityModes?.[id] || 1;
-    if (window.Jump75Strategy) {
-        window.Jump75Strategy.QUALITY_MODE = savedMode;
-        const modeConfig = window.Jump75Strategy._getModeConfig();
-        log(`🎯 Jump75 Quality Mode: ${modeConfig.displayName}`, 'info');
-        log(`   Min Score: ${modeConfig.minScore} | Cooldown: ${modeConfig.cooldownMs/60000}m | Range: ${modeConfig.minRangeATR}x ATR`, 'info');
+    
+    // ✅ APPLY JUMP75 QUALITY MODE BEFORE STARTING BOT
+    if (config.strategy === 'jump75') {
+        const savedMode = window._botQualityModes[id] ?? 1;
+        console.log(`[Jump75] Starting bot ${id} with quality mode ${savedMode} (${QUALITY_MODE_DESCRIPTIONS[savedMode].name})`);
+        
+        if (window.Jump75Strategy && typeof window.Jump75Strategy.setMode === 'function') {
+            window.Jump75Strategy.setMode(savedMode);
+        } else if (window.Jump75Strategy) {
+            window.Jump75Strategy.QUALITY_MODE = savedMode;
+        }
+        
+        const modeConfig = QUALITY_MODE_DESCRIPTIONS[savedMode];
+        log(`🎯 Jump75 Quality Mode: ${modeConfig.emoji} ${modeConfig.name}`, 'info');
+        log(`   Min Score: ${modeConfig.minScore} | Cooldown: ${(modeConfig.cooldownMs/60000).toFixed(1)}m | Momentum: ${modeConfig.minMomentum}`, 'info');
     }
-}
-
+    
     const maxBots = Settings.get('maxBots') || 3;
     const activeBotCount = Object.values(bots).filter(b => b.isActive).length;
     if (activeBotCount >= maxBots) {
         log(`Risk block: max ${maxBots} bots allowed. Stop one first.`, 'warn');
         return;
-    };
-
+    }
+    
     const maxDailyLoss = Settings.get('maxDailyLoss') || 500;
     const sessionState = SessionState.get();
     if (sessionState.sessionPnL <= -maxDailyLoss) {
         log(`Risk block: daily loss limit $${maxDailyLoss} reached. Trading halted.`, 'warn');
         _showRiskAlert(`Daily loss limit of $${maxDailyLoss} reached. All trading halted.`);
         return;
-    };
-
-    const bot        = new BotState(id, config);
-    bots[id]         = bot;
-    bot.isActive     = true;
-    bot.sessionStart = Date.now();
+    }
     
-    // Set account equity from session or default
+    const bot = new BotState(id, config);
+    bots[id] = bot;
+    bot.isActive = true;
+    bot.sessionStart = Date.now();
     bot.accountEquity = SessionState.get().accountEquity || 10000;
-
+    
     window.setBotRunning(id, true);
     UIManager.startSession();
     log(`Bot #${id} started — ${config.strategy} on ${config.symbol} ${TF_LABEL[config.tf] || 'M5'}`, 'info');
-
+    
     const symLabel = (SYMBOL_MAP[config.symbol] || config.symbol).replace(' Index','').trim();
     ChartManager.addBot(id, symLabel, TF_LABEL[config.tf] || 'M5');
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph) ph.style.display = 'none';
-
+    
     if (api?.socket?.readyState === 1) {
         subscribeBot(bot);
     } else {
         log(`Bot #${id} queued — waiting for API connection`, 'warn');
-    };
-
+    }
+    
     if (!focusedBotId) window.focusBot(id);
-
+    
     SessionState.set({ activeBots: Object.values(bots).filter(b => b.isActive).length });
     _saveBotConfigs();
-
     PositionSizing.reset();
     PositionSizing.resetSession(bot.accountEquity);
-
 };
 
 window.stopBot = function(id) {
@@ -1366,9 +1367,6 @@ function _buildPhantomTFBuffers(bot) {
     return buf;
 };
 
-// ─────────────────────────────────────────────────────────────
-// PHANTOM RUNNER
-// ─────────────────────────────────────────────────────────────
 function _runPhantom(bot, bar, atr, rsi) {
     const session = PhantomStrategy.getSession();
     _updatePhantomBadge(bot.id, session);
@@ -2441,26 +2439,8 @@ function checkOutcome(bot) {
         bot.config.strategy !== 'nova' && 
         bot.config.strategy !== 'pulse' && 
         bot.config.strategy !== 'kismet' && 
-        bot.config.strategy !== 'vortex' &&
-        bot.config.strategy !== 'ultra_scalp' &&
-        bot.config.strategy !== 'jump75') {  // ← EXCLUDED
-        
-        const recentTrades = (SessionState.get().trades || [])
-            .filter(t => t.symbol === bot.config.symbol)
-            .slice(0, 5);  // Changed from 3 to 5
-        const consecutiveLosses = recentTrades.length >= 5
-            && recentTrades.every(t => t.outcome === 'SL');
-        if (consecutiveLosses) {
-            log(`Loss protection: 5 consecutive SLs on ${bot.config.symbol} — bot stopped.`, 'warn');
-            window.stopBot(bot.id);
-            _showRiskAlert(`Bot stopped: 5 consecutive losses on ${SYMBOL_MAP[bot.config.symbol] || bot.config.symbol}.`);
-            return;
-        };
-    };
-
-    const maxDailyLoss = Settings.get('maxDailyLoss') || 500;
-    const currentPnL   = SessionState.get().sessionPnL;
-    if (bot.config.strategy !== 'phantom' && bot.config.strategy !== 'nova' && bot.config.strategy !== 'pulse' && bot.config.strategy !== 'kismet' && bot.config.strategy !== 'vortex' && currentPnL <= -maxDailyLoss) {
+        bot.config.strategy !== 'vortex' && 
+        currentPnL <= -maxDailyLoss) {
         log(`Daily loss limit $${maxDailyLoss} hit — stopping all bots.`, 'warn');
         _showRiskAlert(`Daily loss limit of $${maxDailyLoss} reached. All bots stopped.`);
         Object.keys(bots).forEach(bid => window.stopBot(bid));
@@ -2884,13 +2864,13 @@ function logout() {
 // ─────────────────────────────────────────────────────────────
 function _createBotCard(id, savedConfig) {
     const template = document.getElementById('bot-card-template');
-    if (!template) { console.error('bot-card-template missing'); return; };
+    if (!template) { console.error('bot-card-template missing'); return; }
     const clone = template.content.cloneNode(true);
-    const card  = clone.querySelector('.bot-card');
-    if (!card) { console.error('.bot-card missing from template'); return; };
-
+    const card = clone.querySelector('.bot-card');
+    if (!card) { console.error('.bot-card missing from template'); return; }
+    
     card.dataset.botId = id;
-
+    
     const stratSelect = card.querySelector('.bot-strategy-select');
     stratSelect.innerHTML = '';
     STRATEGY_GROUPS.forEach(group => {
@@ -2905,7 +2885,7 @@ function _createBotCard(id, savedConfig) {
         });
         stratSelect.appendChild(og);
     });
-
+    
     const symbolSelect = card.querySelector('.bot-symbol-select');
     Object.entries(SYMBOL_MAP).forEach(([val, name]) => {
         const opt = document.createElement('option');
@@ -2913,7 +2893,7 @@ function _createBotCard(id, savedConfig) {
         opt.textContent = name.replace(' Index', '').trim();
         symbolSelect.appendChild(opt);
     });
-
+    
     if (savedConfig) {
         stratSelect.value = savedConfig.strategy;
         symbolSelect.value = savedConfig.symbol;
@@ -2923,122 +2903,54 @@ function _createBotCard(id, savedConfig) {
         if (lotInput && savedConfig.lotSize) lotInput.value = savedConfig.lotSize;
         const phantomLotInput = card.querySelector('.phantom-lot-input');
         if (phantomLotInput && savedConfig.phantomLot) phantomLotInput.value = savedConfig.phantomLot;
-    };
-
+    }
+    
     const updateLabel = () => {
         const labelEl = card.querySelector('.bot-symbol-label');
         if (labelEl) {
-            labelEl.textContent = (SYMBOL_MAP[symbolSelect.value] || symbolSelect.value)
-                .replace(' Index', '').trim();
-        };
+            labelEl.textContent = (SYMBOL_MAP[symbolSelect.value] || symbolSelect.value).replace(' Index', '').trim();
+        }
     };
     symbolSelect.addEventListener('change', updateLabel);
     updateLabel();
-
+    
     const phantomPanel = card.querySelector('.phantom-settings');
-    const tfSelect     = card.querySelector('.bot-tf-select');
+    const tfSelect = card.querySelector('.bot-tf-select');
     const showHidePhantom = () => {
         if (phantomPanel) phantomPanel.style.display = stratSelect.value === 'phantom' ? 'block' : 'none';
         const isM1Strat = stratSelect.value === 'nova' || stratSelect.value === 'kismet';
         let m1Notice = card.querySelector('.m1-notice');
         if (isM1Strat) {
-            if (tfSelect) { tfSelect.value = '300'; tfSelect.disabled = true; };
+            if (tfSelect) { tfSelect.value = '300'; tfSelect.disabled = true; }
             if (!m1Notice) {
                 m1Notice = document.createElement('div');
                 m1Notice.className = 'm1-notice';
                 m1Notice.style.cssText = 'font-size:9px;color:#f59e0b;margin-top:4px;opacity:0.8;';
                 m1Notice.textContent = '📊 M5 locked — NOVA/KISMET run on M5 for correct R:R';
                 tfSelect?.closest('.bot-field-group')?.appendChild(m1Notice);
-            };
+            }
         } else {
             if (tfSelect) tfSelect.disabled = false;
             if (m1Notice) m1Notice.remove();
-        };
+        }
     };
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
-
-    // ── QUALITY MODE SELECTOR FOR JUMP75 ─────────────────────────────
-function _setupQualityModeForCard(card, botId) {
-    const stratSelect = card.querySelector('.bot-strategy-select');
-    const modeSelector = card.querySelector('.quality-mode-selector');
-    const modeSelect = card.querySelector('.quality-mode-select');
-    const modeBadge = card.querySelector('.quality-mode-badge');
-    const modeInfo = card.querySelector('.quality-mode-info');
     
-    if (!modeSelector || !modeSelect) return;
+    // ✅ SETUP QUALITY MODE SELECTOR FOR JUMP75
+    setupQualityModeSelector(card, id);
     
-    const QUALITY_MODE_DESCRIPTIONS = {
-        0: { name: 'QUANTITY', emoji: '🚀', trades: '100-120/day', tp: '1.2-1.8x', sl: '0.7-0.9x', trend: 'Optional', vol: 'Optional' },
-        1: { name: 'BALANCED', emoji: '⚖️', trades: '50-70/day', tp: '1.5-2.2x', sl: '0.8-1.0x', trend: 'Required', vol: 'Optional' },
-        2: { name: 'QUALITY', emoji: '🎯', trades: '20-30/day', tp: '1.8-2.5x', sl: '0.9-1.0x', trend: 'Required', vol: 'Required' },
-        3: { name: 'ULTRA', emoji: '👑', trades: '5-10/day', tp: '2.0-3.0x', sl: '1.0x', trend: 'Required', vol: 'Required' }
-    };
-    
-    function updateQualityDisplay(modeValue) {
-        const mode = QUALITY_MODE_DESCRIPTIONS[modeValue];
-        if (!mode) return;
-        modeBadge.textContent = `${mode.emoji} ${mode.name}`;
-        const colors = { 0: '#ec4899', 1: '#2563eb', 2: '#059669', 3: '#9333ea' };
-        const color = colors[modeValue];
-        modeBadge.style.background = color + '15';
-        modeBadge.style.color = color;
-        modeInfo.innerHTML = `${mode.trades} | TP: ${mode.tp} | SL: ${mode.sl} | Trend: ${mode.trend}`;
-    }
-    
-    // Show/hide when strategy changes
-    const originalChange = stratSelect.onchange;
-    stratSelect.addEventListener('change', () => {
-        if (stratSelect.value === 'jump75') {
-            modeSelector.style.display = 'block';
-            const savedMode = window._botQualityModes?.[botId] || 1;
-            modeSelect.value = savedMode;
-            updateQualityDisplay(savedMode);
-            if (window.Jump75Strategy) {
-                window.Jump75Strategy.QUALITY_MODE = parseInt(savedMode);
-            }
-        } else {
-            modeSelector.style.display = 'none';
-        }
-    });
-    
-    // Handle mode change
-    modeSelect.addEventListener('change', () => {
-        const mode = parseInt(modeSelect.value);
-        updateQualityDisplay(mode);
-        if (!window._botQualityModes) window._botQualityModes = {};
-        window._botQualityModes[botId] = mode;
-        if (window.Jump75Strategy) {
-            window.Jump75Strategy.QUALITY_MODE = mode;
-        }
-        log(`🎯 Jump75 Quality Mode: ${QUALITY_MODE_DESCRIPTIONS[mode].name}`, 'info');
-    });
-    
-    // Initial check
-    if (stratSelect.value === 'jump75') {
-        modeSelector.style.display = 'block';
-        modeSelect.value = 1;
-        updateQualityDisplay(1);
-        if (!window._botQualityModes) window._botQualityModes = {};
-        window._botQualityModes[botId] = 1;
-    }
-}
-
-// Call this function inside _createBotCard after the card is created
-// Add this line where other setup functions are called:
-_setupQualityModeForCard(card, id);
-
     const configureBtn = card.querySelector('.phantom-configure-btn');
     if (configureBtn) {
         configureBtn.onclick = () => {
             const targetInput = card.querySelector('.phantom-target-input');
-            const lossInput   = card.querySelector('.phantom-loss-input');
+            const lossInput = card.querySelector('.phantom-loss-input');
             const target = parseFloat(targetInput?.value) || 0;
-            const loss   = parseFloat(lossInput?.value)   || 0;
+            const loss = parseFloat(lossInput?.value) || 0;
             if (target <= 0 && loss <= 0) {
                 log('PHANTOM: enter a profit target or loss limit first', 'warn');
                 return;
-            };
+            }
             const session = PhantomStrategy.configureSession(target, loss);
             _updatePhantomBadge(id, session);
             configureBtn.textContent = '✓ SESSION CONFIGURED';
@@ -3049,21 +2961,21 @@ _setupQualityModeForCard(card, id);
             }, 2000);
             log(`👻 PHANTOM session set — Target: $${target} | Limit: $${loss}`, 'info');
         };
-    };
-
+    }
+    
     if (savedConfig?.strategy === 'phantom') {
         _updatePhantomBadge(id, PhantomStrategy.getSession());
-    };
-
+    }
+    
     const toggleBtn = card.querySelector('.bot-toggle-btn');
     toggleBtn.onclick = () => {
         if (card.classList.contains('stopped')) {
             window.startBot(id);
         } else {
             window.stopBot(id);
-        };
+        }
     };
-
+    
     card.querySelector('.bot-remove-btn').onclick = (e) => {
         e.stopPropagation();
         window.stopBot(id);
@@ -3071,18 +2983,18 @@ _setupQualityModeForCard(card, id);
         delete bots[id];
         _saveBotConfigs();
     };
-
+    
     card.onclick = (e) => {
         if (e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') {
             window.focusBot(id);
             document.querySelectorAll('.bot-card').forEach(c => c.style.outline = 'none');
             card.style.outline = '2px solid var(--accent-light)';
-        };
+        }
     };
-
+    
     document.getElementById('bot-list').appendChild(card);
     if (!savedConfig) log('Bot card created — select a symbol and strategy', 'info');
-};
+}
 
 // ─────────────────────────────────────────────────────────────
 // WINDOW HELPERS

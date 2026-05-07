@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// JUMP75 STRATEGY v20 - ADAPTIVE HYBRID WITH ONLINE LEARNING
+// JUMP75 STRATEGY v21 - UI SYNC & IMPROVED WIN RATE
 // ═══════════════════════════════════════════════════════════════════════════
-// Modes: 0=QUANTITY, 1=BALANCED (default), 2=QUALITY, 3=ULTRA
+// Modes: 0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA
 // Features:
-//   - Adaptive mode selection (FIB vs BREAKOUT based on recent performance)
-//   - Online learning - learns which strategy works better in real-time
-//   - Auto-switches between retracement and breakout strategies
+//   - UI Quality Mode Selector support (setMode/getCurrentConfig)
+//   - Tighter entry filters for better win rate
+//   - Market state detection (trending vs ranging)
+//   - Adaptive TP/SL based on market conditions
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const Jump75Strategy = {
@@ -18,116 +19,138 @@ export const Jump75Strategy = {
     _tradesCount: 0,
 
     // ═══ QUALITY MODE SELECTOR ═══
-    // Change this ONE value to switch modes
-    // 0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA
-    QUALITY_MODE: 1,  // Default: BALANCED
+    QUALITY_MODE: 2,  // Changed to QUALITY mode (was BALANCED) for better win rate
+
+    // ═══ MARKET STATE TRACKING ═══
+    _marketState: 'RANGING',  // RANGING, TRENDING_UP, TRENDING_DOWN
+    _lastMarketCheck: 0,
 
     // ═══ ADAPTIVE LEARNING VARIABLES ═══
     _modePerformance: {
         FIB: { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 },
         BREAKOUT: { wins: 0, losses: 0, totalPnL: 0, trades: 0, lastUsed: 0 }
     },
-    _currentMode: 'FIB',      // Starts with FIB, adapts based on performance
-    _modeConfidence: 0.5,      // 0-1 confidence in current mode
+    _currentMode: 'FIB',
+    _modeConfidence: 0.5,
     _lastSwitchTime: 0,
-    _learningRate: 0.1,        // How fast to adapt (0.05 = slow, 0.2 = fast)
-    _minTradesToSwitch: 5,     // Minimum trades before switching modes
-    _performanceWindow: 20,    // Look back at last N trades
-    _recentTrades: [],          // Trade memory for learning
+    _learningRate: 0.1,
+    _minTradesToSwitch: 5,
+    _performanceWindow: 20,
+    _recentTrades: [],
 
     // ───────────────────────────────────────────────────────────────
-    // MODE CONFIGURATIONS
+    // MODE CONFIGURATIONS (UPDATED FOR BETTER WIN RATE)
     // ───────────────────────────────────────────────────────────────
     _getModeConfig() {
         const modes = {
             0: {
                 name: 'QUANTITY',
                 displayName: 'QUANTITY (High Frequency)',
-                description: '100+ trades/day, 60% win rate, 1.15-1.20 PF',
-                minCandlesM5: 30,
-                minCandlesM15: 20,
-                minCandlesH4: 6,
-                cooldownMs: 60000,
-                lossCooldownMs: 300000,
-                minRangeATR: 3.0,
-                nearFibATR: 1.2,
-                minMomentum: 0.15,
-                minScore: 55,
-                requireTrend: false,
-                requireVolume: false,
+                minCandlesM5: 30, minCandlesM15: 20, minCandlesH4: 6,
+                cooldownMs: 60000, lossCooldownMs: 300000,
+                minRangeATR: 3.0, nearFibATR: 1.2,
+                minMomentum: 0.15, minScore: 55,
+                requireTrend: false, requireVolume: false,
                 tpMultipliers: { high: 1.8, medium: 1.6, low: 1.4, min: 1.2 },
                 slMultipliers: { high: 0.9, medium: 0.9, low: 0.8, min: 0.7 },
-                lotMultiplier: 1.0,
-                riskPercent: 0.75
+                lotMultiplier: 1.0, riskPercent: 0.75,
+                requireEngulfing: false, requireWickRejection: false
             },
             1: {
                 name: 'BALANCED',
                 displayName: 'BALANCED (Recommended)',
-                description: '50-70 trades/day, 65% win rate, 1.20-1.30 PF',
-                minCandlesM5: 40,
-                minCandlesM15: 25,
-                minCandlesH4: 8,
-                cooldownMs: 120000,
-                lossCooldownMs: 600000,
-                minRangeATR: 3.5,
-                nearFibATR: 0.9,
-                minMomentum: 0.25,
-                minScore: 65,
-                requireTrend: true,
-                requireVolume: false,
+                minCandlesM5: 40, minCandlesM15: 25, minCandlesH4: 8,
+                cooldownMs: 120000, lossCooldownMs: 600000,
+                minRangeATR: 3.5, nearFibATR: 0.9,
+                minMomentum: 0.25, minScore: 65,
+                requireTrend: true, requireVolume: false,
                 tpMultipliers: { high: 2.2, medium: 2.0, low: 1.8, min: 1.5 },
                 slMultipliers: { high: 1.0, medium: 1.0, low: 0.9, min: 0.8 },
-                lotMultiplier: 1.0,
-                riskPercent: 0.75
+                lotMultiplier: 1.0, riskPercent: 0.75,
+                requireEngulfing: false, requireWickRejection: false
             },
             2: {
                 name: 'QUALITY',
                 displayName: 'QUALITY (Conservative)',
-                description: '20-30 trades/day, 70% win rate, 1.30-1.50 PF',
-                minCandlesM5: 50,
-                minCandlesM15: 30,
-                minCandlesH4: 10,
-                cooldownMs: 180000,
-                lossCooldownMs: 900000,
-                minRangeATR: 4.0,
-                nearFibATR: 0.7,
-                minMomentum: 0.4,
-                minScore: 75,
-                requireTrend: true,
-                requireVolume: true,
-                tpMultipliers: { high: 2.5, medium: 2.2, low: 2.0, min: 1.8 },
-                slMultipliers: { high: 1.0, medium: 1.0, low: 1.0, min: 0.9 },
-                lotMultiplier: 0.8,
-                riskPercent: 0.6
+                minCandlesM5: 50, minCandlesM15: 30, minCandlesH4: 10,
+                cooldownMs: 180000, lossCooldownMs: 900000,
+                minRangeATR: 4.0, nearFibATR: 0.6,  // TIGHTER zone
+                minMomentum: 0.45, minScore: 75,    // HIGHER momentum
+                requireTrend: true, requireVolume: true,
+                tpMultipliers: { high: 2.8, medium: 2.5, low: 2.2, min: 2.0 },
+                slMultipliers: { high: 1.0, medium: 1.0, low: 1.0, min: 0.95 },
+                lotMultiplier: 0.7, riskPercent: 0.6,
+                requireEngulfing: true, requireWickRejection: true  // NEW: pattern confirmation
             },
             3: {
                 name: 'ULTRA',
                 displayName: 'ULTRA (Very Selective)',
-                description: '5-10 trades/day, 80%+ win rate, 1.50-2.00 PF',
-                minCandlesM5: 60,
-                minCandlesM15: 40,
-                minCandlesH4: 12,
-                cooldownMs: 300000,
-                lossCooldownMs: 1800000,
-                minRangeATR: 5.0,
-                nearFibATR: 0.5,
-                minMomentum: 0.6,
-                minScore: 85,
-                requireTrend: true,
-                requireVolume: true,
+                minCandlesM5: 60, minCandlesM15: 40, minCandlesH4: 12,
+                cooldownMs: 300000, lossCooldownMs: 1800000,
+                minRangeATR: 5.0, nearFibATR: 0.5,
+                minMomentum: 0.6, minScore: 85,
+                requireTrend: true, requireVolume: true,
                 tpMultipliers: { high: 3.0, medium: 2.5, low: 2.2, min: 2.0 },
                 slMultipliers: { high: 1.0, medium: 1.0, low: 1.0, min: 1.0 },
-                lotMultiplier: 0.5,
-                riskPercent: 0.5
+                lotMultiplier: 0.5, riskPercent: 0.5,
+                requireEngulfing: true, requireWickRejection: true
             }
         };
-        return modes[this.QUALITY_MODE] || modes[1];
+        return modes[this.QUALITY_MODE] || modes[2];
+    },
+
+    // ───────────────────────────────────────────────────────────────
+    // MARKET STATE DETECTION
+    // ───────────────────────────────────────────────────────────────
+    _detectMarketState(h4Candles, atr) {
+        if (h4Candles.length < 10) return 'RANGING';
+        
+        const ema20 = this._calculateEMA(h4Candles, 20);
+        const ema50 = this._calculateEMA(h4Candles, 50);
+        if (!ema20 || !ema50) return 'RANGING';
+        
+        const latest = h4Candles[h4Candles.length - 1];
+        const prev = h4Candles[h4Candles.length - 2];
+        
+        if (latest.close > ema20 && ema20 > ema50 && latest.close > prev.close) {
+            return 'TRENDING_UP';
+        }
+        if (latest.close < ema20 && ema20 < ema50 && latest.close < prev.close) {
+            return 'TRENDING_DOWN';
+        }
+        return 'RANGING';
+    },
+
+    // ───────────────────────────────────────────────────────────────
+    // CANDLE PATTERN CONFIRMATIONS (NEW)
+    // ───────────────────────────────────────────────────────────────
+    _isBullishEngulfing(prev, curr) {
+        if (!prev || !curr) return false;
+        return prev.close < prev.open && 
+               curr.close > curr.open && 
+               curr.close > prev.high && 
+               curr.open < prev.low;
+    },
+
+    _isBearishEngulfing(prev, curr) {
+        if (!prev || !curr) return false;
+        return prev.close > prev.open && 
+               curr.close < curr.open && 
+               curr.close < prev.low && 
+               curr.open > prev.high;
+    },
+
+    _hasWickRejection(candle) {
+        if (!candle) return false;
+        const body = Math.abs(candle.close - candle.open);
+        const upperWick = candle.high - Math.max(candle.close, candle.open);
+        const lowerWick = Math.min(candle.close, candle.open) - candle.low;
+        return upperWick > body * 1.5 || lowerWick > body * 1.5;
     },
 
     // ───────────────────────────────────────────────────────────────
     // ADAPTIVE MODE SELECTION
     // ───────────────────────────────────────────────────────────────
-    
     _calculateModeScore(mode) {
         const perf = this._modePerformance[mode];
         if (perf.trades < this._minTradesToSwitch) return 0.5;
@@ -135,7 +158,6 @@ export const Jump75Strategy = {
         const winRate = perf.trades > 0 ? perf.wins / perf.trades : 0.5;
         const avgPnL = perf.trades > 0 ? perf.totalPnL / perf.trades : 0;
         
-        // Recency weighting - recent trades matter more
         let recencyBonus = 0;
         const recentModeTrades = this._recentTrades.filter(t => t.mode === mode).slice(0, 10);
         if (recentModeTrades.length > 0) {
@@ -143,7 +165,6 @@ export const Jump75Strategy = {
             recencyBonus = (recentWins / recentModeTrades.length) * 0.3;
         }
         
-        // Score: 60% win rate, 30% recency, 10% PnL magnitude
         let score = (winRate * 0.6) + recencyBonus + (Math.min(Math.abs(avgPnL), 5) / 50);
         return Math.min(0.95, Math.max(0.05, score));
     },
@@ -154,7 +175,6 @@ export const Jump75Strategy = {
         
         const oldMode = this._currentMode;
         
-        // Switch if other mode has significantly better score (15%+ better)
         if (breakoutScore > fibScore + 0.15 && breakoutScore > 0.55) {
             this._currentMode = 'BREAKOUT';
             this._modeConfidence = breakoutScore;
@@ -184,90 +204,27 @@ export const Jump75Strategy = {
         this._modePerformance[mode].totalPnL += pnl;
         this._modePerformance[mode].trades++;
         
-        // Store recent trade
         this._recentTrades.unshift({ mode, outcome, pnl, time: Date.now() });
         if (this._recentTrades.length > this._performanceWindow) {
             this._recentTrades.pop();
         }
         
-        // Adaptive learning rate - improve faster after losses
         if (outcome === 'SL') {
             this._learningRate = Math.min(0.25, this._learningRate + 0.02);
         } else {
             this._learningRate = Math.max(0.05, this._learningRate - 0.005);
         }
         
-        // Log performance update
         if (this._modePerformance[mode].trades % 5 === 0) {
             const winRate = Math.round((this._modePerformance[mode].wins / this._modePerformance[mode].trades) * 100);
-            console.log(`[Jump75-Learn] 📊 ${mode} performance: ${winRate}% win rate (${this._modePerformance[mode].trades} trades) | Learning rate: ${Math.round(this._learningRate*100)}%`);
+            console.log(`[Jump75-Learn] 📊 ${mode} performance: ${winRate}% (${this._modePerformance[mode].trades} trades)`);
         }
     },
 
     // ───────────────────────────────────────────────────────────────
-    // BREAKOUT DETECTION (NEW)
+    // QUALITY SIGNAL DETECTION (UPDATED)
     // ───────────────────────────────────────────────────────────────
-    
-    _detectBreakout(m5Candles, m15Candles, h4Candles, atr, config) {
-        if (m5Candles.length < 20) return null;
-        
-        const lastM5 = m5Candles[m5Candles.length - 1];
-        const prevM5 = m5Candles[m5Candles.length - 2];
-        const lastM15 = m15Candles[m15Candles.length - 1];
-        
-        // Calculate momentum
-        const ema8 = this._calculateEMA(m5Candles, 8);
-        const ema21 = this._calculateEMA(m5Candles, 21);
-        if (!ema8 || !ema21) return null;
-        
-        const momentum = (ema8 - ema21) / atr;
-        
-        // Volume confirmation
-        const volumeConfirmed = this._hasVolumeConfirmation(m5Candles);
-        const volumeOk = !config.requireVolume || volumeConfirmed;
-        
-        // Breakout detection conditions
-        const strongGreenCandle = lastM5.close > lastM5.open && 
-                                   (lastM5.close - lastM5.open) > atr * 0.4;
-        const strongRedCandle = lastM5.close < lastM5.open && 
-                                 (lastM5.open - lastM5.close) > atr * 0.4;
-        const consecutiveGreen = lastM5.close > lastM5.open && 
-                                  prevM5.close > prevM5.open;
-        const consecutiveRed = lastM5.close < lastM5.open && 
-                                prevM5.close < prevM5.open;
-        const aboveEMAs = lastM15.close > ema8 && ema8 > ema21;
-        const momentumStrong = Math.abs(momentum) > 0.4;
-        
-        // Breakout BUY - catch early trend
-        if (strongGreenCandle && momentumStrong && aboveEMAs && volumeOk && momentum > 0) {
-            const scoreBoost = consecutiveGreen ? 10 : 5;
-            return {
-                type: 'LONG',
-                score: 75 + scoreBoost,
-                factors: ['🔥 BREAKOUT', 'Strong momentum', 'Above EMAs', consecutiveGreen ? '2nd green candle' : 'Volume surge'],
-                mode: 'BREAKOUT'
-            };
-        }
-        
-        // Breakout SELL
-        if (strongRedCandle && momentumStrong && !aboveEMAs && volumeOk && momentum < 0) {
-            const scoreBoost = consecutiveRed ? 10 : 5;
-            return {
-                type: 'SHORT',
-                score: 75 + scoreBoost,
-                factors: ['🔥 BREAKDOWN', 'Strong momentum', 'Below EMAs', consecutiveRed ? '2nd red candle' : 'Volume surge'],
-                mode: 'BREAKOUT'
-            };
-        }
-        
-        return null;
-    },
-    
-    // ───────────────────────────────────────────────────────────────
-    // FIBONACCI RETRACEMENT DETECTION
-    // ───────────────────────────────────────────────────────────────
-    
-    _detectFibonacciRetracement(m5Candles, m15Candles, h4Candles, atr, config) {
+    _getQualitySignal(m5Candles, m15Candles, h4Candles, atr, config) {
         if (!this._h4SwingHigh || !this._h4SwingLow) return null;
         
         const latestM15 = m15Candles[m15Candles.length - 1];
@@ -279,58 +236,67 @@ export const Jump75Strategy = {
         
         const fib = this._calculateFibLevels(this._h4SwingLow, this._h4SwingHigh);
         const near618 = Math.abs(latestM15.close - fib.fib618) < atr * config.nearFibATR;
-        const near50 = Math.abs(latestM15.close - fib.fib50) < atr * (config.nearFibATR + 0.2);
+        
+        if (!near618) return null;
         
         const m5Momentum = this._getM5Momentum(m5Candles);
-        const bullishCandle = latestM5.close > prevM5.close;
-        const bearishCandle = latestM5.close < prevM5.close;
-        const aboveLow = latestM15.close > this._h4SwingLow;
-        const belowHigh = latestM15.close < this._h4SwingHigh;
+        if (Math.abs(m5Momentum) < config.minMomentum) return null;
+        
+        // Pattern confirmations
+        const bullishEngulfing = this._isBullishEngulfing(prevM5, latestM5);
+        const bearishEngulfing = this._isBearishEngulfing(prevM5, latestM5);
+        const wickRejection = this._hasWickRejection(latestM5);
+        
+        // Pattern requirement for QUALITY/ULTRA modes
+        if (config.requireEngulfing && !bullishEngulfing && !bearishEngulfing) return null;
+        if (config.requireWickRejection && !wickRejection) return null;
         
         const m15Trend = this._getM15Trend(m15Candles);
-        const trendOk = !config.requireTrend || m15Trend !== 'NEUTRAL';
-        const volumeOk = !config.requireVolume || this._hasVolumeConfirmation(m5Candles);
+        const aboveLow = latestM15.close > this._h4SwingLow;
+        const belowHigh = latestM15.close < this._h4SwingHigh;
+        const volumeConfirmed = this._hasVolumeConfirmation(m5Candles);
         
-        // Fibonacci LONG
-        if (near618 && m5Momentum > config.minMomentum && bullishCandle && aboveLow && trendOk && volumeOk) {
-            return {
-                type: 'LONG',
-                score: 78,
-                factors: ['📊 Fib 61.8% bounce', 'Momentum confirmation', 'H4 structure'],
-                mode: 'FIB'
-            };
-        }
+        let signal = null;
+        let score = config.minScore;
         
-        // Fibonacci SHORT
-        if (near618 && m5Momentum < -config.minMomentum && bearishCandle && belowHigh && trendOk && volumeOk) {
-            return {
-                type: 'SHORT',
-                score: 78,
-                factors: ['📊 Fib 61.8% rejection', 'Momentum confirmation', 'H4 structure'],
-                mode: 'FIB'
-            };
-        }
-        
-        // Fib 50% (lower quality)
-        if (near50 && Math.abs(m5Momentum) > config.minMomentum * 0.8 && trendOk) {
-            if (m5Momentum > 0 && aboveLow) {
-                return {
-                    type: 'LONG',
-                    score: 68,
-                    factors: ['📊 Fib 50% reaction', 'Entry confirmed'],
-                    mode: 'FIB'
-                };
-            } else if (m5Momentum < 0 && belowHigh) {
-                return {
-                    type: 'SHORT',
-                    score: 68,
-                    factors: ['📊 Fib 50% reaction', 'Entry confirmed'],
-                    mode: 'FIB'
-                };
+        // LONG
+        if (m5Momentum > 0 && aboveLow) {
+            if (bullishEngulfing) score += 10;
+            if (wickRejection) score += 8;
+            if (m15Trend === 'UP') score += 7;
+            if (volumeConfirmed) score += 5;
+            
+            if (score >= config.minScore) {
+                signal = this._createSignal('LONG', score, 
+                    this._buildFactors(['Fib 61.8%', 'Momentum'], bullishEngulfing, wickRejection, m15Trend === 'UP', volumeConfirmed), 
+                    config);
             }
         }
         
-        return null;
+        // SHORT
+        if (!signal && m5Momentum < 0 && belowHigh) {
+            if (bearishEngulfing) score += 10;
+            if (wickRejection) score += 8;
+            if (m15Trend === 'DOWN') score += 7;
+            if (volumeConfirmed) score += 5;
+            
+            if (score >= config.minScore) {
+                signal = this._createSignal('SHORT', score,
+                    this._buildFactors(['Fib 61.8%', 'Momentum'], bearishEngulfing, wickRejection, m15Trend === 'DOWN', volumeConfirmed),
+                    config);
+            }
+        }
+        
+        return signal;
+    },
+
+    _buildFactors(base, engulfing, wickRejection, trendAligned, volumeConfirmed) {
+        const factors = [...base];
+        if (engulfing) factors.push('Engulfing');
+        if (wickRejection) factors.push('Wick rejection');
+        if (trendAligned) factors.push('Trend aligned');
+        if (volumeConfirmed) factors.push('Volume spike');
+        return factors;
     },
 
     // ───────────────────────────────────────────────────────────────
@@ -345,18 +311,14 @@ export const Jump75Strategy = {
             this._consecutiveLosses = 0;
             this._dailyStartTime = now.getTime();
             const config = this._getModeConfig();
-            console.log(`[Jump75 ${config.name}] New session started - Adaptive learning active`);
+            console.log(`[Jump75 ${config.name}] New session started`);
         }
     },
 
     recordTrade(outcome, pnl, mode = null) {
         this._tradesCount++;
         this._dailyProfit += pnl;
-        
-        if (mode) {
-            this.recordTradeResult(mode, outcome, pnl);
-        }
-        
+        if (mode) this.recordTradeResult(mode, outcome, pnl);
         if (outcome === 'TP') {
             this._consecutiveLosses = 0;
         } else {
@@ -365,7 +327,7 @@ export const Jump75Strategy = {
     },
 
     // ───────────────────────────────────────────────────────────────
-    // MAIN ENTRY CHECK (ADAPTIVE)
+    // MAIN ENTRY CHECK
     // ───────────────────────────────────────────────────────────────
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
         this.initSession();
@@ -379,72 +341,20 @@ export const Jump75Strategy = {
 
         const now = Date.now();
         if (now - this._lastTradeTime < config.cooldownMs) return null;
-        if (this._consecutiveLosses >= 3 && now - this._lastTradeTime < config.lossCooldownMs) return null;
+        if (this._consecutiveLosses >= 2 && now - this._lastTradeTime < config.lossCooldownMs) return null;
 
-        const latestM15 = m15Candles[m15Candles.length - 1];
-        
-        // Update H4 structure
         this._updateH4Structure(h4Candles);
+        this._marketState = this._detectMarketState(h4Candles, atr);
         
-        // Select which mode to use based on recent performance
-        const activeMode = this._selectAdaptiveMode();
-        
-        let signal = null;
-        
-        // Try BREAKOUT mode if it's selected or if confidence is high
-        if (activeMode === 'BREAKOUT' || this._modePerformance.BREAKOUT.trades < 3) {
-            signal = this._detectBreakout(m5Candles, m15Candles, h4Candles, atr, config);
-            if (signal) {
-                signal.adaptiveMode = 'BREAKOUT';
-            }
-        }
-        
-        // Try FIB mode if breakout didn't fire or if FIB is selected
-        if (!signal && (activeMode === 'FIB' || this._modePerformance.FIB.trades < 3)) {
-            signal = this._detectFibonacciRetracement(m5Candles, m15Candles, h4Candles, atr, config);
-            if (signal) {
-                signal.adaptiveMode = 'FIB';
-            }
-        }
-        
-        // If both modes failed, try the other mode as fallback
-        if (!signal) {
-            if (activeMode === 'BREAKOUT') {
-                signal = this._detectFibonacciRetracement(m5Candles, m15Candles, h4Candles, atr, config);
-                if (signal) signal.adaptiveMode = 'FIB';
-            } else {
-                signal = this._detectBreakout(m5Candles, m15Candles, h4Candles, atr, config);
-                if (signal) signal.adaptiveMode = 'BREAKOUT';
-            }
-        }
-        
+        const signal = this._getQualitySignal(m5Candles, m15Candles, h4Candles, atr, config);
         if (!signal) return null;
         
-        // Quality filter
-        if (signal.score < config.minScore) return null;
+        // In trending markets, only take signals with the trend
+        if (this._marketState === 'TRENDING_UP' && signal.type !== 'LONG') return null;
+        if (this._marketState === 'TRENDING_DOWN' && signal.type !== 'SHORT') return null;
         
-        // Store mode for result tracking
         this._lastTradeTime = now;
-        
-        // Different TP/SL for different modes
-        if (signal.adaptiveMode === 'BREAKOUT') {
-            signal.tpMultiplier = 1.5;  // Shorter target for breakouts (catch early momentum)
-            signal.slMultiplier = 0.8;  // Tighter SL for breakouts
-            signal.riskPercent = 0.5;   // Lower risk for breakouts (quick scalps)
-        } else {
-            signal.tpMultiplier = 2.2;  // Wider target for retracements
-            signal.slMultiplier = 1.0;  // Normal SL for retracements
-            signal.riskPercent = 0.75;  // Normal risk
-        }
-        
-        // Log signal with performance stats
-        const fibWR = this._modePerformance.FIB.trades > 0 ? 
-            Math.round((this._modePerformance.FIB.wins / this._modePerformance.FIB.trades) * 100) : 0;
-        const breakoutWR = this._modePerformance.BREAKOUT.trades > 0 ? 
-            Math.round((this._modePerformance.BREAKOUT.wins / this._modePerformance.BREAKOUT.trades) * 100) : 0;
-        
-        console.log(`[Jump75 ${config.name}] 🎯 ${signal.adaptiveMode} mode → ${signal.type} signal | Score ${signal.score} | ${signal.factors.join(' · ')}`);
-        console.log(`   Performance: FIB: ${fibWR}% (${this._modePerformance.FIB.trades}) | BREAKOUT: ${breakoutWR}% (${this._modePerformance.BREAKOUT.trades}) | Active: ${activeMode}`);
+        console.log(`[Jump75 ${config.name}] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')} | Market: ${this._marketState}`);
         
         return signal;
     },
@@ -471,15 +381,17 @@ export const Jump75Strategy = {
         };
     },
 
+    // ───────────────────────────────────────────────────────────────
+    // HELPER METHODS
+    // ───────────────────────────────────────────────────────────────
     _getM15Trend(m15Candles) {
         if (m15Candles.length < 20) return 'NEUTRAL';
         const ema8 = this._calculateEMA(m15Candles, 8);
         const ema21 = this._calculateEMA(m15Candles, 21);
         if (!ema8 || !ema21) return 'NEUTRAL';
         const latest = m15Candles[m15Candles.length - 1];
-        const prev = m15Candles[m15Candles.length - 2];
-        if (latest.close > ema8 && ema8 > ema21 && latest.close > prev.close) return 'UP';
-        if (latest.close < ema8 && ema8 < ema21 && latest.close < prev.close) return 'DOWN';
+        if (latest.close > ema8 && ema8 > ema21) return 'UP';
+        if (latest.close < ema8 && ema8 < ema21) return 'DOWN';
         return 'NEUTRAL';
     },
 
@@ -487,7 +399,7 @@ export const Jump75Strategy = {
         if (m5Candles.length < 10) return false;
         const latest = m5Candles[m5Candles.length - 1];
         const avgVolume = m5Candles.slice(-10).reduce((s, c) => s + (c.volume || 0), 0) / 10;
-        return (latest.volume || 0) > avgVolume * 1.2;
+        return (latest.volume || 0) > avgVolume * 1.3;  // 30% volume spike required
     },
 
     _updateH4Structure(h4Candles) {
@@ -536,6 +448,9 @@ export const Jump75Strategy = {
         return atr / period;
     },
 
+    // ───────────────────────────────────────────────────────────────
+    // TRADE CLOSE CHECK
+    // ───────────────────────────────────────────────────────────────
     checkClose(currentCandle, trade) {
         if (!currentCandle || !trade) return null;
         let closeAction = null;
@@ -565,20 +480,16 @@ export const Jump75Strategy = {
         }
         
         if (closeAction) {
-            // Record trade with adaptive mode if available
-            const mode = trade.adaptiveMode || (trade.factors?.includes('BREAKOUT') ? 'BREAKOUT' : 'FIB');
+            const mode = trade.adaptiveMode || (trade.factors?.some(f => f.includes('BREAKOUT')) ? 'BREAKOUT' : 'FIB');
             this.recordTrade(outcome, pnl, mode);
-            
-            if (outcome === 'TP') {
-                this._consecutiveLosses = 0;
-            } else {
-                this._consecutiveLosses++;
-            }
         }
         
         return closeAction;
     },
 
+    // ───────────────────────────────────────────────────────────────
+    // PUBLIC API METHODS (FOR UI INTEGRATION)
+    // ───────────────────────────────────────────────────────────────
     getStats() {
         const config = this._getModeConfig();
         const fibPerf = this._modePerformance.FIB;
@@ -590,37 +501,30 @@ export const Jump75Strategy = {
             dailyProfit: this._dailyProfit,
             tradesCount: this._tradesCount,
             consecutiveLosses: this._consecutiveLosses,
-            winRate: this._tradesCount > 0 ? (((this._tradesCount - this._consecutiveLosses) / this._tradesCount) * 100).toFixed(1) : 0,
+            winRate: this._tradesCount > 0 ? Math.round((this._tradesCount - this._consecutiveLosses) / this._tradesCount * 100) : 0,
             adaptiveMode: this._currentMode,
-            learningRate: Math.round(this._learningRate * 100),
+            marketState: this._marketState,
             performance: {
-                FIB: {
-                    wins: fibPerf.wins,
-                    losses: fibPerf.losses,
-                    trades: fibPerf.trades,
-                    winRate: fibPerf.trades > 0 ? Math.round((fibPerf.wins / fibPerf.trades) * 100) : 0,
-                    avgPnL: fibPerf.trades > 0 ? (fibPerf.totalPnL / fibPerf.trades).toFixed(2) : 0
-                },
-                BREAKOUT: {
-                    wins: breakoutPerf.wins,
-                    losses: breakoutPerf.losses,
-                    trades: breakoutPerf.trades,
-                    winRate: breakoutPerf.trades > 0 ? Math.round((breakoutPerf.wins / breakoutPerf.trades) * 100) : 0,
-                    avgPnL: breakoutPerf.trades > 0 ? (breakoutPerf.totalPnL / breakoutPerf.trades).toFixed(2) : 0
-                }
+                FIB: { wins: fibPerf.wins, losses: fibPerf.losses, trades: fibPerf.trades, winRate: fibPerf.trades > 0 ? Math.round(fibPerf.wins / fibPerf.trades * 100) : 0 },
+                BREAKOUT: { wins: breakoutPerf.wins, losses: breakoutPerf.losses, trades: breakoutPerf.trades, winRate: breakoutPerf.trades > 0 ? Math.round(breakoutPerf.wins / breakoutPerf.trades * 100) : 0 }
             }
         };
     },
 
+    getCurrentConfig() {
+        return this._getModeConfig();
+    },
+
     setMode(modeNumber) {
         if (![0, 1, 2, 3].includes(modeNumber)) {
-            console.warn(`[Jump75] Invalid mode ${modeNumber}. Using BALANCED (1) instead.`);
-            this.QUALITY_MODE = 1;
+            console.warn(`[Jump75] Invalid mode ${modeNumber}. Using QUALITY (2) instead.`);
+            this.QUALITY_MODE = 2;
             return false;
         }
         this.QUALITY_MODE = modeNumber;
         const config = this._getModeConfig();
-        console.log(`[Jump75] Quality mode switched to ${config.displayName}`);
+        console.log(`[Jump75] ✅ Mode switched to ${config.displayName}`);
+        console.log(`   Min Score: ${config.minScore} | Min Momentum: ${config.minMomentum}`);
         return true;
     },
 
@@ -640,7 +544,7 @@ export const Jump75Strategy = {
         this._currentMode = 'FIB';
         this._learningRate = 0.1;
         this._modeConfidence = 0.5;
-        console.log(`[Jump75] 🧠 Learning data reset - starting fresh`);
+        console.log(`[Jump75] 🧠 Learning data reset`);
         return true;
     },
 
