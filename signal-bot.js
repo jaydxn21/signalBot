@@ -2914,7 +2914,7 @@ function setupQualityModeSelector(card, id) {
                 QUANTITY: "⚡",
                 BALANCED: "⚖️",
                 QUALITY: "🎯",
-                ULTRA: "🔥"
+                ULTRA: "👑"
             };
 
             badge.textContent =
@@ -3097,6 +3097,13 @@ function _createBotCard(id, savedConfig) {
     document.getElementById('bot-list').appendChild(card);
     if (!savedConfig) log('Bot card created — select a symbol and strategy', 'info');
 }
+window._botQualityModes = window._botQualityModes || {};
+window.QUALITY_MODE_DESCRIPTIONS = {
+    0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
+    1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
+    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.4 },
+    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.6 }
+};
 
 // ─────────────────────────────────────────────────────────────
 // WINDOW HELPERS
@@ -3135,7 +3142,7 @@ window.setBotRunning = function(id, isRunning) {
     if (activeEl) {
         const count = document.querySelectorAll('.bot-card.running').length;
         activeEl.textContent = count;
-        activeEl.style.color = count > 0 ? 'var(--accent)' : 'var(--text-muted)';
+        activeEl.style.color = count >  0 ? 'var(--accent)' : 'var(--text-muted)';
     };
 };
 
