@@ -34,6 +34,29 @@ import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
+import { Jump75StrategyV21 } from './js/strategies/jump75.js';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUALITY MODE STORAGE (MUST BE INITIALIZED BEFORE ANY FUNCTION THAT USES IT)
+// ═══════════════════════════════════════════════════════════════════════════
+window._botQualityModes = window._botQualityModes || {};
+window.QUALITY_MODE_DESCRIPTIONS = {
+    0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
+    1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
+    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.4 },
+    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.6 }
+};
+
+if (window.Jump75Strategy && !window.Jump75Strategy.getAllModes) {
+    window.Jump75Strategy.getAllModes = function() {
+        return {
+            0: { name: 'QUANTITY', displayName: 'QUANTITY' },
+            1: { name: 'BALANCED', displayName: 'BALANCED' },
+            2: { name: 'QUALITY', displayName: 'QUALITY' },
+            3: { name: 'ULTRA', displayName: 'ULTRA' }
+        };
+    };
+}
 
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET CONNECTION TO LOCAL BRIDGE (bridge.cjs)
@@ -3097,118 +3120,3 @@ function _createBotCard(id, savedConfig) {
     document.getElementById('bot-list').appendChild(card);
     if (!savedConfig) log('Bot card created — select a symbol and strategy', 'info');
 }
-window._botQualityModes = window._botQualityModes || {};
-window.QUALITY_MODE_DESCRIPTIONS = {
-    0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
-    1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
-    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.4 },
-    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.6 }
-};
-
-// ─────────────────────────────────────────────────────────────
-// WINDOW HELPERS
-// ─────────────────────────────────────────────────────────────
-window.getBotConfig = function(id) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return null;
-    const strategy = card.querySelector('.bot-strategy-select').value;
-    const tfRaw    = parseInt(card.querySelector('.bot-tf-select').value);
-    const tf       = (strategy === 'nova' || strategy === 'kismet') ? 300 : tfRaw;
-    return {
-        strategy,
-        symbol:              card.querySelector('.bot-symbol-select').value,
-        tf,
-        lotSize:             parseFloat(card.querySelector('.bot-lot-input')?.value)     || 0.01,
-        phantomLot:          parseFloat(card.querySelector('.phantom-lot-input')?.value) || 0.01,
-        phantomCooldownBars: 3,
-    };
-};
-
-window.setBotRunning = function(id, isRunning) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const btn = card.querySelector('.bot-toggle-btn');
-    const dot = card.querySelector('.bot-status-dot');
-    if (isRunning) {
-        card.classList.replace('stopped', 'running');
-        btn.textContent = 'STOP BOT';
-        dot.className   = 'status-dot status-online bot-status-dot';
-    } else {
-        card.classList.replace('running', 'stopped');
-        btn.textContent = 'START BOT';
-        dot.className   = 'status-dot status-offline bot-status-dot';
-    };
-    const activeEl = document.getElementById('stat-active');
-    if (activeEl) {
-        const count = document.querySelectorAll('.bot-card.running').length;
-        activeEl.textContent = count;
-        activeEl.style.color = count >  0 ? 'var(--accent)' : 'var(--text-muted)';
-    };
-};
-
-window.setBotOnline = function(id) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const dot = card.querySelector('.bot-status-dot');
-    if (dot) dot.className = 'status-dot status-online bot-status-dot';
-};
-
-window.registerBotSignal = function(id, type, price, label, confidence) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (card && confidence) {
-        let badge = card.querySelector('.bot-confidence-badge');
-        if (!badge) {
-            badge = document.createElement('div');
-            badge.className = 'bot-confidence-badge';
-            badge.style.cssText = `
-                font-size:0.58rem;font-weight:700;letter-spacing:0.06em;
-                padding:3px 8px;border-radius:6px;margin-top:6px;
-                text-align:center;font-family:var(--font-mono);
-            `;
-            const wlRow = card.querySelector('.bot-card-stats');
-            if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
-        };
-        badge.textContent = `SIGNAL ${type} · ${confidence.grade} (${confidence.score}%)`;
-        badge.style.background = confidence.color + '22';
-        badge.style.color      = confidence.color;
-        badge.style.border     = `1px solid ${confidence.color}55`;
-        badge.style.borderRadius = '6px';
-        badge.style.padding = '3px 8px';
-        badge.style.fontSize = '0.65rem';
-        badge.style.fontWeight = '600';
-        clearTimeout(badge._timer);
-        badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
-    };
-};
-
-window.registerBotWin = function(id, pnl) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const bot = bots[id];
-    if (bot) { bot.wins++; bot.pnl += pnl; };
-    const winsEl = card.querySelector('.bot-wins');
-    const pnlEl  = card.querySelector('.bot-pnl');
-    if (winsEl && bot) winsEl.textContent = bot.wins;
-    if (pnlEl  && bot) {
-        pnlEl.textContent = bot.pnl.toFixed(2);
-        pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
-};
-
-window.registerBotLoss = function(id, pnl) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const bot = bots[id];
-    if (bot) { bot.losses++; bot.pnl -= pnl; };
-    const lossEl = card.querySelector('.bot-losses');
-    const pnlEl  = card.querySelector('.bot-pnl');
-    if (lossEl && bot) lossEl.textContent = bot.losses;
-    if ( pnlEl  && bot) {
-        pnlEl.textContent = bot.pnl.toFixed(2);
-        pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
-};
-
-function log(msg, type = 'neutral') { UIManager.log(msg, type); };
-
-document.addEventListener('DOMContentLoaded', init);
