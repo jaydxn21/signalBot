@@ -2861,108 +2861,106 @@ function logout() {
 };
 
 
-// Add this function to your signal-bot.js (replace any existing version)
+// Add this function to signal-bot.js (replace any existing version)
 
-function setupQualityModeSelector(card, id) {
-    const container = card.querySelector(".quality-mode-selector");
-    const select = card.querySelector(".quality-mode-select");
-    const badge = card.querySelector(".quality-mode-badge");
-    const info = card.querySelector(".quality-mode-info");
-
-    if (!container || !select) {
-        console.warn(`[Bot ${id}] Quality mode UI missing`);
+function setupQualityModeSelector(card, botId) {
+    // Find elements
+    const stratSelect = card.querySelector('.bot-strategy-select');
+    const modeContainer = card.querySelector('.quality-mode-selector');
+    const modeSelect = card.querySelector('.quality-mode-select');
+    const modeBadge = card.querySelector('.quality-mode-badge');
+    const modeInfo = card.querySelector('.quality-mode-info');
+    
+    if (!modeContainer || !modeSelect) {
+        console.warn(`[Bot ${botId}] Quality mode elements not found`);
         return;
     }
-
-    // Make sure global storage exists
-    if (!window._botQualityModes) window._botQualityModes = {};
-
-    // Show the selector container
-    container.style.display = "block";
-
-    // Quality mode configurations (UI display)
-    const modeOptions = {
-        0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15, cooldown: 1 },
-        1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25, cooldown: 2 },
-        2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.35, cooldown: 3 },
-        3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.45, cooldown: 5 }
+    
+    // Mode configurations
+    const modes = {
+        0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15, cooldown: 1, color: '#ec4899' },
+        1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25, cooldown: 2, color: '#2563eb' },
+        2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.35, cooldown: 3, color: '#059669' },
+        3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.45, cooldown: 5, color: '#9333ea' }
     };
-
+    
     // Populate dropdown
-    select.innerHTML = "";
+    modeSelect.innerHTML = '';
     for (let i = 0; i <= 3; i++) {
-        const option = document.createElement("option");
+        const option = document.createElement('option');
         option.value = i;
-        const mode = modeOptions[i];
-        option.textContent = `${mode.emoji} ${mode.name} (${mode.minScore}+ score, ${mode.cooldown}m)`;
-        select.appendChild(option);
+        const mode = modes[i];
+        option.textContent = `${mode.emoji} ${mode.name} (Min Score: ${mode.minScore})`;
+        modeSelect.appendChild(option);
     }
-
+    
+    // Initialize global storage
+    if (!window._botQualityModes) window._botQualityModes = {};
+    
     // Get saved mode or default to 1 (BALANCED)
-    const savedMode = window._botQualityModes[id] ?? 1;
-    select.value = savedMode;
-
-    // Apply mode to Jump75Strategy if available
-    function applyModeToStrategy(mode) {
-        if (window.Jump75Strategy) {
-            if (typeof window.Jump75Strategy.setMode === 'function') {
-                window.Jump75Strategy.setMode(mode);
-            } else {
-                window.Jump75Strategy.QUALITY_MODE = mode;
-            }
-            console.log(`[Jump75] Mode applied: ${modeOptions[mode]?.name || mode}`);
-        }
-    }
-
-    // Update the UI badge and info display
-    function updateQualityModeDisplay() {
-        const modeValue = parseInt(select.value);
-        const mode = modeOptions[modeValue];
-        
+    const savedMode = window._botQualityModes[botId] ?? 1;
+    modeSelect.value = savedMode;
+    
+    // Function to update UI
+    function updateModeUI() {
+        const modeValue = parseInt(modeSelect.value);
+        const mode = modes[modeValue];
         if (!mode) return;
         
-        // Update badge
-        if (badge) {
-            badge.textContent = `${mode.emoji} ${mode.name}`;
-            const colors = { 0: '#ec4899', 1: '#2563eb', 2: '#059669', 3: '#9333ea' };
-            const color = colors[modeValue] || '#2563eb';
-            badge.style.background = color + '15';
-            badge.style.color = color;
+        if (modeBadge) {
+            modeBadge.textContent = `${mode.emoji} ${mode.name}`;
+            modeBadge.style.background = mode.color + '15';
+            modeBadge.style.color = mode.color;
         }
         
-        // Update info panel
-        if (info) {
-            info.innerHTML = `Score: <b>${mode.minScore}</b> | Momentum: <b>${mode.minMomentum}</b> | Cooldown: <b>${mode.cooldown}m</b>`;
+        if (modeInfo) {
+            modeInfo.innerHTML = `Score: <b>${mode.minScore}</b> | Momentum: <b>${mode.minMomentum}</b> | Cooldown: <b>${mode.cooldown}m</b>`;
         }
-        
-        console.log(`[Bot ${id}] Quality Mode → ${mode.name}`);
     }
-
-    // Initial UI update
-    updateQualityModeDisplay();
     
-    // Apply saved mode to strategy on initialization
-    applyModeToStrategy(savedMode);
-
-    // Handle mode change
-    select.addEventListener("change", (e) => {
-        const mode = Number(e.target.value);
-        
-        // Update storage
-        window._botQualityModes[id] = mode;
-        
-        // Update UI
-        updateQualityModeDisplay();
-        
-        // Apply to strategy
-        applyModeToStrategy(mode);
-        
-        // Log to UI
-        const modeDesc = modeOptions[mode];
-        if (modeDesc) {
-            log(`🎯 Jump75 Quality Mode: ${modeDesc.emoji} ${modeDesc.name} (Min Score: ${modeDesc.minScore})`, 'info');
+    // Apply mode to strategy
+    function applyModeToStrategy(modeValue) {
+        if (window.Jump75Strategy) {
+            if (typeof window.Jump75Strategy.setMode === 'function') {
+                window.Jump75Strategy.setMode(modeValue);
+            } else {
+                window.Jump75Strategy.QUALITY_MODE = modeValue;
+            }
+            console.log(`[Jump75] Mode set to ${modes[modeValue]?.name || modeValue}`);
         }
+    }
+    
+    // Show/hide based on selected strategy
+    function checkAndToggle() {
+        const selectedStrategy = stratSelect.value;
+        if (selectedStrategy === 'jump75') {
+            modeContainer.style.display = 'block';
+            updateModeUI();
+            // Apply saved mode when strategy is selected
+            const currentMode = parseInt(modeSelect.value);
+            applyModeToStrategy(currentMode);
+        } else {
+            modeContainer.style.display = 'none';
+        }
+    }
+    
+    // Initial check
+    checkAndToggle();
+    
+    // Listen for strategy change
+    stratSelect.addEventListener('change', checkAndToggle);
+    
+    // Listen for mode change
+    modeSelect.addEventListener('change', () => {
+        const modeValue = parseInt(modeSelect.value);
+        window._botQualityModes[botId] = modeValue;
+        updateModeUI();
+        applyModeToStrategy(modeValue);
+        const mode = modes[modeValue];
+        log(`🎯 Jump75 Quality Mode: ${mode.emoji} ${mode.name}`, 'info');
     });
+    
+    console.log(`[Bot ${botId}] Quality mode selector initialized`);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -3043,7 +3041,8 @@ function _createBotCard(id, savedConfig) {
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
     
-    // ✅ SETUP QUALITY MODE SELECTOR FOR JUMP75
+    // ✅ SETUP QUALITY MODE SELECTOR FOR JUMP75 - ADD THIS LINE
+    setupQualityModeSelector(card, id);
     
     const configureBtn = card.querySelector('.phantom-configure-btn');
     if (configureBtn) {
