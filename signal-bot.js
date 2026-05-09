@@ -33,7 +33,7 @@ import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
-import { Jump75Strategy } from './js/strategies/jump75-strategy-v21.js';
+import { Jump75Strategy } from './js/strategies/jump75.js';
 
 window.Jump75Strategy = window.Jump75Strategy || Jump75Strategy;
 
