@@ -2863,14 +2863,8 @@ function logout() {
 
 function setupQualityModeSelector(card, id) {
     const container = card.querySelector(".quality-mode-selector");
-
-    // Actual <select>
     const select = card.querySelector(".quality-mode-select");
-
-    // Badge
     const badge = card.querySelector(".quality-mode-badge");
-
-    // Info panel
     const info = card.querySelector(".quality-mode-info");
 
     if (!container || !select) {
@@ -2878,86 +2872,52 @@ function setupQualityModeSelector(card, id) {
         return;
     }
 
-    // Show UI
     container.style.display = "block";
-
-    // Get all modes from strategy
-    const modes = Jump75Strategy.getAllModes();
 
     // Populate dropdown
     select.innerHTML = "";
-
-    Object.entries(modes).forEach(([modeNumber, config]) => {
-
+    ['QUANTITY', 'BALANCED', 'QUALITY', 'ULTRA'].forEach((name, idx) => {
         const option = document.createElement("option");
-
-        option.value = modeNumber;
-        option.textContent = config.displayName;
-
+        option.value = idx;
+        option.textContent = name;
         select.appendChild(option);
     });
 
-    // Set current mode
-    select.value = Jump75Strategy.QUALITY_MODE;
+    // Set current mode using NEW method
+    select.value = Jump75Strategy.getCurrentMode();
 
     // UI updater
     function updateQualityModeDisplay() {
-
         const config = Jump75Strategy.getCurrentConfig();
-
-        // Badge
+        
         if (badge) {
-
             const emojiMap = {
                 QUANTITY: "⚡",
                 BALANCED: "⚖️",
                 QUALITY: "🎯",
                 ULTRA: "👑"
             };
-
-            badge.textContent =
-                `${emojiMap[config.name] || "⚙️"} ${config.name}`;
+            badge.textContent = `${emojiMap[config.name] || "⚙️"} ${config.name}`;
         }
-
-        // Info panel
+        
         if (info) {
-
-            info.innerHTML = `
-                Score: <b>${config.minScore}</b> |
-                Momentum: <b>${config.minMomentum}</b><br>
-                Cooldown: <b>${Math.round(config.cooldownMs / 60000)}m</b> |
-                Risk: <b>${config.riskPercent}%</b>
-            `;
+            info.innerHTML = `Score: <b>${config.minScore}</b> | Cooldown: <b>${Math.round(config.cooldownMs / 60000)}m</b>`;
         }
-
-        console.log(
-            `[Bot ${id}] Mode → ${config.displayName}`
-        );
+        
+        console.log(`[Bot ${id}] Mode → ${config.displayName}`);
     }
 
-    // Initial UI sync
     updateQualityModeDisplay();
 
-    // Change handler
     select.addEventListener("change", (e) => {
-
         const mode = Number(e.target.value);
-
-        // Update strategy
         Jump75Strategy.setMode(mode);
-
-        // Refresh UI
         updateQualityModeDisplay();
-
-        // Store mode on card
         card.dataset.qualityMode = mode;
-
-        console.log(
-            `[Bot ${id}] Switched to ${Jump75Strategy.getCurrentConfig().displayName}`
-        );
+        window._botQualityModes[id] = mode;
+        console.log(`[Bot ${id}] Switched to ${Jump75Strategy.getCurrentConfig().displayName}`);
     });
 }
-
 
 // ─────────────────────────────────────────────────────────────
 // CREATE BOT CARD
@@ -3038,7 +2998,6 @@ function _createBotCard(id, savedConfig) {
     showHidePhantom();
     
     // ✅ SETUP QUALITY MODE SELECTOR FOR JUMP75
-    setupQualityModeSelector(card, id);
     
     const configureBtn = card.querySelector('.phantom-configure-btn');
     if (configureBtn) {
