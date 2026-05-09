@@ -33,31 +33,7 @@ import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
-import { Jump75Strategy } from './js/strategies/jump75.js';
-
-window.Jump75Strategy = window.Jump75Strategy || Jump75Strategy;
-
-// ═══════════════════════════════════════════════════════════════════════════
-// QUALITY MODE STORAGE (MUST BE INITIALIZED BEFORE ANY FUNCTION THAT USES IT)
-// ═══════════════════════════════════════════════════════════════════════════
-window._botQualityModes = window._botQualityModes || {};
-window.QUALITY_MODE_DESCRIPTIONS = {
-    0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
-    1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
-    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.4 },
-    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.6 }
-};
-
-if (window.Jump75Strategy && !window.Jump75Strategy.getAllModes) {
-    window.Jump75Strategy.getAllModes = function() {
-        return {
-            0: { name: 'QUANTITY', displayName: 'QUANTITY' },
-            1: { name: 'BALANCED', displayName: 'BALANCED' },
-            2: { name: 'QUALITY', displayName: 'QUALITY' },
-            3: { name: 'ULTRA', displayName: 'ULTRA' }
-        };
-    };
-}
+import { Jump75Strategy } from './js/strategies/jump75.js'; 
 
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET CONNECTION TO LOCAL BRIDGE (bridge.cjs)
@@ -332,7 +308,7 @@ const MT5_SYMBOL_MAP = {
     'Step Index 200':      'Step Index 200',
     'Crash 1000 Index':    'Crash 1000 Index',
     'Boom 1000 Index':     'Boom 1000 Index',
-    'Crash 500 Index':      'Crash 500 Index',
+    'Crash 500 Index':     'Crash 500 Index',
     'Boom 500 Index':      'Boom 500 Index',
     'Volatility 10 Index': 'Volatility 10 Index',
     'Volatility 25 Index': 'Volatility 25 Index',
@@ -2886,9 +2862,17 @@ function logout() {
 
 
 function setupQualityModeSelector(card, id) {
+
+    // Wrapper
     const container = card.querySelector(".quality-mode-selector");
+
+    // Actual <select>
     const select = card.querySelector(".quality-mode-select");
+
+    // Badge
     const badge = card.querySelector(".quality-mode-badge");
+
+    // Info panel
     const info = card.querySelector(".quality-mode-info");
 
     if (!container || !select) {
@@ -2896,76 +2880,83 @@ function setupQualityModeSelector(card, id) {
         return;
     }
 
+    // Show UI
     container.style.display = "block";
 
-    let modes = {};
-    if (window.Jump75Strategy && typeof window.Jump75Strategy.getAllModes === 'function') {
-        modes = window.Jump75Strategy.getAllModes();
-    } else {
-        modes = {
-            0: { name: 'QUANTITY', displayName: 'QUANTITY' },
-            1: { name: 'BALANCED', displayName: 'BALANCED' },
-            2: { name: 'QUALITY', displayName: 'QUALITY' },
-            3: { name: 'ULTRA', displayName: 'ULTRA' }
-        };
-    }
+    // Get all modes from strategy
+    const modes = Jump75Strategy.getAllModes();
 
+    // Populate dropdown
     select.innerHTML = "";
+
     Object.entries(modes).forEach(([modeNumber, config]) => {
+
         const option = document.createElement("option");
+
         option.value = modeNumber;
-        option.textContent = config.displayName || config.name;
+        option.textContent = config.displayName;
+
         select.appendChild(option);
     });
 
-    const currentMode = (window.Jump75Strategy && window.Jump75Strategy.QUALITY_MODE !== undefined)
-        ? window.Jump75Strategy.QUALITY_MODE
-        : 1;
-    select.value = currentMode;
+    // Set current mode
+    select.value = Jump75Strategy.QUALITY_MODE;
 
+    // UI updater
     function updateQualityModeDisplay() {
-        let config = { name: 'BALANCED', minScore: 65, minMomentum: 0.25, cooldownMs: 60000, riskPercent: 0.75 };
-        if (window.Jump75Strategy && typeof window.Jump75Strategy.getCurrentConfig === 'function') {
-            config = window.Jump75Strategy.getCurrentConfig();
-        }
 
+        const config = Jump75Strategy.getCurrentConfig();
+
+        // Badge
         if (badge) {
-            const emojiMap = { QUANTITY: "⚡", BALANCED: "⚖️", QUALITY: "🎯", ULTRA: "👑" };
-            badge.textContent = `${emojiMap[config.name] || "⚙️"} ${config.name}`;
+
+            const emojiMap = {
+                QUANTITY: "⚡",
+                BALANCED: "⚖️",
+                QUALITY: "🎯",
+                ULTRA: "👑"
+            };
+
+            badge.textContent =
+                `${emojiMap[config.name] || "⚙️"} ${config.name}`;
         }
 
+        // Info panel
         if (info) {
+
             info.innerHTML = `
-                Score: <b>${config.minScore || 65}</b> |
-                Momentum: <b>${config.minMomentum || 0.25}</b><br>
-                Cooldown: <b>${Math.round((config.cooldownMs || 60000) / 60000)}m</b> |
-                Risk: <b>${config.riskPercent || 0.75}%</b>
+                Score: <b>${config.minScore}</b> |
+                Momentum: <b>${config.minMomentum}</b><br>
+                Cooldown: <b>${Math.round(config.cooldownMs / 60000)}m</b> |
+                Risk: <b>${config.riskPercent}%</b>
             `;
         }
 
-        console.log(`[Bot ${id}] Mode → ${config.displayName || config.name}`);
+        console.log(
+            `[Bot ${id}] Mode → ${config.displayName}`
+        );
     }
 
+    // Initial UI sync
     updateQualityModeDisplay();
 
+    // Change handler
     select.addEventListener("change", (e) => {
+
         const mode = Number(e.target.value);
 
-        if (window.Jump75Strategy) {
-            if (typeof window.Jump75Strategy.setMode === 'function') {
-                window.Jump75Strategy.setMode(mode);
-            } else {
-                window.Jump75Strategy.QUALITY_MODE = mode;
-            }
-        }
+        // Update strategy
+        Jump75Strategy.setMode(mode);
 
+        // Refresh UI
         updateQualityModeDisplay();
-        card.dataset.qualityMode = mode;
-        if (!window._botQualityModes) window._botQualityModes = {};
-        window._botQualityModes[id] = mode;
 
-        const modeDesc = window.QUALITY_MODE_DESCRIPTIONS?.[mode] || { name: 'BALANCED', emoji: '⚖️' };
-        log(`🎯 Jump75 Quality Mode: ${modeDesc.emoji} ${modeDesc.name}`, 'info');
+        // Store mode on card
+        card.dataset.qualityMode = mode;
+
+        console.log(
+            `[Bot ${id}] Switched to ${Jump75Strategy.getCurrentConfig().displayName}`
+        );
     });
 }
 
@@ -3106,3 +3097,118 @@ function _createBotCard(id, savedConfig) {
     document.getElementById('bot-list').appendChild(card);
     if (!savedConfig) log('Bot card created — select a symbol and strategy', 'info');
 }
+window._botQualityModes = window._botQualityModes || {};
+window.QUALITY_MODE_DESCRIPTIONS = {
+    0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
+    1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
+    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.4 },
+    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.6 }
+};
+
+// ─────────────────────────────────────────────────────────────
+// WINDOW HELPERS
+// ─────────────────────────────────────────────────────────────
+window.getBotConfig = function(id) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (!card) return null;
+    const strategy = card.querySelector('.bot-strategy-select').value;
+    const tfRaw    = parseInt(card.querySelector('.bot-tf-select').value);
+    const tf       = (strategy === 'nova' || strategy === 'kismet') ? 300 : tfRaw;
+    return {
+        strategy,
+        symbol:              card.querySelector('.bot-symbol-select').value,
+        tf,
+        lotSize:             parseFloat(card.querySelector('.bot-lot-input')?.value)     || 0.01,
+        phantomLot:          parseFloat(card.querySelector('.phantom-lot-input')?.value) || 0.01,
+        phantomCooldownBars: 3,
+    };
+};
+
+window.setBotRunning = function(id, isRunning) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (!card) return;
+    const btn = card.querySelector('.bot-toggle-btn');
+    const dot = card.querySelector('.bot-status-dot');
+    if (isRunning) {
+        card.classList.replace('stopped', 'running');
+        btn.textContent = 'STOP BOT';
+        dot.className   = 'status-dot status-online bot-status-dot';
+    } else {
+        card.classList.replace('running', 'stopped');
+        btn.textContent = 'START BOT';
+        dot.className   = 'status-dot status-offline bot-status-dot';
+    };
+    const activeEl = document.getElementById('stat-active');
+    if (activeEl) {
+        const count = document.querySelectorAll('.bot-card.running').length;
+        activeEl.textContent = count;
+        activeEl.style.color = count >  0 ? 'var(--accent)' : 'var(--text-muted)';
+    };
+};
+
+window.setBotOnline = function(id) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (!card) return;
+    const dot = card.querySelector('.bot-status-dot');
+    if (dot) dot.className = 'status-dot status-online bot-status-dot';
+};
+
+window.registerBotSignal = function(id, type, price, label, confidence) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (card && confidence) {
+        let badge = card.querySelector('.bot-confidence-badge');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'bot-confidence-badge';
+            badge.style.cssText = `
+                font-size:0.58rem;font-weight:700;letter-spacing:0.06em;
+                padding:3px 8px;border-radius:6px;margin-top:6px;
+                text-align:center;font-family:var(--font-mono);
+            `;
+            const wlRow = card.querySelector('.bot-card-stats');
+            if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
+        };
+        badge.textContent = `SIGNAL ${type} · ${confidence.grade} (${confidence.score}%)`;
+        badge.style.background = confidence.color + '22';
+        badge.style.color      = confidence.color;
+        badge.style.border     = `1px solid ${confidence.color}55`;
+        badge.style.borderRadius = '6px';
+        badge.style.padding = '3px 8px';
+        badge.style.fontSize = '0.65rem';
+        badge.style.fontWeight = '600';
+        clearTimeout(badge._timer);
+        badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
+    };
+};
+
+window.registerBotWin = function(id, pnl) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (!card) return;
+    const bot = bots[id];
+    if (bot) { bot.wins++; bot.pnl += pnl; };
+    const winsEl = card.querySelector('.bot-wins');
+    const pnlEl  = card.querySelector('.bot-pnl');
+    if (winsEl && bot) winsEl.textContent = bot.wins;
+    if (pnlEl  && bot) {
+        pnlEl.textContent = bot.pnl.toFixed(2);
+        pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
+    };
+};
+
+window.registerBotLoss = function(id, pnl) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (!card) return;
+    const bot = bots[id];
+    if (bot) { bot.losses++; bot.pnl -= pnl; };
+    const lossEl = card.querySelector('.bot-losses');
+    const pnlEl  = card.querySelector('.bot-pnl');
+    if (lossEl && bot) lossEl.textContent = bot.losses;
+    if ( pnlEl  && bot) {
+        pnlEl.textContent = bot.pnl.toFixed(2);
+        pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
+    };
+};
+
+function log(msg, type = 'neutral') { UIManager.log(msg, type); };
+
+document.addEventListener('DOMContentLoaded', init);
