@@ -2862,8 +2862,6 @@ function logout() {
 
 
 function setupQualityModeSelector(card, id) {
-
-    // Wrapper
     const container = card.querySelector(".quality-mode-selector");
 
     // Actual <select>
