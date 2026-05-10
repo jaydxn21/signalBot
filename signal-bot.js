@@ -34,7 +34,7 @@ import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
-import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js'; 
+import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET CONNECTION TO LOCAL BRIDGE (bridge.cjs)

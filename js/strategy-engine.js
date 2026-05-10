@@ -7,7 +7,7 @@ import { MomentumStrategy }   from './strategies/momentum.js';
 import { SyntheticScalper }   from './strategies/synthetic-scalper.js';
 import { CryptoScalper }      from './strategies/crypto-scalper.js';
 import { RSIFadeScalper }     from './strategies/rsi-fade.js';
-import { RangeBoundaryScalper } from './strategies/range-boundary.js';
+import { RangeBoundaryScalper } from './strategies/range_boundary.js';
 import { VWAPReversionScalper } from './strategies/vwap-reversion.js';
 import { CandleSpeedScalper } from './strategies/candle-speed.js';
 import { LondonBreakout }     from './strategies/london-breakout.js';
