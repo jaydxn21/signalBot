@@ -34,6 +34,7 @@ import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
+import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js'; 
 
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET CONNECTION TO LOCAL BRIDGE (bridge.cjs)
@@ -1152,6 +1153,7 @@ function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; };
     if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; };
     if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; };
+    if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; };
     
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
@@ -1330,6 +1332,32 @@ async function _runJump75(bot, bar, atr, rsi) {
         return null;
     };
 };
+
+// ─────────────────────────────────────────────────────────────
+// RANGE BOUNDARY RUNNER
+// ─────────────────────────────────────────────────────────────
+async function _runRangeBoundary(bot, bar, atr, rsi) {
+    const signal = await RangeBoundaryStrategy.checkEntry(
+        bot.candles,
+        bot.rsiState,
+        bot.h4Candles,
+        atr
+    );
+    
+    if (!signal) return;
+    
+    const now = Date.now();
+    if (now - bot.lastFiredMs < 30000) return;
+    
+    const signalType = signal.type;
+    const displayType = signalType === 'BUY' ? 'BUY' : 'SELL';
+    
+    log(`🔄 RANGE BOUNDARY ${displayType} @ ${bar.close.toFixed(4)} | Score ${signal.score}`, 
+        displayType === 'BUY' ? 'buy' : 'sell');
+    
+    bot.lastFiredMs = now;
+    fireSignal(bot, signal, bar, atr, rsi, null);
+}
 
 // ─────────────────────────────────────────────────────────────
 // PHANTOM MULTI-TF CANDLE BUFFERS
