@@ -7,7 +7,7 @@ import { MomentumStrategy }   from './strategies/momentum.js';
 import { SyntheticScalper }   from './strategies/synthetic-scalper.js';
 import { CryptoScalper }      from './strategies/crypto-scalper.js';
 import { RSIFadeScalper }     from './strategies/rsi-fade.js';
-import { RangeBoundaryScalper } from './strategies/range_boundary.js';
+import { RangeBoundaryStrategy } from './strategies/range_boundary.js';
 import { VWAPReversionScalper } from './strategies/vwap-reversion.js';
 import { CandleSpeedScalper } from './strategies/candle-speed.js';
 import { LondonBreakout }     from './strategies/london-breakout.js';
@@ -27,7 +27,7 @@ const STRATEGY_MODULES = {
     synthetic_scalp: SyntheticScalper,
     crypto_scalp: CryptoScalper,
     rsi_fade: RSIFadeScalper,
-    range_boundary: RangeBoundaryScalper,
+    range_boundary: RangeBoundaryStrategy,
     vwap_reversion: VWAPReversionScalper,
     candle_speed: CandleSpeedScalper,
     london_breakout: LondonBreakout,
@@ -55,7 +55,7 @@ export class StrategyEngine {
             case 'synthetic_scalp': signal = SyntheticScalper.checkEntry(lowerTFCandles, atr);                               break;
             case 'crypto_scalp':    signal = CryptoScalper.checkEntry(lowerTFCandles, atr);                                  break;
             case 'rsi_fade':        signal = RSIFadeScalper.checkEntry(lowerTFCandles, atr);                                 break;
-            case 'range_boundary':  signal = RangeBoundaryScalper.checkEntry(lowerTFCandles, atr);                           break;
+            case 'range_boundary':  signal = RangeBoundaryStrategy.checkEntry(lowerTFCandles, atr);                           break;
             case 'vwap_reversion':  signal = VWAPReversionScalper.checkEntry(lowerTFCandles, atr);                           break;
             case 'candle_speed':    signal = CandleSpeedScalper.checkEntry(lowerTFCandles, atr);                             break;
             case 'london_breakout': signal = LondonBreakout.checkEntry(lowerTFCandles, atr);                                 break;
