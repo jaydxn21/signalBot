@@ -1,4 +1,4 @@
-// js/strategies/range_boundary.js - IMPROVED VERSION
+// js/strategies/range_boundary.js - WITH POSITION MANAGEMENT
 
 export const RangeBoundaryStrategy = {
     _lastTradeTime: 0,
@@ -6,12 +6,16 @@ export const RangeBoundaryStrategy = {
     _dailyProfit: 0,
     _tradesCount: 0,
     
+    // ← ADD THIS: Track if we have an open position
+    _hasOpenPosition: false,
+    _currentTicket: null,
+    
     // Quality mode (0=QUANTITY, 1=BALANCED, 2=QUALITY)
     QUALITY_MODE: 1,
     
     _getModeConfig() {
         const modes = {
-            0: { // QUANTITY - more trades
+            0: {
                 name: 'QUANTITY',
                 minScore: 50,
                 cooldownMs: 60000,
@@ -20,7 +24,7 @@ export const RangeBoundaryStrategy = {
                 riskPercent: 0.5,
                 lotMultiplier: 0.8
             },
-            1: { // BALANCED (DEFAULT)
+            1: {
                 name: 'BALANCED',
                 minScore: 60,
                 cooldownMs: 120000,
@@ -29,7 +33,7 @@ export const RangeBoundaryStrategy = {
                 riskPercent: 0.75,
                 lotMultiplier: 1.0
             },
-            2: { // QUALITY - fewer trades
+            2: {
                 name: 'QUALITY',
                 minScore: 70,
                 cooldownMs: 180000,
@@ -47,48 +51,43 @@ export const RangeBoundaryStrategy = {
         
         if (!candles || candles.length < 30) return null;
         
+        // ← ADD THIS: Don't enter if we already have an open position
+        if (this._hasOpenPosition) {
+            console.log(`[RangeBoundary] Skipping entry - already have open position`);
+            return null;
+        }
+        
         const now = Date.now();
         if (now - this._lastTradeTime < config.cooldownMs) return null;
         if (this._consecutiveLosses >= 2 && now - this._lastTradeTime < config.cooldownMs * 2) return null;
         
-        // Get latest candles
         const bar = candles[candles.length - 1];
         const prev = candles[candles.length - 2];
         if (!bar || !prev) return null;
         
-        // Calculate indicators
         const rsi = this._calculateRSI(candles, rsiState, 14);
         const bb = this._calculateBB(candles, 20, 2);
         const atrValue = atr || this._calculateATR(candles, 14);
         if (!bb || !atrValue) return null;
         
-        // Price position within Bollinger Bands
         const nearUpper = bar.close > bb.upper - (atrValue * 0.3);
         const nearLower = bar.close < bb.lower + (atrValue * 0.3);
         
-        // Candle patterns for confirmation
         const bullishReversal = prev.close < prev.open && bar.close > bar.open;
         const bearishReversal = prev.close > prev.open && bar.close < bar.open;
         const longLowerWick = (bar.low - Math.min(bar.open, bar.close)) > Math.abs(bar.close - bar.open) * 1.5;
         const longUpperWick = (bar.high - Math.max(bar.open, bar.close)) > Math.abs(bar.close - bar.open) * 1.5;
         
-        // Volume confirmation
         const avgVolume = candles.slice(-10, -1).reduce((s, c) => s + (c.volume || 500), 0) / 9;
         const volumeSpike = (bar.volume || 500) > avgVolume * 1.3;
         
         let signal = null;
         let score = config.minScore;
         
-        // ─────────────────────────────────────────────────────────
-        // LONG SIGNAL: Price near lower BB + RSI oversold
-        // ─────────────────────────────────────────────────────────
+        // LONG SIGNAL
         if (rsi !== null && rsi <= config.rsiOversold && nearLower) {
             score = config.minScore;
-            
-            // RSI extreme bonus
             if (rsi <= config.rsiOversold - 10) score += 10;
-            
-            // Pattern bonuses
             if (bullishReversal) score += 10;
             if (longLowerWick) score += 8;
             if (volumeSpike) score += 5;
@@ -98,8 +97,8 @@ export const RangeBoundaryStrategy = {
                     type: 'BUY',
                     entry: bar.close,
                     score: Math.min(score, 95),
-                    tpMultiplier: 1.8,
-                    slMultiplier: 1.2,
+                    tpMultiplier: 1.5,  // ← REDUCED from 1.8 to 1.5
+                    slMultiplier: 0.8,   // ← REDUCED from 1.2 to 0.8
                     riskPercent: config.riskPercent,
                     lotMultiplier: config.lotMultiplier,
                     factors: [
@@ -112,16 +111,10 @@ export const RangeBoundaryStrategy = {
             }
         }
         
-        // ─────────────────────────────────────────────────────────
-        // SHORT SIGNAL: Price near upper BB + RSI overbought
-        // ─────────────────────────────────────────────────────────
+        // SHORT SIGNAL
         if (!signal && rsi !== null && rsi >= config.rsiOverbought && nearUpper) {
             score = config.minScore;
-            
-            // RSI extreme bonus
             if (rsi >= config.rsiOverbought + 10) score += 10;
-            
-            // Pattern bonuses
             if (bearishReversal) score += 10;
             if (longUpperWick) score += 8;
             if (volumeSpike) score += 5;
@@ -131,8 +124,8 @@ export const RangeBoundaryStrategy = {
                     type: 'SELL',
                     entry: bar.close,
                     score: Math.min(score, 95),
-                    tpMultiplier: 1.8,
-                    slMultiplier: 1.2,
+                    tpMultiplier: 1.5,  // ← REDUCED
+                    slMultiplier: 0.8,   // ← REDUCED
                     riskPercent: config.riskPercent,
                     lotMultiplier: config.lotMultiplier,
                     factors: [
@@ -153,8 +146,10 @@ export const RangeBoundaryStrategy = {
             
             this._lastTradeTime = now;
             this._tradesCount++;
+            this._hasOpenPosition = true;  // ← MARK THAT WE HAVE A POSITION
             
             console.log(`[RangeBoundary ${config.name}] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')}`);
+            console.log(`   Entry: ${signal.entry.toFixed(2)} | TP: ${signal.tp.toFixed(2)} | SL: ${signal.sl.toFixed(2)}`);
             
             return signal;
         }
@@ -165,34 +160,44 @@ export const RangeBoundaryStrategy = {
     checkClose(currentCandle, trade) {
         if (!currentCandle || !trade) return null;
         
+        let closed = false;
+        
         if (trade.type === 'BUY') {
             if (currentCandle.high >= trade.tp) {
                 this._consecutiveLosses = 0;
                 this._dailyProfit += (trade.tp - trade.entry) * (trade.lotSize || 0.01);
-                return { action: 'CLOSE', reason: 'TP' };
-            }
-            if (currentCandle.low <= trade.sl) {
+                closed = true;
+                console.log(`[RangeBoundary] TP hit on BUY at ${currentCandle.high.toFixed(2)}`);
+            } else if (currentCandle.low <= trade.sl) {
                 this._consecutiveLosses++;
                 this._dailyProfit -= (trade.entry - trade.sl) * (trade.lotSize || 0.01);
-                return { action: 'CLOSE', reason: 'SL' };
+                closed = true;
+                console.log(`[RangeBoundary] SL hit on BUY at ${currentCandle.low.toFixed(2)}`);
             }
         } else {
             if (currentCandle.low <= trade.tp) {
                 this._consecutiveLosses = 0;
                 this._dailyProfit += (trade.entry - trade.tp) * (trade.lotSize || 0.01);
-                return { action: 'CLOSE', reason: 'TP' };
-            }
-            if (currentCandle.high >= trade.sl) {
+                closed = true;
+                console.log(`[RangeBoundary] TP hit on SELL at ${currentCandle.low.toFixed(2)}`);
+            } else if (currentCandle.high >= trade.sl) {
                 this._consecutiveLosses++;
                 this._dailyProfit -= (trade.sl - trade.entry) * (trade.lotSize || 0.01);
-                return { action: 'CLOSE', reason: 'SL' };
+                closed = true;
+                console.log(`[RangeBoundary] SL hit on SELL at ${currentCandle.high.toFixed(2)}`);
             }
         }
+        
+        if (closed) {
+            this._hasOpenPosition = false;  // ← RESET FOR NEXT TRADE
+            return { action: 'CLOSE', reason: closed ? (trade.type === 'BUY' ? (currentCandle.high >= trade.tp ? 'TP' : 'SL') : (currentCandle.low <= trade.tp ? 'TP' : 'SL')) : null };
+        }
+        
         return null;
     },
     
     // ─────────────────────────────────────────────────────────
-    // INDICATOR CALCULATIONS
+    // INDICATOR CALCULATIONS (keep as is)
     // ─────────────────────────────────────────────────────────
     
     _calculateRSI(candles, state, period = 14) {
@@ -268,6 +273,8 @@ export const RangeBoundaryStrategy = {
         this._consecutiveLosses = 0;
         this._dailyProfit = 0;
         this._tradesCount = 0;
+        this._hasOpenPosition = false;
+        this._currentTicket = null;
     }
 };
 
