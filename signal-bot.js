@@ -2904,12 +2904,12 @@ function setupQualityModeSelector(card, botId) {
         return;
     }
     
-    // Mode configurations
+    // Mode configurations (works for all strategies)
     const modes = {
-        0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15, cooldown: 1, color: '#ec4899' },
-        1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25, cooldown: 2, color: '#2563eb' },
-        2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.35, cooldown: 3, color: '#059669' },
-        3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.45, cooldown: 5, color: '#9333ea' }
+        0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, cooldown: 1, color: '#ec4899' },
+        1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, cooldown: 2, color: '#2563eb' },
+        2: { name: 'QUALITY', emoji: '🎯', minScore: 75, cooldown: 3, color: '#059669' },
+        3: { name: 'ULTRA', emoji: '👑', minScore: 85, cooldown: 5, color: '#9333ea' }
     };
     
     // Populate dropdown
@@ -2929,7 +2929,6 @@ function setupQualityModeSelector(card, botId) {
     const savedMode = window._botQualityModes[botId] ?? 1;
     modeSelect.value = savedMode;
     
-    // Function to update UI
     function updateModeUI() {
         const modeValue = parseInt(modeSelect.value);
         const mode = modes[modeValue];
@@ -2942,13 +2941,15 @@ function setupQualityModeSelector(card, botId) {
         }
         
         if (modeInfo) {
-            modeInfo.innerHTML = `Score: <b>${mode.minScore}</b> | Momentum: <b>${mode.minMomentum}</b> | Cooldown: <b>${mode.cooldown}m</b>`;
+            modeInfo.innerHTML = `Min Score: <b>${mode.minScore}</b> | Cooldown: <b>${mode.cooldown}m</b>`;
         }
     }
     
-    // Apply mode to strategy
-    function applyModeToStrategy(modeValue) {
-        if (window.Jump75Strategy) {
+    // Apply mode to the appropriate strategy based on selected strategy
+    function applyModeToStrategy(strategyName, modeValue) {
+        console.log(`[QualityMode] Applying mode ${modeValue} to strategy: ${strategyName}`);
+        
+        if (strategyName === 'jump75' && window.Jump75Strategy) {
             if (typeof window.Jump75Strategy.setMode === 'function') {
                 window.Jump75Strategy.setMode(modeValue);
             } else {
@@ -2956,17 +2957,30 @@ function setupQualityModeSelector(card, botId) {
             }
             console.log(`[Jump75] Mode set to ${modes[modeValue]?.name || modeValue}`);
         }
+        else if (strategyName === 'range_boundary' && window.RangeBoundaryStrategy) {
+            if (typeof window.RangeBoundaryStrategy.setMode === 'function') {
+                window.RangeBoundaryStrategy.setMode(modeValue);
+            } else {
+                window.RangeBoundaryStrategy.QUALITY_MODE = modeValue;
+            }
+            console.log(`[RangeBoundary] Mode set to ${modes[modeValue]?.name || modeValue}`);
+        }
+        else {
+            console.log(`[QualityMode] No strategy found for: ${strategyName}`);
+        }
     }
     
-    // Show/hide based on selected strategy
+    // Show/hide and apply mode based on selected strategy
     function checkAndToggle() {
         const selectedStrategy = stratSelect.value;
-        if (selectedStrategy === 'jump75') {
+        // List of strategies that support quality mode
+        const supportedStrategies = ['jump75', 'range_boundary'];
+        
+        if (supportedStrategies.includes(selectedStrategy)) {
             modeContainer.style.display = 'block';
             updateModeUI();
-            // Apply saved mode when strategy is selected
             const currentMode = parseInt(modeSelect.value);
-            applyModeToStrategy(currentMode);
+            applyModeToStrategy(selectedStrategy, currentMode);
         } else {
             modeContainer.style.display = 'none';
         }
@@ -2981,11 +2995,14 @@ function setupQualityModeSelector(card, botId) {
     // Listen for mode change
     modeSelect.addEventListener('change', () => {
         const modeValue = parseInt(modeSelect.value);
+        const selectedStrategy = stratSelect.value;
+        
         window._botQualityModes[botId] = modeValue;
         updateModeUI();
-        applyModeToStrategy(modeValue);
+        applyModeToStrategy(selectedStrategy, modeValue);
+        
         const mode = modes[modeValue];
-        log(`🎯 Jump75 Quality Mode: ${mode.emoji} ${mode.name}`, 'info');
+        log(`🎯 Quality Mode: ${mode.emoji} ${mode.name} for ${selectedStrategy}`, 'info');
     });
     
     console.log(`[Bot ${botId}] Quality mode selector initialized`);
