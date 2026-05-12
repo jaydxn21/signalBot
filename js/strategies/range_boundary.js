@@ -436,12 +436,12 @@ export const RangeBoundaryStrategy = {
     },
     
     setMode(modeNumber) {
-        if (![0, 1, 2].includes(modeNumber)) return false;
-        this.QUALITY_MODE = modeNumber;
-        const config = this._getModeConfig();
-        console.log(`[RangeBoundary] Mode set to ${config.name}`);
-        return true;
-    },
+    if (![0, 1, 2].includes(modeNumber)) return false;
+    this.QUALITY_MODE = modeNumber;
+    const config = this._getModeConfig();
+    console.log(`[RangeBoundary] Mode set to ${config.name}`);
+    return true;
+},
     
     reset() {
         this._lastTradeTime = 0;
