@@ -36,6 +36,7 @@ import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
 import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
+console.log("%cAI DEBUG FORCED - PAGE LOADED", "color: red; font-size: 18px; font-weight: bold; background: yellow;");
 
 // ─────────────────────────────────────────────────────────────
 // ULTRA AGGRESSIVE AI DEBUG
