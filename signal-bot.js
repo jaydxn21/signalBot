@@ -40,37 +40,47 @@ import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 // ─────────────────────────────────────────────────────────────
 // AI PREDICTION INTEGRATION (Python Flask Server)
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// AI INTEGRATION - IMPROVED
+// ─────────────────────────────────────────────────────────────
 let aiServerReady = false;
 
 async function checkAIServer() {
     try {
+        console.log("🔍 Checking AI Server...");
+
         const res = await fetch('http://localhost:5000/predict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                rr_ratio: 1.8,
-                atr_ratio: 1.0,
-                rsi: 52,
+                rr_ratio: 2.0,
+                atr_ratio: 1.5,
                 is_breakout: 0,
                 hour: new Date().getHours(),
                 symbol_type: 1
             })
         });
-        aiServerReady = res.ok;
-        if (aiServerReady) console.log("🤖 AI Server: CONNECTED");
-    } catch(e) {
-        console.log("🤖 AI Server: OFFLINE (run python ai_server.py)");
+
+        if (res.ok) {
+            aiServerReady = true;
+            console.log("%c🤖 AI Server: ✅ CONNECTED", "color: lime; font-weight: bold");
+        } else {
+            console.log("🤖 AI Server: ❌ Responded but not OK");
+        }
+    } catch (e) {
+        console.log("%c🤖 AI Server: ⛔ Not reachable (Is it running?)", "color: orange");
+        console.log("   Make sure ai_server.py is running in terminal");
     }
 }
 
+// Improved getAIWinProbability
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
     if (!aiServerReady) return 50;
 
     try {
         const features = {
             rr_ratio: (signal.tpMultiplier || 2.2) / (signal.slMultiplier || 1.0),
-            atr_ratio: signal.slMultiplier || 1.0,
-            rsi: Math.round(rsi || 50),
+            atr_ratio: signal.slMultiplier || 1.5,
             is_breakout: isBreakout ? 1 : 0,
             hour: new Date().getHours(),
             symbol_type: signal.symbol?.includes('75') ? 1 : 
@@ -83,9 +93,12 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
             body: JSON.stringify(features)
         });
 
+        if (!res.ok) throw new Error("Server error");
+        
         const data = await res.json();
         return data.win_probability || 50;
     } catch(e) {
+        console.warn("AI request failed:", e.message);
         return 50;
     }
 }
@@ -511,6 +524,8 @@ async function init() {
     initChartManager();
 
     Analytics.init();
+    setTimeout(checkAIServer, 1500);
+
     
     // Initialize Position Sizing
     PositionSizing.init(10000);
