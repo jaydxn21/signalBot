@@ -36,8 +36,8 @@ import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
 import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
-console.log("%cAI DEBUG FORCED - PAGE LOADED", "color: red; font-size: 18px; font-weight: bold; background: yellow;");
-
+// FORCE CACHE BUSTER
+console.log("%c🚀 SIGNAL-BOT.JS LOADED - VERSION 3.1 (AI DEBUG)", "color: #ff00ff; font-size: 16px; font-weight: bold; background: black; padding: 4px 8px;");
 // ─────────────────────────────────────────────────────────────
 // ULTRA AGGRESSIVE AI DEBUG
 // ─────────────────────────────────────────────────────────────
