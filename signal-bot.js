@@ -38,42 +38,46 @@ import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
 
 // ─────────────────────────────────────────────────────────────
-// AI PREDICTION INTEGRATION (Python Flask Server)
-// ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// AI INTEGRATION - IMPROVED
+// AI INTEGRATION - STRONG DEBUG VERSION
 // ─────────────────────────────────────────────────────────────
 let aiServerReady = false;
 
 async function checkAIServer() {
+    console.log("%c🔍 [AI] Starting connection check...", "color: cyan; font-weight: bold");
+
     try {
-        console.log("🔍 Checking AI Server...");
+        const testData = {
+            rr_ratio: 2.0,
+            atr_ratio: 1.5,
+            is_breakout: 0,
+            hour: new Date().getHours(),
+            symbol_type: 1
+        };
+
+        console.log("%c[AI] Sending test request...", "color: orange");
 
         const res = await fetch('http://localhost:5000/predict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                rr_ratio: 2.0,
-                atr_ratio: 1.5,
-                is_breakout: 0,
-                hour: new Date().getHours(),
-                symbol_type: 1
-            })
+            body: JSON.stringify(testData)
         });
+
+        console.log(`%c[AI] Response status: ${res.status}`, "color: yellow");
 
         if (res.ok) {
             aiServerReady = true;
-            console.log("%c🤖 AI Server: ✅ CONNECTED", "color: lime; font-weight: bold");
+            console.log("%c🤖 AI Server: ✅ CONNECTED AND WORKING", "color: lime; font-size: 14px; font-weight: bold");
         } else {
-            console.log("🤖 AI Server: ❌ Responded but not OK");
+            console.log("%c🤖 AI Server: ❌ Bad response", "color: red");
         }
     } catch (e) {
-        console.log("%c🤖 AI Server: ⛔ Not reachable (Is it running?)", "color: orange");
-        console.log("   Make sure ai_server.py is running in terminal");
+        console.log("%c🤖 AI Server: ⛔ Connection Failed", "color: red; font-weight: bold");
+        console.log("Error:", e.message);
+        console.log("→ Is ai_server.py still running?");
     }
 }
 
-// Improved getAIWinProbability
+// Improved predictor
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
     if (!aiServerReady) return 50;
 
@@ -83,8 +87,7 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
             atr_ratio: signal.slMultiplier || 1.5,
             is_breakout: isBreakout ? 1 : 0,
             hour: new Date().getHours(),
-            symbol_type: signal.symbol?.includes('75') ? 1 : 
-                        signal.symbol?.includes('10') ? 2 : 3
+            symbol_type: signal.symbol?.includes('75') ? 1 : signal.symbol?.includes('10') ? 2 : 3
         };
 
         const res = await fetch('http://localhost:5000/predict', {
@@ -93,18 +96,16 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
             body: JSON.stringify(features)
         });
 
-        if (!res.ok) throw new Error("Server error");
-        
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         return data.win_probability || 50;
     } catch(e) {
-        console.warn("AI request failed:", e.message);
+        console.warn("AI Prediction failed:", e.message);
         return 50;
     }
 }
 
-// Call this in init()
-setTimeout(checkAIServer, 1500);
+
 
 
 // ─────────────────────────────────────────────────────────────
@@ -518,14 +519,19 @@ function _restoreBotCards() {
 // INIT
 // ─────────────────────────────────────────────────────────────
 async function init() {
+
+    console.log("%c🚀 Signal Bot v3.0 initializing...", "color: violet; font-weight: bold");
+
     // Connect to MT5 bridge WebSocket
     connectRenderWebSocket();
     api = new DerivAPI(96293, handleData);
     initChartManager();
 
     Analytics.init();
-    setTimeout(checkAIServer, 1500);
-
+setTimeout(() => {
+        console.log("%c[INIT] Running AI connection test...", "color: cyan");
+        checkAIServer();
+    }, 800);
     
     // Initialize Position Sizing
     PositionSizing.init(10000);

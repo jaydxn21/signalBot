@@ -1,5 +1,17 @@
 [
   {
+    "ticket": 1362377790,
+    "symbol": "Step Index",
+    "action": "sell",
+    "entry": 8041.3,
+    "sl": 8071.3,
+    "tp": 8037.84643,
+    "pnl": -29.9,
+    "outcome": "SL",
+    "close_time": 1778699603,
+    "received_at": 1778699603090
+  },
+  {
     "ticket": 1362700328,
     "symbol": "Jump 100 Index",
     "action": "buy",
