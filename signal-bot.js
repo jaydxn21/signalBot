@@ -629,10 +629,11 @@ window.startBot = function(id) {
     const config = window.getBotConfig(id);
     if (!config) return;
     
-    // ✅ APPLY JUMP75 QUALITY MODE BEFORE STARTING BOT
+    // ✅ APPLY QUALITY MODE BEFORE STARTING BOT
     if (config.strategy === 'jump75') {
-        const savedMode = window._botQualityModes[id] ?? 1;
-        console.log(`[Jump75] Starting bot ${id} with quality mode ${savedMode} (${QUALITY_MODE_DESCRIPTIONS[savedMode].name})`);
+        const savedMode = window._botQualityModes?.[id] ?? 1;
+        const modeInfo = QUALITY_MODE_DESCRIPTIONS[savedMode];
+        console.log(`[Jump75] Starting bot ${id} with quality mode ${savedMode} (${modeInfo.name})`);
         
         if (window.Jump75Strategy && typeof window.Jump75Strategy.setMode === 'function') {
             window.Jump75Strategy.setMode(savedMode);
@@ -640,9 +641,23 @@ window.startBot = function(id) {
             window.Jump75Strategy.QUALITY_MODE = savedMode;
         }
         
-        const modeConfig = QUALITY_MODE_DESCRIPTIONS[savedMode];
-        log(`🎯 Jump75 Quality Mode: ${modeConfig.emoji} ${modeConfig.name}`, 'info');
-        log(`   Min Score: ${modeConfig.minScore} | Cooldown: ${(modeConfig.cooldownMs/60000).toFixed(1)}m | Momentum: ${modeConfig.minMomentum}`, 'info');
+        log(`🎯 Jump75 Quality Mode: ${modeInfo.emoji} ${modeInfo.name}`, 'info');
+        log(`   Min Score: ${modeInfo.minScore} | Min Momentum: ${modeInfo.minMomentum}`, 'info');
+    }
+    
+    // ✅ APPLY QUALITY MODE FOR RANGE_BOUNDARY
+    if (config.strategy === 'range_boundary') {
+        const savedMode = window._botQualityModes?.[id] ?? 1;
+        const modeNames = { 0: 'FAST', 1: 'BALANCED', 2: 'SAFE' };
+        console.log(`[RangeBoundary] Starting bot ${id} with mode ${savedMode} (${modeNames[savedMode]})`);
+        
+        if (window.RangeBoundaryStrategy && typeof window.RangeBoundaryStrategy.setMode === 'function') {
+            window.RangeBoundaryStrategy.setMode(savedMode);
+        } else if (window.RangeBoundaryStrategy) {
+            window.RangeBoundaryStrategy.QUALITY_MODE = savedMode;
+        }
+        
+        log(`🎯 RangeBoundary Mode: ${modeNames[savedMode] || 'BALANCED'}`, 'info');
     }
     
     const maxBots = Settings.get('maxBots') || 3;
@@ -1230,8 +1245,9 @@ function processBar(bot, bar, gran) {
     };
 };
 
+
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - COMPLETE FIXED VERSION
+// JUMP75 RUNNER - COMPLETE FIXED VERSION WITH QUALITY MODE
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     // Only trade Jump indices
@@ -1265,39 +1281,20 @@ async function _runJump75(bot, bar, atr, rsi) {
         return null;
     };
     
+    // ✅ APPLY QUALITY MODE FROM STORAGE before checking entry
+    const savedMode = window._botQualityModes ? window._botQualityModes[bot.id] : null;
+    if (savedMode !== undefined && Jump75Strategy.QUALITY_MODE !== savedMode) {
+        Jump75Strategy.setMode(savedMode);
+        console.log(`[Jump75] Bot ${bot.id} using quality mode: ${savedMode}`);
+    };
+    
+    // Set symbol on strategy instance
+    Jump75Strategy.setSymbol(bot.config.symbol);
+    
     // Check cooldown
     const now = Date.now();
     if ((now - bot.lastFiredMs) < 30000) {
         return null;
-    };
-    
-    // TEST MODE - Set to false for production
-    const JUMP75_TEST_MODE = false;
-    
-    if (JUMP75_TEST_MODE && m5Count > 10) {
-        if (!bot._lastTestSignal || now - bot._lastTestSignal > 60000) {
-            bot._lastTestSignal = now;
-            
-            const lastFew = bot.m5Candles.slice(-5);
-            const isUptrend = lastFew[lastFew.length - 1].close > lastFew[0].close;
-            
-            const testSignal = {
-                type: isUptrend ? 'LONG' : 'SHORT',
-                score: 70,
-                factors: ['🧪 TEST MODE', isUptrend ? 'Uptrend detected' : 'Downtrend detected'],
-                tpMultiplier: 1.5,
-                slMultiplier: 1.0,
-                isJump75: true
-            };
-            
-            console.log(`[Jump75-TEST] Generating test ${testSignal.type} signal at ${bar.close.toFixed(4)}`);
-            log(`🧪 JUMP75 TEST ${testSignal.type} @ ${bar.close.toFixed(4)} (TEST MODE)`, 
-                testSignal.type === 'LONG' ? 'buy' : 'sell');
-            
-            fireSignal(bot, testSignal, bar, atr, rsi, null);
-            bot.lastFiredMs = now;
-            return testSignal;
-        };
     };
     
     // REAL STRATEGY
@@ -1336,7 +1333,20 @@ async function _runJump75(bot, bar, atr, rsi) {
 // ─────────────────────────────────────────────────────────────
 // RANGE BOUNDARY RUNNER
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// RANGE BOUNDARY RUNNER WITH QUALITY MODE
+// ─────────────────────────────────────────────────────────────
 async function _runRangeBoundary(bot, bar, atr, rsi) {
+    // ✅ APPLY QUALITY MODE FROM STORAGE before checking entry
+    const savedMode = window._botQualityModes ? window._botQualityModes[bot.id] : null;
+    if (savedMode !== undefined && RangeBoundaryStrategy.QUALITY_MODE !== savedMode) {
+        RangeBoundaryStrategy.setMode(savedMode);
+        console.log(`[RangeBoundary] Bot ${bot.id} using quality mode: ${savedMode}`);
+    };
+    
+    // Set symbol on strategy instance
+    RangeBoundaryStrategy.setSymbol(bot.config.symbol);
+    
     const signal = await RangeBoundaryStrategy.checkEntry(
         bot.candles,
         bot.rsiState,
@@ -2919,7 +2929,7 @@ function setupQualityModeSelector(card, botId) {
         }
     };
     
-    // Initialize global storage
+    // Initialize global storage for PER-BOT modes (not global strategy)
     if (!window._botQualityModes) window._botQualityModes = {};
     
     function getCurrentStrategy() {
@@ -2941,12 +2951,13 @@ function setupQualityModeSelector(card, botId) {
             modeSelect.appendChild(option);
         });
         
-        // Set saved mode or default
-        const savedMode = window._botQualityModes[botId] ?? 1;
-        if (modes[savedMode]) {
+        // Set saved mode for THIS BOT ONLY
+        const savedMode = window._botQualityModes[botId];
+        if (savedMode !== undefined && modes[savedMode]) {
             modeSelect.value = savedMode;
         } else {
             modeSelect.value = Object.keys(modes)[1]; // Default to second mode (BALANCED)
+            window._botQualityModes[botId] = parseInt(modeSelect.value);
         }
     }
     
@@ -2969,26 +2980,32 @@ function setupQualityModeSelector(card, botId) {
         }
     }
     
-    function applyModeToStrategy(strategy, modeValue) {
-        console.log(`[QualityMode] Applying mode ${modeValue} to: ${strategy}`);
+    // ✅ FIXED: Apply mode to SPECIFIC BOT INSTANCE, not global
+    function applyModeToBotInstance(modeValue) {
+        // Get the bot instance from the global bots object
+        const botInstance = window.bots ? window.bots[botId] : null;
+        const strategy = getCurrentStrategy();
         
-        if (strategy === 'jump75' && window.Jump75Strategy) {
-            if (typeof window.Jump75Strategy.setMode === 'function') {
-                window.Jump75Strategy.setMode(modeValue);
-            } else {
-                window.Jump75Strategy.QUALITY_MODE = modeValue;
-            }
-            const modes = getModesForStrategy(strategy);
-            console.log(`[Jump75] Mode set to ${modes[modeValue]?.name || modeValue}`);
+        if (!botInstance) {
+            console.log(`[Bot ${botId}] Not running yet — mode saved for next start`);
+            return;
         }
-        else if (strategy === 'range_boundary' && window.RangeBoundaryStrategy) {
-            if (typeof window.RangeBoundaryStrategy.setMode === 'function') {
-                window.RangeBoundaryStrategy.setMode(modeValue);
-            } else {
-                window.RangeBoundaryStrategy.QUALITY_MODE = modeValue;
-            }
+        
+        // Check if bot instance has setMode method
+        if (typeof botInstance.setMode === 'function') {
+            botInstance.setMode(parseInt(modeValue));
             const modes = getModesForStrategy(strategy);
-            console.log(`[RangeBoundary] Mode set to ${modes[modeValue]?.name || modeValue}`);
+            const mode = modes[modeValue];
+            console.log(`[Bot ${botId}] ✅ Mode applied: ${mode.emoji} ${mode.name}`);
+        } else {
+            // Fallback for strategies without setMode
+            if (strategy === 'jump75' && botInstance.QUALITY_MODE !== undefined) {
+                botInstance.QUALITY_MODE = parseInt(modeValue);
+                console.log(`[Bot ${botId}] QUALITY_MODE set to ${modeValue}`);
+            } else if (strategy === 'range_boundary' && botInstance.QUALITY_MODE !== undefined) {
+                botInstance.QUALITY_MODE = parseInt(modeValue);
+                console.log(`[Bot ${botId}] QUALITY_MODE set to ${modeValue}`);
+            }
         }
     }
     
@@ -3000,8 +3017,10 @@ function setupQualityModeSelector(card, botId) {
             modeContainer.style.display = 'block';
             populateDropdown(strategy);
             updateModeUI();
+            
+            // Apply mode to bot instance if it exists
             const currentMode = parseInt(modeSelect.value);
-            applyModeToStrategy(strategy, currentMode);
+            applyModeToBotInstance(currentMode);
         } else {
             modeContainer.style.display = 'none';
         }
@@ -3015,19 +3034,133 @@ function setupQualityModeSelector(card, botId) {
     
     // Listen for mode change
     modeSelect.addEventListener('change', () => {
-        const strategy = getCurrentStrategy();
         const modeValue = parseInt(modeSelect.value);
+        const strategy = getCurrentStrategy();
         
+        // Save mode for THIS BOT ONLY
         window._botQualityModes[botId] = modeValue;
+        
         updateModeUI();
-        applyModeToStrategy(strategy, modeValue);
+        applyModeToBotInstance(modeValue);
         
         const modes = getModesForStrategy(strategy);
         const mode = modes[modeValue];
-        log(`🎯 Quality Mode: ${mode.emoji} ${mode.name} for ${strategy}`, 'info');
+        
+        // Also update the bot's config in localStorage
+        if (typeof _saveBotConfigs === 'function') {
+            _saveBotConfigs();
+        }
+        
+        // Log to UI
+        if (typeof log === 'function') {
+            log(`🎯 Bot ${botId}: ${mode.emoji} ${mode.name} mode (Min Score: ${mode.minScore})`, 'info');
+        } else {
+            console.log(`[Bot ${botId}] Quality Mode: ${mode.emoji} ${mode.name}`);
+        }
     });
     
     console.log(`[Bot ${botId}] Quality mode selector initialized`);
+}
+
+// ============================================================
+// HELPER FUNCTION: Update bot instance mode when bot starts
+// ============================================================
+
+// Call this function AFTER creating a bot instance but BEFORE starting it
+function applySavedQualityModeToBot(botId, botInstance) {
+    if (!botInstance) return false;
+    
+    const savedMode = window._botQualityModes ? window._botQualityModes[botId] : null;
+    if (savedMode === undefined) return false;
+    
+    // Get strategy from the card
+    const card = document.querySelector(`.bot-card[data-bot-id="${botId}"]`);
+    if (!card) return false;
+    
+    const strategy = card.querySelector('.bot-strategy-select')?.value;
+    
+    if (strategy === 'jump75' || strategy === 'range_boundary') {
+        if (typeof botInstance.setMode === 'function') {
+            botInstance.setMode(savedMode);
+            console.log(`[Bot ${botId}] Loaded saved quality mode: ${savedMode}`);
+            return true;
+        } else if (botInstance.QUALITY_MODE !== undefined) {
+            botInstance.QUALITY_MODE = savedMode;
+            console.log(`[Bot ${botId}] Loaded saved QUALITY_MODE: ${savedMode}`);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// ============================================================
+// OVERRIDE YOUR EXISTING _saveBotConfigs (if it exists)
+// ============================================================
+
+// Find your existing _saveBotConfigs and add qualityMode to it
+// If you can't find it, this will enhance it:
+
+if (typeof window._saveBotConfigs === 'function') {
+    const originalSave = window._saveBotConfigs;
+    window._saveBotConfigs = function() {
+        // Call original first
+        originalSave();
+        
+        // Save quality modes
+        if (window._botQualityModes) {
+            localStorage.setItem('botQualityModes', JSON.stringify(window._botQualityModes));
+        }
+    };
+} else {
+    window._saveBotConfigs = function() {
+        const configs = {};
+        document.querySelectorAll('.bot-card').forEach(card => {
+            const botId = card.dataset.botId;
+            if (botId) {
+                configs[botId] = {
+                    strategy: card.querySelector('.bot-strategy-select')?.value,
+                    symbol: card.querySelector('.bot-symbol-select')?.value,
+                    tf: card.querySelector('.bot-tf-select')?.value,
+                    lotSize: card.querySelector('.bot-lot-input')?.value,
+                    phantomLot: card.querySelector('.phantom-lot-input')?.value,
+                    qualityMode: window._botQualityModes ? window._botQualityModes[botId] : 1
+                };
+            }
+        });
+        localStorage.setItem('botConfigs', JSON.stringify(configs));
+        
+        // Save quality modes separately
+        if (window._botQualityModes) {
+            localStorage.setItem('botQualityModes', JSON.stringify(window._botQualityModes));
+        }
+    };
+}
+
+// ============================================================
+// LOAD SAVED QUALITY MODES ON PAGE LOAD
+// ============================================================
+
+function loadSavedQualityModes() {
+    const saved = localStorage.getItem('botQualityModes');
+    if (saved) {
+        try {
+            window._botQualityModes = JSON.parse(saved);
+            console.log('✅ Loaded saved quality modes:', window._botQualityModes);
+        } catch(e) {
+            console.warn('Failed to load quality modes:', e);
+            window._botQualityModes = {};
+        }
+    } else {
+        window._botQualityModes = {};
+    }
+}
+
+// Call this when your page loads
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadSavedQualityModes);
+} else {
+    loadSavedQualityModes();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -3170,8 +3303,8 @@ window._botQualityModes = window._botQualityModes || {};
 window.QUALITY_MODE_DESCRIPTIONS = {
     0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
     1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
-    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.4 },
-    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.6 }
+    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.40 },
+    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.60 }
 };
 
 // ─────────────────────────────────────────────────────────────

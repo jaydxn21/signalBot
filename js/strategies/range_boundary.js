@@ -1,4 +1,46 @@
-// js/strategies/range_boundary.js - VERSION 2 (OPTIMIZED FOR STEP INDEX)
+// js/strategies/range_boundary.js - VERSION 3 (FULL FIX: Session Delay + Price Validation + Feed Monitor)
+
+// 🆚 FEED MONITOR MODULE (same as jump75)
+const feedMonitor = {
+    _lastPriceTime: {},
+    _sessionStartTime: null,
+    
+    init(symbol) {
+        if (!this._sessionStartTime) {
+            this._sessionStartTime = Date.now();
+        }
+        if (!this._lastPriceTime[symbol]) {
+            this._lastPriceTime[symbol] = Date.now();
+        }
+    },
+    
+    isSymbolActive(symbol, currentCandleTime) {
+        const now = Date.now();
+        const lastTime = this._lastPriceTime[symbol];
+        const candleAge = currentCandleTime ? (now - currentCandleTime) : (now - lastTime);
+        
+        if (candleAge > 10000 && lastTime > 0) {
+            console.log(`⚠️ [RangeBoundary] ${symbol} feed stale: ${(candleAge/1000).toFixed(1)}s old`);
+            return false;
+        }
+        
+        if (currentCandleTime) {
+            this._lastPriceTime[symbol] = currentCandleTime;
+        }
+        return true;
+    },
+    
+    isSessionStartBufferPassed(bufferMs = 5000) {
+        if (!this._sessionStartTime) return true;
+        const elapsed = Date.now() - this._sessionStartTime;
+        return elapsed >= bufferMs;
+    },
+    
+    resetSession() {
+        this._sessionStartTime = Date.now();
+        console.log(`[RangeBoundary] Session reset`);
+    }
+};
 
 export const RangeBoundaryStrategy = {
     _lastTradeTime: 0,
@@ -6,9 +48,15 @@ export const RangeBoundaryStrategy = {
     _dailyProfit: 0,
     _tradesCount: 0,
     _hasOpenPosition: false,
+    _symbol: null,
     
     // Quality mode (0=FAST, 1=BALANCED, 2=SAFE)
     QUALITY_MODE: 1,
+    
+    setSymbol(symbol) {
+        this._symbol = symbol;
+        feedMonitor.init(symbol);
+    },
     
     _getModeConfig() {
         const modes = {
@@ -50,7 +98,27 @@ export const RangeBoundaryStrategy = {
     },
     
     async checkEntry(candles, rsiState, h4Candles, atr) {
-        const config = this._getModeConfig();
+        // 🆚 FIX 1: Validate price first (QUICK CHECK)
+        if (!candles || candles.length < 2) return null;
+        
+        const latestCandle = candles[candles.length - 1];
+        const previousCandle = candles[candles.length - 2];
+        
+        if (!latestCandle || !latestCandle.close || latestCandle.close <= 0 || isNaN(latestCandle.close)) {
+            console.log(`❌ [RangeBoundary] Invalid price: ${latestCandle?.close}`);
+            return null;
+        }
+        
+        // 🆚 FIX 2: Check feed is active
+        if (!feedMonitor.isSymbolActive(this._symbol, latestCandle.time)) {
+            console.log(`⏸️ [RangeBoundary] Skipping ${this._symbol} — no active feed`);
+            return null;
+        }
+        
+        // 🆚 FIX 3: Session startup buffer
+        if (!feedMonitor.isSessionStartBufferPassed(5000)) {
+            return null;
+        }
         
         // Don't enter with open position
         if (this._hasOpenPosition) return null;
@@ -58,6 +126,8 @@ export const RangeBoundaryStrategy = {
         if (!candles || candles.length < 50) return null;
         
         const now = Date.now();
+        const config = this._getModeConfig();
+        
         if (now - this._lastTradeTime < config.cooldownMs) return null;
         if (this._consecutiveLosses >= 2 && now - this._lastTradeTime < config.cooldownMs * 2) return null;
         
@@ -130,26 +200,18 @@ export const RangeBoundaryStrategy = {
         let signal = null;
         let score = config.minScore;
         
-        // ─────────────────────────────────────────────────────────
-        // LONG SIGNAL - Multiple confirmations required
-        // ─────────────────────────────────────────────────────────
+        // LONG SIGNAL
         if (rsi <= config.rsiOversold && nearLower && nearRangeLow) {
             score = config.minScore;
             
-            // RSI extreme bonus
             if (rsi <= config.rsiOversold - 10) score += 10;
-            
-            // Pattern bonuses
             if (bullishEngulfing) score += 15;
             else if (hammer) score += 12;
             else if (bar.close > bar.open) score += 5;
-            
-            // Indicator confirmations
             if (stochOversold) score += 10;
             if (macdBullish) score += 8;
             if (volumeSpike) score += 8;
             
-            // Consecutive down candles (exhaustion)
             const downCandles = candles.slice(-3).every(c => c.close < c.open);
             if (downCandles) score += 5;
             
@@ -173,26 +235,18 @@ export const RangeBoundaryStrategy = {
             }
         }
         
-        // ─────────────────────────────────────────────────────────
-        // SHORT SIGNAL - Multiple confirmations required
-        // ─────────────────────────────────────────────────────────
+        // SHORT SIGNAL
         if (!signal && rsi >= config.rsiOverbought && nearUpper && nearRangeHigh) {
             score = config.minScore;
             
-            // RSI extreme bonus
             if (rsi >= config.rsiOverbought + 10) score += 10;
-            
-            // Pattern bonuses
             if (bearishEngulfing) score += 15;
             else if (shootingStar) score += 12;
             else if (bar.close < bar.open) score += 5;
-            
-            // Indicator confirmations
             if (stochOverbought) score += 10;
             if (macdBearish) score += 8;
             if (volumeSpike) score += 8;
             
-            // Consecutive up candles (exhaustion)
             const upCandles = candles.slice(-3).every(c => c.close > c.open);
             if (upCandles) score += 5;
             
@@ -216,21 +270,62 @@ export const RangeBoundaryStrategy = {
             }
         }
         
+        // 🆚 FIX 4: Price validation with retry
         if (signal) {
-            // Calculate tighter stops based on ATR
             const slDistance = atrValue * signal.slMultiplier;
             const tpDistance = atrValue * signal.tpMultiplier;
             
-            signal.sl = signal.type === 'BUY' ? bar.close - slDistance : bar.close + slDistance;
-            signal.tp = signal.type === 'BUY' ? bar.close + tpDistance : bar.close - tpDistance;
+            let validatedPrice = null;
+            let priceValid = false;
             
-            // Ensure minimum stop distance (broker requirement)
-            const minStop = 10;
-            if (signal.type === 'BUY' && (bar.close - signal.sl) < minStop) {
-                signal.sl = bar.close - minStop;
+            for (let retry = 0; retry < 3; retry++) {
+                try {
+                    const freshCandle = candles[candles.length - 1];
+                    
+                    if (freshCandle && freshCandle.close && freshCandle.close > 0 && !isNaN(freshCandle.close)) {
+                        validatedPrice = freshCandle.close;
+                        priceValid = true;
+                        break;
+                    }
+                    
+                    if (retry === 0 && previousCandle && previousCandle.close > 0) {
+                        validatedPrice = previousCandle.close;
+                        priceValid = true;
+                        console.log(`⚠️ [RangeBoundary] Using previous candle price: ${validatedPrice}`);
+                        break;
+                    }
+                    
+                    if (!priceValid) {
+                        console.log(`⚠️ [RangeBoundary] Invalid price — retry ${retry + 1}/3`);
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
+                } catch (err) {
+                    console.log(`⚠️ [RangeBoundary] Price check error: ${err.message}`);
+                }
             }
-            if (signal.type === 'SELL' && (signal.sl - bar.close) < minStop) {
-                signal.sl = bar.close + minStop;
+            
+            if (!priceValid || !validatedPrice || validatedPrice <= 0 || isNaN(validatedPrice)) {
+                console.log(`❌ [RangeBoundary] CRITICAL: Cannot get valid price — ABORTING signal`);
+                return null;
+            }
+            
+            signal.entry = validatedPrice;
+            
+            if (signal.type === 'BUY') {
+                signal.sl = validatedPrice - slDistance;
+                signal.tp = validatedPrice + tpDistance;
+            } else {
+                signal.sl = validatedPrice + slDistance;
+                signal.tp = validatedPrice - tpDistance;
+            }
+            
+            // Ensure minimum stop distance
+            const minStop = 10;
+            if (signal.type === 'BUY' && (validatedPrice - signal.sl) < minStop) {
+                signal.sl = validatedPrice - minStop;
+            }
+            if (signal.type === 'SELL' && (signal.sl - validatedPrice) < minStop) {
+                signal.sl = validatedPrice + minStop;
             }
             
             this._lastTradeTime = now;
@@ -258,13 +353,13 @@ export const RangeBoundaryStrategy = {
                 this._dailyProfit += (trade.tp - trade.entry) * (trade.lotSize || 0.01);
                 closed = true;
                 outcome = 'TP';
-                console.log(`✅ RangeBoundary TP hit! Profit: $${((trade.tp - trade.entry) * (trade.lotSize || 0.01)).toFixed(2)}`);
+                console.log(`✅ [RangeBoundary] TP hit! Profit: $${((trade.tp - trade.entry) * (trade.lotSize || 0.01)).toFixed(2)}`);
             } else if (currentCandle.low <= trade.sl) {
                 this._consecutiveLosses++;
                 this._dailyProfit -= (trade.entry - trade.sl) * (trade.lotSize || 0.01);
                 closed = true;
                 outcome = 'SL';
-                console.log(`❌ RangeBoundary SL hit. Loss: $${((trade.entry - trade.sl) * (trade.lotSize || 0.01)).toFixed(2)}`);
+                console.log(`❌ [RangeBoundary] SL hit. Loss: $${((trade.entry - trade.sl) * (trade.lotSize || 0.01)).toFixed(2)}`);
             }
         } else {
             if (currentCandle.low <= trade.tp) {
@@ -272,13 +367,13 @@ export const RangeBoundaryStrategy = {
                 this._dailyProfit += (trade.entry - trade.tp) * (trade.lotSize || 0.01);
                 closed = true;
                 outcome = 'TP';
-                console.log(`✅ RangeBoundary TP hit! Profit: $${((trade.entry - trade.tp) * (trade.lotSize || 0.01)).toFixed(2)}`);
+                console.log(`✅ [RangeBoundary] TP hit! Profit: $${((trade.entry - trade.tp) * (trade.lotSize || 0.01)).toFixed(2)}`);
             } else if (currentCandle.high >= trade.sl) {
                 this._consecutiveLosses++;
                 this._dailyProfit -= (trade.sl - trade.entry) * (trade.lotSize || 0.01);
                 closed = true;
                 outcome = 'SL';
-                console.log(`❌ RangeBoundary SL hit. Loss: $${((trade.sl - trade.entry) * (trade.lotSize || 0.01)).toFixed(2)}`);
+                console.log(`❌ [RangeBoundary] SL hit. Loss: $${((trade.sl - trade.entry) * (trade.lotSize || 0.01)).toFixed(2)}`);
             }
         }
         
@@ -287,13 +382,12 @@ export const RangeBoundaryStrategy = {
             return { action: 'CLOSE', reason: outcome };
         }
         
-        // Partial profit taking (optional)
+        // Partial profit taking (move SL to breakeven after 50% profit)
         if (!closed && trade.type === 'BUY' && currentCandle.high >= trade.entry + (trade.tp - trade.entry) * 0.5) {
-            // Move SL to breakeven after 50% profit
             const newSL = trade.entry;
             if (newSL > trade.sl) {
                 trade.sl = newSL;
-                console.log(`📈 RangeBoundary moved SL to breakeven at ${newSL.toFixed(2)}`);
+                console.log(`📈 [RangeBoundary] Moved SL to breakeven at ${newSL.toFixed(2)}`);
                 return { action: 'UPDATE_SL', newSL: newSL };
             }
         }
@@ -302,17 +396,13 @@ export const RangeBoundaryStrategy = {
             const newSL = trade.entry;
             if (newSL < trade.sl) {
                 trade.sl = newSL;
-                console.log(`📈 RangeBoundary moved SL to breakeven at ${newSL.toFixed(2)}`);
+                console.log(`📈 [RangeBoundary] Moved SL to breakeven at ${newSL.toFixed(2)}`);
                 return { action: 'UPDATE_SL', newSL: newSL };
             }
         }
         
         return null;
     },
-    
-    // ─────────────────────────────────────────────────────────
-    // INDICATOR CALCULATIONS
-    // ─────────────────────────────────────────────────────────
     
     _calculateRSI(candles, state, period = 14) {
         if (candles.length < period + 1) return null;
@@ -377,7 +467,6 @@ export const RangeBoundaryStrategy = {
         
         const k = ((close - low) / (high - low)) * 100;
         
-        // Calculate D (simple moving average of K)
         return { k: k, d: k };
     },
     
@@ -386,7 +475,6 @@ export const RangeBoundaryStrategy = {
         
         const closes = candles.map(c => c.close);
         
-        // Calculate EMAs
         const emaFast = this._calculateEMAFromArray(closes, fastPeriod);
         const emaSlow = this._calculateEMAFromArray(closes, slowPeriod);
         
@@ -394,7 +482,6 @@ export const RangeBoundaryStrategy = {
         
         const macdLine = emaFast - emaSlow;
         
-        // Calculate signal line (EMA of MACD line)
         const macdValues = [];
         for (let i = slowPeriod; i < closes.length; i++) {
             const f = this._calculateEMAFromArray(closes.slice(0, i + 1), fastPeriod);
@@ -431,17 +518,18 @@ export const RangeBoundaryStrategy = {
             tradesCount: this._tradesCount,
             consecutiveLosses: this._consecutiveLosses,
             dailyProfit: this._dailyProfit,
-            winRate: this._tradesCount > 0 ? Math.round((this._tradesCount - this._consecutiveLosses) / this._tradesCount * 100) : 0
+            winRate: this._tradesCount > 0 ? Math.round((this._tradesCount - this._consecutiveLosses) / this._tradesCount * 100) : 0,
+            symbol: this._symbol
         };
     },
     
     setMode(modeNumber) {
-    if (![0, 1, 2].includes(modeNumber)) return false;
-    this.QUALITY_MODE = modeNumber;
-    const config = this._getModeConfig();
-    console.log(`[RangeBoundary] Mode set to ${config.name}`);
-    return true;
-},
+        if (![0, 1, 2].includes(modeNumber)) return false;
+        this.QUALITY_MODE = modeNumber;
+        const config = this._getModeConfig();
+        console.log(`[RangeBoundary] Mode set to ${config.name}`);
+        return true;
+    },
     
     reset() {
         this._lastTradeTime = 0;
@@ -449,6 +537,11 @@ export const RangeBoundaryStrategy = {
         this._dailyProfit = 0;
         this._tradesCount = 0;
         this._hasOpenPosition = false;
+        feedMonitor.resetSession();
+    },
+    
+    resetSession() {
+        feedMonitor.resetSession();
     }
 };
 

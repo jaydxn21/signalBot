@@ -1,4 +1,47 @@
-// js/strategies/jump75.js - v24: SIMPLE MOMENTUM + FIB (WORKS FOR JUMP INDICES)
+// js/strategies/jump75.js - v25: FULL FIX (Session Delay + Price Validation + Feed Monitor)
+
+// 🆚 FEED MONITOR MODULE
+const feedMonitor = {
+    _lastPriceTime: {},
+    _sessionStartTime: null,
+    
+    init(symbol) {
+        if (!this._sessionStartTime) {
+            this._sessionStartTime = Date.now();
+        }
+        if (!this._lastPriceTime[symbol]) {
+            this._lastPriceTime[symbol] = Date.now();
+        }
+    },
+    
+    isSymbolActive(symbol, currentCandleTime) {
+        const now = Date.now();
+        const lastTime = this._lastPriceTime[symbol];
+        const candleAge = currentCandleTime ? (now - currentCandleTime) : (now - lastTime);
+        
+        // If no price update in 10 seconds, feed might be dead
+        if (candleAge > 10000 && lastTime > 0) {
+            console.log(`⚠️ ${symbol} feed stale: ${(candleAge/1000).toFixed(1)}s old`);
+            return false;
+        }
+        
+        if (currentCandleTime) {
+            this._lastPriceTime[symbol] = currentCandleTime;
+        }
+        return true;
+    },
+    
+    isSessionStartBufferPassed(bufferMs = 5000) {
+        if (!this._sessionStartTime) return true;
+        const elapsed = Date.now() - this._sessionStartTime;
+        return elapsed >= bufferMs;
+    },
+    
+    resetSession() {
+        this._sessionStartTime = Date.now();
+        console.log(`[FeedMonitor] Session reset at ${new Date().toISOString()}`);
+    }
+};
 
 export const Jump75Strategy = {
     _lastTradeTime: 0,
@@ -6,9 +49,15 @@ export const Jump75Strategy = {
     _dailyProfit: 0,
     _dailyStartTime: null,
     _tradesCount: 0,
+    _symbol: null,
     
     // Quality mode (0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA)
     QUALITY_MODE: 1,  // Start with BALANCED
+    
+    setSymbol(symbol) {
+        this._symbol = symbol;
+        feedMonitor.init(symbol);
+    },
     
     _getModeConfig() {
         const modes = {
@@ -65,6 +114,29 @@ export const Jump75Strategy = {
     },
     
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
+        // 🆚 FIX 1: Validate price first (QUICK CHECK)
+        if (!m5Candles || m5Candles.length < 2) return null;
+        
+        const latestCandle = m5Candles[m5Candles.length - 1];
+        const previousCandle = m5Candles[m5Candles.length - 2];
+        
+        if (!latestCandle || !latestCandle.close || latestCandle.close <= 0 || isNaN(latestCandle.close)) {
+            console.log(`❌ [${this._symbol}] Invalid price in candle: ${latestCandle?.close}`);
+            return null;
+        }
+        
+        // 🆚 FIX 2: Check feed is active
+        if (!feedMonitor.isSymbolActive(this._symbol, latestCandle.time)) {
+            console.log(`⏸️ [${this._symbol}] Skipping — no active feed`);
+            return null;
+        }
+        
+        // 🆚 FIX 3: Session startup buffer (don't trade in first 5 seconds)
+        if (!feedMonitor.isSessionStartBufferPassed(5000)) {
+            // console.log(`⏳ [${this._symbol}] Session startup buffer — waiting`);
+            return null;
+        }
+        
         const config = this._getModeConfig();
         
         // Minimum candles check
@@ -77,9 +149,6 @@ export const Jump75Strategy = {
         
         if (!atr || atr === 0) return null;
         
-        const latestM5 = m5Candles[m5Candles.length - 1];
-        const prevM5 = m5Candles[m5Candles.length - 2];
-        
         // Calculate H4 range and Fibonacci levels
         const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
         const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
@@ -91,7 +160,7 @@ export const Jump75Strategy = {
         const fib50 = h4High - (range * 0.5);
         const fib382 = h4High - (range * 0.382);
         
-        const price = latestM5.close;
+        const price = latestCandle.close;
         const near618 = Math.abs(price - fib618) < atr * config.nearFibATR;
         const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
         const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
@@ -104,9 +173,9 @@ export const Jump75Strategy = {
         const momentum = (ema8 - ema21) / atr;
         
         // Candle patterns
-        const bullishCandle = latestM5.close > latestM5.open;
-        const bearishCandle = latestM5.close < latestM5.open;
-        const strongCandle = Math.abs(latestM5.close - latestM5.open) > atr * 0.6;
+        const bullishCandle = latestCandle.close > latestCandle.open;
+        const bearishCandle = latestCandle.close < latestCandle.open;
+        const strongCandle = Math.abs(latestCandle.close - latestCandle.open) > atr * 0.6;
         
         // Trend on M15
         const m15Trend = this._getM15Trend(m15Candles);
@@ -167,17 +236,79 @@ export const Jump75Strategy = {
             }
         }
         
+        // 🆚 FIX 4: Price validation with retry (FULL VERSION)
         if (signal) {
             const slDistance = atr * signal.slMultiplier;
             const tpDistance = atr * signal.tpMultiplier;
-            signal.sl = signal.type === 'BUY' ? price - slDistance : price + slDistance;
-            signal.tp = signal.type === 'BUY' ? price + tpDistance : price - tpDistance;
+            
+            let validatedPrice = null;
+            let priceValid = false;
+            
+            // Try up to 3 times to get a valid price
+            for (let retry = 0; retry < 3; retry++) {
+                try {
+                    // Get the absolute latest price from the most recent candle
+                    const freshCandle = m5Candles[m5Candles.length - 1];
+                    
+                    if (freshCandle && freshCandle.close && freshCandle.close > 0 && !isNaN(freshCandle.close)) {
+                        validatedPrice = freshCandle.close;
+                        priceValid = true;
+                        break;
+                    }
+                    
+                    // Alternative: Check if there's a newer candle since we started
+                    if (retry === 0 && previousCandle && previousCandle.close > 0) {
+                        // Use previous candle as fallback on first try
+                        validatedPrice = previousCandle.close;
+                        priceValid = true;
+                        console.log(`⚠️ [${this._symbol}] Using previous candle price: ${validatedPrice}`);
+                        break;
+                    }
+                    
+                    if (!priceValid) {
+                        console.log(`⚠️ [${this._symbol}] Invalid price — retry ${retry + 1}/3`);
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
+                } catch (err) {
+                    console.log(`⚠️ [${this._symbol}] Price check error: ${err.message}`);
+                }
+            }
+            
+            // Final validation
+            if (!priceValid || !validatedPrice || validatedPrice <= 0 || isNaN(validatedPrice)) {
+                console.log(`❌ [${this._symbol}] CRITICAL: Cannot get valid price — ABORTING signal`);
+                console.log(`   Original price: ${price}, Validated: ${validatedPrice}`);
+                return null;
+            }
+            
+            // Update signal with validated price
+            signal.entry = validatedPrice;
+            
+            // Recalculate SL/TP with validated price
+            if (signal.type === 'BUY') {
+                signal.sl = validatedPrice - slDistance;
+                signal.tp = validatedPrice + tpDistance;
+            } else {
+                signal.sl = validatedPrice + slDistance;
+                signal.tp = validatedPrice - tpDistance;
+            }
+            
+            // Ensure minimum stop distance (broker requirement)
+            const minStop = 0.01 * validatedPrice; // 1% minimum
+            if (signal.type === 'BUY' && (validatedPrice - signal.sl) < minStop) {
+                signal.sl = validatedPrice - minStop;
+                console.log(`⚠️ [${this._symbol}] Adjusted SL to minimum: ${minStop.toFixed(2)}`);
+            }
+            if (signal.type === 'SELL' && (signal.sl - validatedPrice) < minStop) {
+                signal.sl = validatedPrice + minStop;
+                console.log(`⚠️ [${this._symbol}] Adjusted SL to minimum: ${minStop.toFixed(2)}`);
+            }
             
             this._lastTradeTime = now;
             this._tradesCount++;
             
             console.log(`[Jump75 ${config.name}] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')}`);
-            console.log(`   Entry: ${price.toFixed(2)} | TP: ${signal.tp.toFixed(2)} | SL: ${signal.sl.toFixed(2)}`);
+            console.log(`   Entry: ${validatedPrice.toFixed(2)} | TP: ${signal.tp.toFixed(2)} | SL: ${signal.sl.toFixed(2)} | Risk: ${((Math.abs(validatedPrice - signal.sl) / atr)).toFixed(1)}x ATR`);
             
             return signal;
         }
@@ -243,7 +374,8 @@ export const Jump75Strategy = {
             tradesCount: this._tradesCount,
             consecutiveLosses: this._consecutiveLosses,
             dailyProfit: this._dailyProfit,
-            winRate: this._tradesCount > 0 ? Math.round((this._tradesCount - this._consecutiveLosses) / this._tradesCount * 100) : 0
+            winRate: this._tradesCount > 0 ? Math.round((this._tradesCount - this._consecutiveLosses) / this._tradesCount * 100) : 0,
+            symbol: this._symbol
         };
     },
     
@@ -282,6 +414,11 @@ export const Jump75Strategy = {
         this._consecutiveLosses = 0;
         this._dailyProfit = 0;
         this._tradesCount = 0;
+        feedMonitor.resetSession();
+    },
+    
+    resetSession() {
+        feedMonitor.resetSession();
     }
 };
 
