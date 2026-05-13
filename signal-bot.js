@@ -38,44 +38,45 @@ import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
 
 // ─────────────────────────────────────────────────────────────
-// AI INTEGRATION - STRONG DEBUG VERSION
+// AGGRESSIVE AI DEBUG - RUNS IMMEDIATELY
 // ─────────────────────────────────────────────────────────────
+console.log("%c🚀 Signal Bot v3.0 - AI Debug Loaded", "color: #a855f7; font-size: 14px; font-weight: bold");
+
 let aiServerReady = false;
 
 async function checkAIServer() {
-    console.log("%c🔍 [AI] Starting connection check...", "color: cyan; font-weight: bold");
-
+    console.log("%c🔍 [AI] Checking connection to localhost:5000...", "color: cyan; font-weight: bold");
+    
     try {
-        const testData = {
-            rr_ratio: 2.0,
-            atr_ratio: 1.5,
-            is_breakout: 0,
-            hour: new Date().getHours(),
-            symbol_type: 1
-        };
-
-        console.log("%c[AI] Sending test request...", "color: orange");
-
         const res = await fetch('http://localhost:5000/predict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(testData)
+            body: JSON.stringify({
+                rr_ratio: 2.0,
+                atr_ratio: 1.5,
+                is_breakout: 0,
+                hour: new Date().getHours(),
+                symbol_type: 1
+            })
         });
-
-        console.log(`%c[AI] Response status: ${res.status}`, "color: yellow");
 
         if (res.ok) {
             aiServerReady = true;
-            console.log("%c🤖 AI Server: ✅ CONNECTED AND WORKING", "color: lime; font-size: 14px; font-weight: bold");
+            console.log("%c✅ AI Server CONNECTED SUCCESSFULLY", "color: lime; font-size: 15px; font-weight: bold");
         } else {
-            console.log("%c🤖 AI Server: ❌ Bad response", "color: red");
+            console.log("%c❌ AI Server responded but status not OK", "color: orange");
         }
     } catch (e) {
-        console.log("%c🤖 AI Server: ⛔ Connection Failed", "color: red; font-weight: bold");
+        console.log("%c⛔ AI Server NOT REACHABLE", "color: red; font-weight: bold");
+        console.log("   → Make sure python ai_server.py is running");
         console.log("Error:", e.message);
-        console.log("→ Is ai_server.py still running?");
     }
 }
+
+// Run immediately + delayed
+checkAIServer();
+setTimeout(checkAIServer, 1200);
+setTimeout(checkAIServer, 3000);
 
 // Improved predictor
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
