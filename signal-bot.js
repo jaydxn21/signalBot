@@ -38,14 +38,14 @@ import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
 
 // ─────────────────────────────────────────────────────────────
-// AGGRESSIVE AI DEBUG - RUNS IMMEDIATELY
+// ULTRA AGGRESSIVE AI DEBUG
 // ─────────────────────────────────────────────────────────────
-console.log("%c🚀 Signal Bot v3.0 - AI Debug Loaded", "color: #a855f7; font-size: 14px; font-weight: bold");
+console.log("%c🚀 Signal Bot v3.0 - AI Debug LOADED", "color: #a855f7; font-size: 16px; font-weight: bold");
 
 let aiServerReady = false;
 
 async function checkAIServer() {
-    console.log("%c🔍 [AI] Checking connection to localhost:5000...", "color: cyan; font-weight: bold");
+    console.log("%c🔍 [AI] Attempting connection to localhost:5000...", "color: cyan; font-weight: bold");
     
     try {
         const res = await fetch('http://localhost:5000/predict', {
@@ -62,21 +62,22 @@ async function checkAIServer() {
 
         if (res.ok) {
             aiServerReady = true;
-            console.log("%c✅ AI Server CONNECTED SUCCESSFULLY", "color: lime; font-size: 15px; font-weight: bold");
+            console.log("%c✅ AI SERVER CONNECTED SUCCESSFULLY", "color: lime; font-size: 16px; font-weight: bold");
         } else {
-            console.log("%c❌ AI Server responded but status not OK", "color: orange");
+            console.log("%c❌ AI Server responded but not OK", "color: orange");
         }
     } catch (e) {
-        console.log("%c⛔ AI Server NOT REACHABLE", "color: red; font-weight: bold");
-        console.log("   → Make sure python ai_server.py is running");
-        console.log("Error:", e.message);
+        console.log("%c⛔ CANNOT REACH AI SERVER", "color: red; font-weight: bold");
+        console.log("   Make sure 'python ai_server.py' is running in terminal");
     }
 }
 
-// Run immediately + delayed
+// Run multiple times
 checkAIServer();
-setTimeout(checkAIServer, 1200);
-setTimeout(checkAIServer, 3000);
+setTimeout(checkAIServer, 800);
+setTimeout(checkAIServer, 2000);
+setTimeout(checkAIServer, 4000);
+
 
 // Improved predictor
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
