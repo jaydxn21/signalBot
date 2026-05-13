@@ -36,6 +36,64 @@ import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
 import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
+
+// ─────────────────────────────────────────────────────────────
+// AI PREDICTION INTEGRATION (Python Flask Server)
+// ─────────────────────────────────────────────────────────────
+let aiServerReady = false;
+
+async function checkAIServer() {
+    try {
+        const res = await fetch('http://localhost:5000/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                rr_ratio: 1.8,
+                atr_ratio: 1.0,
+                rsi: 52,
+                is_breakout: 0,
+                hour: new Date().getHours(),
+                symbol_type: 1
+            })
+        });
+        aiServerReady = res.ok;
+        if (aiServerReady) console.log("🤖 AI Server: CONNECTED");
+    } catch(e) {
+        console.log("🤖 AI Server: OFFLINE (run python ai_server.py)");
+    }
+}
+
+async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
+    if (!aiServerReady) return 50;
+
+    try {
+        const features = {
+            rr_ratio: (signal.tpMultiplier || 2.2) / (signal.slMultiplier || 1.0),
+            atr_ratio: signal.slMultiplier || 1.0,
+            rsi: Math.round(rsi || 50),
+            is_breakout: isBreakout ? 1 : 0,
+            hour: new Date().getHours(),
+            symbol_type: signal.symbol?.includes('75') ? 1 : 
+                        signal.symbol?.includes('10') ? 2 : 3
+        };
+
+        const res = await fetch('http://localhost:5000/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(features)
+        });
+
+        const data = await res.json();
+        return data.win_probability || 50;
+    } catch(e) {
+        return 50;
+    }
+}
+
+// Call this in init()
+setTimeout(checkAIServer, 1500);
+
+
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET CONNECTION TO LOCAL BRIDGE (bridge.cjs)
 // ─────────────────────────────────────────────────────────────
@@ -1246,89 +1304,54 @@ function processBar(bot, bar, gran) {
 };
 
 
+
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - COMPLETE FIXED VERSION WITH QUALITY MODE
+// JUMP75 RUNNER - ADAPTIVE HYBRID + AI FILTER v2.0
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
-    // Only trade Jump indices
+    const symbol = bot.config.symbol;
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
-    if (!jumpSymbols.includes(bot.config.symbol)) {
-        return null;
-    };
-    
-    // Check candle buffers
-    if (!bot.m5Candles || !bot.m15Candles || !bot.h4Candles) {
-        return null;
-    };
-    
-    const m5Count = bot.m5Candles.length;
-    const m15Count = bot.m15Candles.length;
-    const h4Count = bot.h4Candles.length;
-    
-    // Log occasionally
-    if (!bot._lastCandleLog || Date.now() - bot._lastCandleLog > 60000) {
-        console.log(`[Jump75] Candles: M5=${m5Count}, M15=${m15Count}, H4=${h4Count}`);
-        bot._lastCandleLog = Date.now();
-    };
-    
-    // Minimum requirements
-    if (m5Count < 5 || m15Count < 5 || h4Count < 3) {
-        return null;
-    };
-    
-    // Validate ATR
-    if (!atr || atr === 0 || !isFinite(atr)) {
-        return null;
-    };
-    
-    // ✅ APPLY QUALITY MODE FROM STORAGE before checking entry
-    const savedMode = window._botQualityModes ? window._botQualityModes[bot.id] : null;
-    if (savedMode !== undefined && Jump75Strategy.QUALITY_MODE !== savedMode) {
-        Jump75Strategy.setMode(savedMode);
-        console.log(`[Jump75] Bot ${bot.id} using quality mode: ${savedMode}`);
-    };
-    
-    // Set symbol on strategy instance
-    Jump75Strategy.setSymbol(bot.config.symbol);
-    
-    // Check cooldown
+    if (!jumpSymbols.includes(symbol)) return null;
+
+    if (!bot.m5Candles || bot.m5Candles.length < 8) return null;
+
     const now = Date.now();
-    if ((now - bot.lastFiredMs) < 30000) {
+    if ((now - bot.lastFiredMs) < 25000) return null;
+
+    // Apply saved quality mode
+    const savedMode = window._botQualityModes?.[bot.id] ?? 1;
+    if (Jump75Strategy?.setMode) Jump75Strategy.setMode(savedMode);
+
+    // Get signal from strategy
+    const signal = await Jump75Strategy.checkEntry(
+        bot.m5Candles,
+        bot.m15Candles,
+        bot.h4Candles,
+        atr
+    );
+
+    if (!signal) return null;
+
+    // === AI FILTER ===
+    const isBreakout = (signal.mode === 'BREAKOUT' || signal.factors?.some(f => f.includes('Break')));
+    const aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
+
+    if (aiScore < 52) {
+        log(`🤖 AI REJECTED ${signal.mode} ${signal.type} — ${aiScore}% win prob`, 'warn');
         return null;
-    };
-    
-    // REAL STRATEGY
-    try {
-        const signal = await Jump75Strategy.checkEntry(
-            bot.m5Candles,
-            bot.m15Candles,
-            bot.h4Candles,
-            atr
-        );
-        
-        if (!signal) {
-            return null;
-        };
-        
-        const signalType = signal.type || signal.direction || 'BUY/SELL';
-        const displayType = signalType === 'LONG' ? 'BUY' : (signalType === 'SHORT' ? 'SELL' : signalType);
-        const factorsText = (signal.factors && Array.isArray(signal.factors)) 
-            ? signal.factors.join(' · ') 
-            : '';
-        
-        log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${factorsText ? ' | ' + factorsText : ''}`, 
-            displayType === 'BUY' ? 'buy' : 'sell');
-        
-        bot.lastFiredMs = now;
-        fireSignal(bot, signal, bar, atr, rsi, null);
-        
-        return signal;
-        
-    } catch (error) {
-        console.error('[Jump75] Error:', error);
-        return null;
-    };
-};
+    }
+
+    log(`🤖 AI APPROVED — ${aiScore}% predicted win rate | ${signal.mode}`, 'info');
+
+    const displayType = signal.type === 'LONG' ? 'BUY' : 'SELL';
+    log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)} | ${signal.mode} | AI:${aiScore}%`, 
+        displayType === 'BUY' ? 'buy' : 'sell');
+
+    bot.lastFiredMs = now;
+    fireSignal(bot, signal, bar, atr, rsi, null);
+
+    return signal;
+}
 
 // ─────────────────────────────────────────────────────────────
 // RANGE BOUNDARY RUNNER
@@ -2899,167 +2922,77 @@ function logout() {
 };
 
 
-// Add this function to signal-bot.js (replace any existing version)
-
+// ─────────────────────────────────────────────────────────────
+// QUALITY MODE SELECTOR - CLEAN & RELIABLE
+// ─────────────────────────────────────────────────────────────
 function setupQualityModeSelector(card, botId) {
-    // Find elements
     const stratSelect = card.querySelector('.bot-strategy-select');
     const modeContainer = card.querySelector('.quality-mode-selector');
     const modeSelect = card.querySelector('.quality-mode-select');
     const modeBadge = card.querySelector('.quality-mode-badge');
     const modeInfo = card.querySelector('.quality-mode-info');
-    
-    if (!modeContainer || !modeSelect) {
-        console.warn(`[Bot ${botId}] Quality mode elements not found`);
-        return;
-    }
-    
-    // Mode configurations for different strategies
-    const strategyModes = {
+
+    if (!modeContainer || !modeSelect) return;
+
+    if (!window._botQualityModes) window._botQualityModes = {};
+
+    const modesConfig = {
         jump75: {
-            0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, cooldown: 1, color: '#ec4899' },
-            1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, cooldown: 2, color: '#2563eb' },
-            2: { name: 'QUALITY', emoji: '🎯', minScore: 75, cooldown: 3, color: '#059669' },
-            3: { name: 'ULTRA', emoji: '👑', minScore: 85, cooldown: 5, color: '#9333ea' }
-        },
-        range_boundary: {
-            0: { name: 'FAST', emoji: '⚡', minScore: 55, cooldown: 1, color: '#ec4899' },
-            1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, cooldown: 2, color: '#2563eb' },
-            2: { name: 'SAFE', emoji: '🛡️', minScore: 75, cooldown: 3, color: '#059669' }
+            0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, color: '#ec4899' },
+            1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, color: '#2563eb' },
+            2: { name: 'QUALITY',  emoji: '🎯', minScore: 75, color: '#059669' },
+            3: { name: 'ULTRA',    emoji: '👑', minScore: 85, color: '#9333ea' }
         }
     };
-    
-    // Initialize global storage for PER-BOT modes (not global strategy)
-    if (!window._botQualityModes) window._botQualityModes = {};
-    
-    function getCurrentStrategy() {
-        return stratSelect.value;
-    }
-    
-    function getModesForStrategy(strategy) {
-        return strategyModes[strategy] || strategyModes.jump75;
-    }
-    
-    function populateDropdown(strategy) {
-        const modes = getModesForStrategy(strategy);
-        modeSelect.innerHTML = '';
+
+    function updateUI() {
+        const strategy = stratSelect.value;
+        const modes = modesConfig[strategy];
         
-        Object.entries(modes).forEach(([value, mode]) => {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = `${mode.emoji} ${mode.name} (Min Score: ${mode.minScore})`;
-            modeSelect.appendChild(option);
-        });
-        
-        // Set saved mode for THIS BOT ONLY
-        const savedMode = window._botQualityModes[botId];
-        if (savedMode !== undefined && modes[savedMode]) {
-            modeSelect.value = savedMode;
-        } else {
-            modeSelect.value = Object.keys(modes)[1]; // Default to second mode (BALANCED)
-            window._botQualityModes[botId] = parseInt(modeSelect.value);
-        }
-    }
-    
-    function updateModeUI() {
-        const strategy = getCurrentStrategy();
-        const modes = getModesForStrategy(strategy);
-        const modeValue = parseInt(modeSelect.value);
-        const mode = modes[modeValue];
-        
-        if (!mode) return;
-        
-        if (modeBadge) {
-            modeBadge.textContent = `${mode.emoji} ${mode.name}`;
-            modeBadge.style.background = mode.color + '15';
-            modeBadge.style.color = mode.color;
-        }
-        
-        if (modeInfo) {
-            modeInfo.innerHTML = `Min Score: <b>${mode.minScore}</b> | Cooldown: <b>${mode.cooldown}m</b>`;
-        }
-    }
-    
-    // ✅ FIXED: Apply mode to SPECIFIC BOT INSTANCE, not global
-    function applyModeToBotInstance(modeValue) {
-        // Get the bot instance from the global bots object
-        const botInstance = window.bots ? window.bots[botId] : null;
-        const strategy = getCurrentStrategy();
-        
-        if (!botInstance) {
-            console.log(`[Bot ${botId}] Not running yet — mode saved for next start`);
+        if (!modes) {
+            modeContainer.style.display = 'none';
             return;
         }
-        
-        // Check if bot instance has setMode method
-        if (typeof botInstance.setMode === 'function') {
-            botInstance.setMode(parseInt(modeValue));
-            const modes = getModesForStrategy(strategy);
-            const mode = modes[modeValue];
-            console.log(`[Bot ${botId}] ✅ Mode applied: ${mode.emoji} ${mode.name}`);
-        } else {
-            // Fallback for strategies without setMode
-            if (strategy === 'jump75' && botInstance.QUALITY_MODE !== undefined) {
-                botInstance.QUALITY_MODE = parseInt(modeValue);
-                console.log(`[Bot ${botId}] QUALITY_MODE set to ${modeValue}`);
-            } else if (strategy === 'range_boundary' && botInstance.QUALITY_MODE !== undefined) {
-                botInstance.QUALITY_MODE = parseInt(modeValue);
-                console.log(`[Bot ${botId}] QUALITY_MODE set to ${modeValue}`);
-            }
+
+        modeContainer.style.display = 'block';
+
+        // Populate dropdown if empty
+        if (modeSelect.options.length <= 1) {
+            modeSelect.innerHTML = '';
+            Object.entries(modes).forEach(([value, mode]) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = `${mode.emoji} ${mode.name} (Score ≥${mode.minScore})`;
+                modeSelect.appendChild(opt);
+            });
+        }
+
+        // Load saved mode for this specific bot
+        const savedMode = window._botQualityModes[botId] ?? 1;
+        modeSelect.value = savedMode;
+
+        // Update badge & info
+        const currentMode = modes[savedMode];
+        if (modeBadge && currentMode) {
+            modeBadge.textContent = `${currentMode.emoji} ${currentMode.name}`;
+            modeBadge.style.background = currentMode.color + '22';
+            modeBadge.style.color = currentMode.color;
+        }
+        if (modeInfo && currentMode) {
+            modeInfo.innerHTML = `Min Score: <b>${currentMode.minScore}</b>`;
         }
     }
-    
-    function checkAndToggle() {
-        const strategy = getCurrentStrategy();
-        const supportedStrategies = ['jump75', 'range_boundary'];
-        
-        if (supportedStrategies.includes(strategy)) {
-            modeContainer.style.display = 'block';
-            populateDropdown(strategy);
-            updateModeUI();
-            
-            // Apply mode to bot instance if it exists
-            const currentMode = parseInt(modeSelect.value);
-            applyModeToBotInstance(currentMode);
-        } else {
-            modeContainer.style.display = 'none';
-        }
-    }
-    
-    // Initial check
-    checkAndToggle();
-    
-    // Listen for strategy change
-    stratSelect.addEventListener('change', checkAndToggle);
-    
-    // Listen for mode change
+
+    // Listen for changes
+    stratSelect.addEventListener('change', updateUI);
     modeSelect.addEventListener('change', () => {
-        const modeValue = parseInt(modeSelect.value);
-        const strategy = getCurrentStrategy();
-        
-        // Save mode for THIS BOT ONLY
-        window._botQualityModes[botId] = modeValue;
-        
-        updateModeUI();
-        applyModeToBotInstance(modeValue);
-        
-        const modes = getModesForStrategy(strategy);
-        const mode = modes[modeValue];
-        
-        // Also update the bot's config in localStorage
-        if (typeof _saveBotConfigs === 'function') {
-            _saveBotConfigs();
-        }
-        
-        // Log to UI
-        if (typeof log === 'function') {
-            log(`🎯 Bot ${botId}: ${mode.emoji} ${mode.name} mode (Min Score: ${mode.minScore})`, 'info');
-        } else {
-            console.log(`[Bot ${botId}] Quality Mode: ${mode.emoji} ${mode.name}`);
-        }
+        window._botQualityModes[botId] = parseInt(modeSelect.value);
+        updateUI();
+        log(`🎯 Bot ${botId} quality mode updated`, 'info');
     });
-    
-    console.log(`[Bot ${botId}] Quality mode selector initialized`);
+
+    // Initial update
+    setTimeout(updateUI, 100);
 }
 
 // ============================================================
@@ -3240,6 +3173,7 @@ function _createBotCard(id, savedConfig) {
     };
     stratSelect.addEventListener('change', showHidePhantom);
     showHidePhantom();
+    
     
     // ✅ SETUP QUALITY MODE SELECTOR FOR JUMP75 - ADD THIS LINE
     setupQualityModeSelector(card, id);
