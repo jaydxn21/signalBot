@@ -49,7 +49,7 @@ async function checkAIServer() {
     console.log("%c🔍 [AI] Attempting connection to localhost:5000...", "color: cyan; font-weight: bold");
     
     try {
-        const res = await fetch('http://localhost:5000/predict', {
+        const res = await fetch('https://ai-server-production-8bc5.up.railway.app/predict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -93,7 +93,7 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
             symbol_type: signal.symbol?.includes('75') ? 1 : signal.symbol?.includes('10') ? 2 : 3
         };
 
-        const res = await fetch('http://localhost:5000/predict', {
+        const res = await fetch('https://ai-server-production-8bc5.up.railway.app/predict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(features)
