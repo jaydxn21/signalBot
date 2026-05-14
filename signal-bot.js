@@ -47,54 +47,91 @@ console.log(`   Mode: ${USE_LOCAL_AI ? 'LOCAL' : 'CLOUD (Railway)'}`);
 console.log(`   URL: ${AI_SERVER_URL}`);
 
 let aiServerReady = false;
+let aiServerChecked = false;
 
 async function checkAIServer() {
+    if (aiServerChecked) return;
+    
     const url = USE_LOCAL_AI ? 'http://localhost:5000' : AI_SERVER_URL;
     console.log(`%c🔍 [AI] Testing connection to ${url}...`, "color: cyan; font-weight: bold");
     
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-        
-        const res = await fetch(`${url}/health`, {
-            method: 'GET',
-            signal: controller.signal,
-            headers: { 'Accept': 'application/json' }
-        });
-        
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-            const data = await res.json();
-            aiServerReady = true;
-            console.log("%c✅ AI SERVER CONNECTED", "color: lime; font-size: 16px; font-weight: bold");
-            console.log(`   Service: ${data.service || 'ai-prediction-engine'}`);
-            console.log(`   Status: ${data.status || 'ok'}`);
-            console.log(`   Ready: ${data.ready || true}`);
-        } else {
-            console.log(`%c❌ AI Server responded but not OK (HTTP ${res.status})`, "color: orange; font-weight: bold");
+    // Try multiple endpoints that might exist
+    const endpoints = [
+        '',           // root
+        '/',          // root with slash
+        '/predict',   // prediction endpoint
+        '/api/health', // API health
+        '/status'     // status endpoint
+    ];
+    
+    let connected = false;
+    
+    for (const endpoint of endpoints) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            const testUrl = `${url}${endpoint}`;
+            const res = await fetch(testUrl, {
+                method: 'GET',
+                signal: controller.signal,
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (res.ok) {
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch(e) {
+                    data = { status: 'ok' };
+                }
+                
+                aiServerReady = true;
+                aiServerChecked = true;
+                connected = true;
+                
+                console.log(`%c✅ AI SERVER CONNECTED (via ${endpoint || '/'})`, "color: lime; font-size: 16px; font-weight: bold");
+                console.log(`   URL: ${testUrl}`);
+                console.log(`   Response:`, data);
+                break;
+            }
+        } catch(e) {
+            // Try next endpoint
+            if (endpoint === endpoints[endpoints.length - 1]) {
+                console.log(`%c⚠️ No response from ${testUrl}`, "color: orange");
+            }
         }
-    } catch (e) {
+    }
+    
+    if (!connected) {
         console.log("%c⛔ CANNOT REACH AI SERVER", "color: red; font-weight: bold");
-        console.log(`   Error: ${e.message}`);
-        if (USE_LOCAL_AI) {
-            console.log("   Make sure 'python ai_server.py' is running in terminal");
-        } else {
-            console.log("   Railway server may be cold-starting (takes 5-10 seconds)");
-            console.log("   Will retry automatically...");
-        }
+        console.log("   The Railway server may not be running or may have a different URL");
+        console.log("   AI filter will be disabled (signals will pass through)");
+        aiServerReady = false;
+        aiServerChecked = true;
     }
 }
 
-// Run connection tests
-checkAIServer();
-setTimeout(checkAIServer, 2000);
-setTimeout(checkAIServer, 5000);
+// Run connection tests with delays (don't spam)
+setTimeout(checkAIServer, 1000);
+setTimeout(checkAIServer, 3000);
+setTimeout(checkAIServer, 6000);
 setTimeout(checkAIServer, 10000);
 
-// Improved AI predictor with Railway support
+// Improved AI predictor with Railway support - FALLBACK TO NO FILTER IF SERVER DOWN
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
-    if (!aiServerReady) return 50;
+    // If we already know server isn't ready, return neutral (let signal through)
+    if (!aiServerReady && aiServerChecked) {
+        return 50; // Neutral - don't block signals
+    }
+    
+    // If we haven't checked yet, wait a moment
+    if (!aiServerChecked) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (!aiServerReady) return 50;
+    }
 
     const url = USE_LOCAL_AI ? 'http://localhost:5000' : AI_SERVER_URL;
 
@@ -108,27 +145,55 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
         };
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // Shorter timeout
 
-        const res = await fetch(`${url}/predict`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(features),
-            signal: controller.signal
-        });
+        // Try both possible endpoints
+        let response = null;
+        let data = null;
+        
+        // Try /predict first
+        try {
+            const res = await fetch(`${url}/predict`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(features),
+                signal: controller.signal
+            });
+            if (res.ok) {
+                data = await res.json();
+                response = res;
+            }
+        } catch(e) {
+            // Try root endpoint
+            try {
+                const res2 = await fetch(`${url}/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(features),
+                    signal: controller.signal
+                });
+                if (res2.ok) {
+                    data = await res2.json();
+                    response = res2;
+                }
+            } catch(e2) {
+                // Both failed
+            }
+        }
 
         clearTimeout(timeoutId);
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        
-        const winProb = data.win_probability || 50;
-        console.log(`🤖 AI Prediction: ${winProb.toFixed(1)}% win probability`);
-        
-        return winProb;
+        if (response && response.ok && data) {
+            const winProb = data.win_probability || data.probability || data.confidence || 50;
+            console.log(`🤖 AI Prediction: ${winProb.toFixed(1)}% win probability`);
+            return winProb;
+        } else {
+            console.log(`🤖 AI Prediction: server returned ${response?.status || 'error'} - using neutral 50%`);
+            return 50;
+        }
     } catch(e) {
         console.warn("AI Prediction failed:", e.message);
-        return 50;
+        return 50; // Neutral on error - don't block
     }
 }
 
@@ -136,6 +201,11 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
 window._debugAI = {
     ready: () => aiServerReady,
     url: AI_SERVER_URL,
+    check: async () => {
+        aiServerChecked = false;
+        await checkAIServer();
+        return aiServerReady;
+    },
     test: async () => {
         const start = Date.now();
         try {
@@ -156,15 +226,6 @@ window._debugAI = {
             return data.win_probability;
         } catch(e) {
             console.error('❌ Test failed:', e.message);
-            return null;
-        }
-    },
-    latency: async () => {
-        const start = Date.now();
-        try {
-            await fetch(`${AI_SERVER_URL}/health`);
-            return Date.now() - start;
-        } catch(e) {
             return null;
         }
     }
@@ -1392,45 +1453,91 @@ function processBar(bot, bar, gran) {
 
 
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - ADAPTIVE HYBRID + AI FILTER v2.0
+// JUMP75 RUNNER - ADAPTIVE HYBRID + AI FILTER v3.0
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     const symbol = bot.config.symbol;
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(symbol)) return null;
 
+    // Check candle buffers
     if (!bot.m5Candles || bot.m5Candles.length < 8) return null;
+    if (!bot.m15Candles || bot.m15Candles.length < 5) return null;
+    if (!bot.h4Candles || bot.h4Candles.length < 3) return null;
 
     const now = Date.now();
     if ((now - bot.lastFiredMs) < 25000) return null;
 
-    // Apply saved quality mode
+    // Apply saved quality mode from UI
     const savedMode = window._botQualityModes?.[bot.id] ?? 1;
-    if (Jump75Strategy?.setMode) Jump75Strategy.setMode(savedMode);
+    if (Jump75Strategy && typeof Jump75Strategy.setMode === 'function') {
+        Jump75Strategy.setMode(savedMode);
+    } else if (Jump75Strategy) {
+        Jump75Strategy.QUALITY_MODE = savedMode;
+    }
+    
+    // Set symbol on strategy instance for proper logging
+    if (Jump75Strategy && typeof Jump75Strategy.setSymbol === 'function') {
+        Jump75Strategy.setSymbol(symbol);
+    }
 
     // Get signal from strategy
-    const signal = await Jump75Strategy.checkEntry(
-        bot.m5Candles,
-        bot.m15Candles,
-        bot.h4Candles,
-        atr
-    );
-
-    if (!signal) return null;
-
-    // === AI FILTER ===
-    const isBreakout = (signal.mode === 'BREAKOUT' || signal.factors?.some(f => f.includes('Break')));
-    const aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
-
-    if (aiScore < 52) {
-        log(`🤖 AI REJECTED ${signal.mode} ${signal.type} — ${aiScore}% win prob`, 'warn');
+    let signal = null;
+    try {
+        signal = await Jump75Strategy.checkEntry(
+            bot.m5Candles,
+            bot.m15Candles,
+            bot.h4Candles,
+            atr
+        );
+    } catch (err) {
+        console.error('[Jump75] Strategy error:', err);
         return null;
     }
 
-    log(`🤖 AI APPROVED — ${aiScore}% predicted win rate | ${signal.mode}`, 'info');
+    if (!signal) return null;
 
-    const displayType = signal.type === 'LONG' ? 'BUY' : 'SELL';
-    log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)} | ${signal.mode} | AI:${aiScore}%`, 
+    // Extract signal type properly
+    let signalType = signal.type || signal.direction;
+    if (signalType === 'LONG') signalType = 'BUY';
+    if (signalType === 'SHORT') signalType = 'SELL';
+    if (!signalType || signalType === 'BUY/SELL') signalType = 'BUY';
+
+    // === AI FILTER (SOFT - only reject very low probability) ===
+    const isBreakout = (signal.mode === 'BREAKOUT' || signal.factors?.some(f => f && f.includes('Break')));
+    let aiScore = 50;
+    let aiFilterPassed = true;
+
+    try {
+        aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
+        
+        // Only reject if AI is confident it's BAD (below 45%)
+        // AND if AI server is actually ready
+        if (aiServerReady && aiScore < 45) {
+            log(`🤖 AI REJECTED ${signal.mode || ''} ${signalType} — ${aiScore}% win prob (below 45%)`, 'warn');
+            aiFilterPassed = false;
+        } else if (aiServerReady && aiScore >= 45 && aiScore < 52) {
+            log(`🤖 AI CAUTION — ${aiScore}% win prob, proceeding anyway`, 'neutral');
+        } else if (aiServerReady) {
+            log(`🤖 AI APPROVED — ${aiScore}% predicted win rate`, 'info');
+        }
+    } catch(e) {
+        console.warn('[Jump75] AI filter error, allowing signal:', e.message);
+        aiScore = 50;
+        aiFilterPassed = true;
+    }
+
+    if (!aiFilterPassed) return null;
+
+    // Log the signal
+    const displayType = signalType;
+    const modeText = signal.mode ? ` | ${signal.mode}` : '';
+    const factorsText = (signal.factors && Array.isArray(signal.factors) && signal.factors.length > 0) 
+        ? ` | ${signal.factors.slice(0, 3).join(' · ')}` 
+        : '';
+    const aiText = aiServerReady ? ` | AI:${Math.round(aiScore)}%` : '';
+    
+    log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${modeText}${factorsText}${aiText}`, 
         displayType === 'BUY' ? 'buy' : 'sell');
 
     bot.lastFiredMs = now;
