@@ -1450,7 +1450,11 @@ function processBar(bot, bar, gran) {
     };
 };
 
-
+// Expose for console debugging
+window.bots = bots;
+window.aiServerReady = aiServerReady;
+window.AI_SERVER_URL = AI_SERVER_URL;
+window.getAIWinProbability = getAIWinProbability;
 
 // ─────────────────────────────────────────────────────────────
 // JUMP75 RUNNER - ADAPTIVE HYBRID + AI FILTER v3.0
