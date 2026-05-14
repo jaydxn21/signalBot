@@ -1515,6 +1515,16 @@ async function _runJump75(bot, bar, atr, rsi) {
     try {
         aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
         
+        // DEBUG: show AI prediction result in console
+        if (aiScore !== null && aiScore !== undefined) {
+            console.log('%c🤖 AI Prediction Result: ' + aiScore + '%', 'background: #a855f7; color: white; font-size: 12px; padding: 2px 6px; border-radius: 4px;');
+            if (aiScore < 45) {
+                console.log('%c❌ AI REJECTED - below threshold', 'background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px;');
+            } else {
+                console.log('%c✅ AI APPROVED - signal will fire', 'background: #10b981; color: white; padding: 2px 6px; border-radius: 4px;');
+            }
+        }
+        
         // Only reject if AI is confident it's BAD (below 45%)
         // AND if AI server is actually ready
         if (aiServerReady && aiScore < 45) {
@@ -3119,7 +3129,7 @@ function logout() {
 };
 
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // QUALITY MODE SELECTOR - CLEAN & RELIABLE
 // ─────────────────────────────────────────────────────────────
 function setupQualityModeSelector(card, botId) {
