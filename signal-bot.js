@@ -36,53 +36,67 @@ import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { Jump75Strategy } from './js/strategies/jump75.js'; 
 import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
-// FORCE CACHE BUSTER
-console.log("%c🚀 SIGNAL-BOT.JS LOADED - VERSION 3.1 (AI DEBUG)", "color: #ff00ff; font-size: 16px; font-weight: bold; background: black; padding: 4px 8px;");
 // ─────────────────────────────────────────────────────────────
-// ULTRA AGGRESSIVE AI DEBUG
+// AI SERVER CONFIGURATION - RAILWAY CLOUD DEPLOYMENT
 // ─────────────────────────────────────────────────────────────
-console.log("%c🚀 Signal Bot v3.0 - AI Debug LOADED", "color: #a855f7; font-size: 16px; font-weight: bold");
+const AI_SERVER_URL = 'https://ai-server-production-8bc5.up.railway.app';
+const USE_LOCAL_AI = false; // Set to true for local development
+
+console.log("%c🤖 AI SERVER CONFIGURATION", "color: #a855f7; font-size: 14px; font-weight: bold");
+console.log(`   Mode: ${USE_LOCAL_AI ? 'LOCAL' : 'CLOUD (Railway)'}`);
+console.log(`   URL: ${AI_SERVER_URL}`);
 
 let aiServerReady = false;
 
 async function checkAIServer() {
-    console.log("%c🔍 [AI] Attempting connection to localhost:5000...", "color: cyan; font-weight: bold");
+    const url = USE_LOCAL_AI ? 'http://localhost:5000' : AI_SERVER_URL;
+    console.log(`%c🔍 [AI] Testing connection to ${url}...`, "color: cyan; font-weight: bold");
     
     try {
-        const res = await fetch('https://ai-server-production-8bc5.up.railway.app/predict', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                rr_ratio: 2.0,
-                atr_ratio: 1.5,
-                is_breakout: 0,
-                hour: new Date().getHours(),
-                symbol_type: 1
-            })
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const res = await fetch(`${url}/health`, {
+            method: 'GET',
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json' }
         });
+        
+        clearTimeout(timeoutId);
 
         if (res.ok) {
+            const data = await res.json();
             aiServerReady = true;
-            console.log("%c✅ AI SERVER CONNECTED SUCCESSFULLY", "color: lime; font-size: 16px; font-weight: bold");
+            console.log("%c✅ AI SERVER CONNECTED", "color: lime; font-size: 16px; font-weight: bold");
+            console.log(`   Service: ${data.service || 'ai-prediction-engine'}`);
+            console.log(`   Status: ${data.status || 'ok'}`);
+            console.log(`   Ready: ${data.ready || true}`);
         } else {
-            console.log("%c❌ AI Server responded but not OK", "color: orange");
+            console.log(`%c❌ AI Server responded but not OK (HTTP ${res.status})`, "color: orange; font-weight: bold");
         }
     } catch (e) {
         console.log("%c⛔ CANNOT REACH AI SERVER", "color: red; font-weight: bold");
-        console.log("   Make sure 'python ai_server.py' is running in terminal");
+        console.log(`   Error: ${e.message}`);
+        if (USE_LOCAL_AI) {
+            console.log("   Make sure 'python ai_server.py' is running in terminal");
+        } else {
+            console.log("   Railway server may be cold-starting (takes 5-10 seconds)");
+            console.log("   Will retry automatically...");
+        }
     }
 }
 
-// Run multiple times
+// Run connection tests
 checkAIServer();
-setTimeout(checkAIServer, 800);
 setTimeout(checkAIServer, 2000);
-setTimeout(checkAIServer, 4000);
+setTimeout(checkAIServer, 5000);
+setTimeout(checkAIServer, 10000);
 
-
-// Improved predictor
+// Improved AI predictor with Railway support
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
     if (!aiServerReady) return 50;
+
+    const url = USE_LOCAL_AI ? 'http://localhost:5000' : AI_SERVER_URL;
 
     try {
         const features = {
@@ -93,20 +107,68 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
             symbol_type: signal.symbol?.includes('75') ? 1 : signal.symbol?.includes('10') ? 2 : 3
         };
 
-        const res = await fetch('https://ai-server-production-8bc5.up.railway.app/predict', {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const res = await fetch(`${url}/predict`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(features)
+            body: JSON.stringify(features),
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        return data.win_probability || 50;
+        
+        const winProb = data.win_probability || 50;
+        console.log(`🤖 AI Prediction: ${winProb.toFixed(1)}% win probability`);
+        
+        return winProb;
     } catch(e) {
         console.warn("AI Prediction failed:", e.message);
         return 50;
     }
 }
+
+// Debug helper - expose to window for console testing
+window._debugAI = {
+    ready: () => aiServerReady,
+    url: AI_SERVER_URL,
+    test: async () => {
+        const start = Date.now();
+        try {
+            const res = await fetch(`${AI_SERVER_URL}/predict`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rr_ratio: 2.5,
+                    atr_ratio: 1.5,
+                    is_breakout: 1,
+                    hour: 12,
+                    symbol_type: 1
+                })
+            });
+            const data = await res.json();
+            const latency = Date.now() - start;
+            console.log(`✅ Test prediction: ${data.win_probability}% (${latency}ms)`);
+            return data.win_probability;
+        } catch(e) {
+            console.error('❌ Test failed:', e.message);
+            return null;
+        }
+    },
+    latency: async () => {
+        const start = Date.now();
+        try {
+            await fetch(`${AI_SERVER_URL}/health`);
+            return Date.now() - start;
+        } catch(e) {
+            return null;
+        }
+    }
+};
 
 
 
