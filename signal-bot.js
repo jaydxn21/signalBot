@@ -122,29 +122,10 @@ setTimeout(checkAIServer, 10000);
 
 // Improved AI predictor with Railway support - FALLBACK TO NO FILTER IF SERVER DOWN
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
-    console.log('%c🤖 AI: Starting prediction...', 'color: #a855f7; font-weight: bold');
+    console.log('%c🤖 AI: Checking prediction...', 'color: #a855f7;');
     
-    // If server is confirmed failed, skip immediately
-    if (aiServerFailed) {
-        console.log('%c🤖 AI: Server failed - using 50%', 'color: orange');
-        return 50;
-    }
+    const url = 'https://ai-server-production-8bc5.up.railway.app';
     
-    // If not checked yet, trigger check but don't wait
-    if (!aiServerChecked) {
-        console.log('%c🤖 AI: Server not checked yet - using 50%', 'color: orange');
-        checkAIServer().catch(() => {});
-        return 50;
-    }
-    
-    // If server not ready, return neutral
-    if (!aiServerReady) {
-        console.log('%c🤖 AI: Server not ready - using 50%', 'color: orange');
-        return 50;
-    }
-
-    const url = USE_LOCAL_AI ? 'http://localhost:5000' : AI_SERVER_URL;
-
     try {
         const features = {
             rr_ratio: (signal.tpMultiplier || 2.2) / (signal.slMultiplier || 1.0),
@@ -157,7 +138,7 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
         console.log('🤖 AI Features:', features);
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
 
         const res = await fetch(`${url}/predict`, {
             method: 'POST',
@@ -171,13 +152,13 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         
         const data = await res.json();
-        const winProb = data.win_probability || data.probability || 50;
+        const winProb = data.win_probability || 50;
         
         console.log(`%c🤖 AI Result: ${winProb}% win probability`, 'background: #a855f7; color: white; font-size: 12px; padding: 2px 6px; border-radius: 4px;');
         
         return winProb;
     } catch(e) {
-        console.log('%c🤖 AI Error: ' + e.message, 'color: red');
+        console.log('%c🤖 AI Error: ' + e.message + ' - using 50%', 'color: orange');
         return 50;
     }
 }
