@@ -122,15 +122,25 @@ setTimeout(checkAIServer, 10000);
 
 // Improved AI predictor with Railway support - FALLBACK TO NO FILTER IF SERVER DOWN
 async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
-    // If we already know server isn't ready, return neutral (let signal through)
-    if (!aiServerReady && aiServerChecked) {
-        return 50; // Neutral - don't block signals
+    console.log('%c🤖 AI: Starting prediction...', 'color: #a855f7; font-weight: bold');
+    
+    // If server is confirmed failed, skip immediately
+    if (aiServerFailed) {
+        console.log('%c🤖 AI: Server failed - using 50%', 'color: orange');
+        return 50;
     }
     
-    // If we haven't checked yet, wait a moment
+    // If not checked yet, trigger check but don't wait
     if (!aiServerChecked) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        if (!aiServerReady) return 50;
+        console.log('%c🤖 AI: Server not checked yet - using 50%', 'color: orange');
+        checkAIServer().catch(() => {});
+        return 50;
+    }
+    
+    // If server not ready, return neutral
+    if (!aiServerReady) {
+        console.log('%c🤖 AI: Server not ready - using 50%', 'color: orange');
+        return 50;
     }
 
     const url = USE_LOCAL_AI ? 'http://localhost:5000' : AI_SERVER_URL;
@@ -143,57 +153,32 @@ async function getAIWinProbability(signal, atr, rsi, isBreakout = false) {
             hour: new Date().getHours(),
             symbol_type: signal.symbol?.includes('75') ? 1 : signal.symbol?.includes('10') ? 2 : 3
         };
+        
+        console.log('🤖 AI Features:', features);
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // Shorter timeout
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-        // Try both possible endpoints
-        let response = null;
-        let data = null;
-        
-        // Try /predict first
-        try {
-            const res = await fetch(`${url}/predict`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(features),
-                signal: controller.signal
-            });
-            if (res.ok) {
-                data = await res.json();
-                response = res;
-            }
-        } catch(e) {
-            // Try root endpoint
-            try {
-                const res2 = await fetch(`${url}/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(features),
-                    signal: controller.signal
-                });
-                if (res2.ok) {
-                    data = await res2.json();
-                    response = res2;
-                }
-            } catch(e2) {
-                // Both failed
-            }
-        }
+        const res = await fetch(`${url}/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(features),
+            signal: controller.signal
+        });
 
         clearTimeout(timeoutId);
 
-        if (response && response.ok && data) {
-            const winProb = data.win_probability || data.probability || data.confidence || 50;
-            console.log(`🤖 AI Prediction: ${winProb.toFixed(1)}% win probability`);
-            return winProb;
-        } else {
-            console.log(`🤖 AI Prediction: server returned ${response?.status || 'error'} - using neutral 50%`);
-            return 50;
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const data = await res.json();
+        const winProb = data.win_probability || data.probability || 50;
+        
+        console.log(`%c🤖 AI Result: ${winProb}% win probability`, 'background: #a855f7; color: white; font-size: 12px; padding: 2px 6px; border-radius: 4px;');
+        
+        return winProb;
     } catch(e) {
-        console.warn("AI Prediction failed:", e.message);
-        return 50; // Neutral on error - don't block
+        console.log('%c🤖 AI Error: ' + e.message, 'color: red');
+        return 50;
     }
 }
 
