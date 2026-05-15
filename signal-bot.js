@@ -1260,186 +1260,77 @@ function handleData(data) {
 // PROCESS BAR
 // ─────────────────────────────────────────────────────────────
 function processBar(bot, bar, gran) {
-    // ✅ CONSOLIDATED: Store H4 + HTF ONCE (not twice)
-    if (gran === 14400) {
-        const lastH4 = bot.h4Candles[bot.h4Candles.length - 1];
-        if (lastH4 && lastH4.time === bar.time) {
-            bot.h4Candles[bot.h4Candles.length - 1] = bar;  // Update existing
-        } else {
-            bot.h4Candles.push(bar);  // Add new
-        }
-        if (bot.h4Candles.length > 500) bot.h4Candles.shift();  // Keep last 500
-    }
-
-    if (gran === bot.htfGran && gran !== 14400) {  // ✅ Avoid double-storing H4
-        const lastHTF = bot.htfCandles[bot.htfCandles.length - 1];
-        if (lastHTF && lastHTF.time === bar.time) {
-            bot.htfCandles[bot.htfCandles.length - 1] = bar;
-        } else {
-            bot.htfCandles.push(bar);
-        }
-        if (bot.htfCandles.length > 500) bot.htfCandles.shift();
-        
-        if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, bot.htfCandles);
-        if (bot.config.strategy === 'phantom') PhantomStrategy.setHtfCandles(bot.id, bot.htfCandles);
-    }
-
-    // ✅ JUMP75: Store M5, M15, H4 separately (no duplicates)
+    // Multi-TF candle storage (especially for Jump75)
     if (bot.config.strategy === 'jump75') {
-        if (gran === 300) {  // M5
-            const lastM5 = bot.m5Candles[bot.m5Candles.length - 1];
-            if (lastM5 && lastM5.time === bar.time) {
-                bot.m5Candles[bot.m5Candles.length - 1] = bar;
-            } else {
-                bot.m5Candles.push(bar);
-            }
-            if (bot.m5Candles.length > 120) bot.m5Candles.shift();
+        if (gran === 300) {
+            bot.m5Candles.push(bar);
+            if (bot.m5Candles.length > 150) bot.m5Candles.shift();
             bot.lastM5CloseTime = bar.time;
         }
-        
-        if (gran === 900) {  // M15
-            const lastM15 = bot.m15Candles[bot.m15Candles.length - 1];
-            if (lastM15 && lastM15.time === bar.time) {
-                bot.m15Candles[bot.m15Candles.length - 1] = bar;
-            } else {
-                bot.m15Candles.push(bar);
-            }
-            if (bot.m15Candles.length > 60) bot.m15Candles.shift();
+        if (gran === 900) {
+            bot.m15Candles.push(bar);
+            if (bot.m15Candles.length > 80) bot.m15Candles.shift();
             bot.lastM15CloseTime = bar.time;
         }
-        
-        if (gran === 14400) {  // H4 (already handled above, just track time)
+        if (gran === 14400) {
+            bot.h4Candles.push(bar);
+            if (bot.h4Candles.length > 50) bot.h4Candles.shift();
             bot.lastH4CloseTime = bar.time;
         }
     }
 
-    // ✅ Only process main chart TF once
+    if (gran === 14400) {
+        const last = bot.h4Candles[bot.h4Candles.length - 1];
+        if (last && last.time === bar.time) bot.h4Candles[bot.h4Candles.length - 1] = bar;
+        else bot.h4Candles.push(bar);
+    }
+    if (gran === bot.htfGran) {
+        const lastH = bot.htfCandles[bot.htfCandles.length - 1];
+        if (lastH && lastH.time === bar.time) bot.htfCandles[bot.htfCandles.length - 1] = bar;
+        else bot.htfCandles.push(bar);
+    }
+
     if (gran !== bot.config.tf) return;
 
+    // Main candle update
     const last = bot.candles[bot.candles.length - 1];
     if (last && last.time === bar.time) {
         bot.candles[bot.candles.length - 1] = bar;
     } else {
         bot.candles.push(bar);
+        if (bot.candles.length > 1000) bot.candles.shift();
     }
-    if (bot.candles.length > 1000) bot.candles.shift();
 
-    // Update chart engines
+    // ── DEBUG OUTPUT ─────────────────────────────────────
+    const secondsSinceLastSignal = Math.round((Date.now() - bot.lastFiredMs) / 1000);
+    console.log(`[DEBUG] ${bot.config.strategy.toUpperCase()} | ${bot.config.symbol} | ${TF_LABEL[gran]||gran}s | Candles:${bot.candles.length} | Cooldown:${secondsSinceLastSignal}s`);
+
     const activeEng = _engineFor(bot.id);
     if (activeEng) activeEng.update(bar);
 
-    if (!ChartManager.isSplitMode() && bot.id === focusedBotId) {
-        const splitEng = ChartManager.get(bot.id);
-        if (splitEng && splitEng !== activeEng) splitEng.update(bar);
-    }
-
-    // Calculate indicators
     const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
     const atr = Indicators.calculateATR(bot.candles);
 
-    const isTrending = bot.candles.length >= 20
-        ? MomentumStrategy._isTrending(bot.candles, atr) : null;
-    const marketCond = isTrending === null ? '—' : isTrending ? 'TRENDING' : 'RANGING';
-
-    ChartManager.updatePanelHUD(bot.id, rsi, atr, marketCond);
-    if (bot.id === focusedBotId) UIManager.updateHUD(rsi, atr, marketCond);
-
-    const livePrices = SessionState.get().livePrices || {};
-    const displaySym = SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
-    const firstClose = bot.candles[0]?.close;
-    livePrices[displaySym] = {
-        price:  bar.close,
-        change: firstClose ? parseFloat(((bar.close - firstClose) / firstClose * 100).toFixed(2)) : 0,
-    };
-    SessionState.set({ livePrices });
-
-    checkOutcome(bot);
-
-    // ── DIRECT STRATEGY RUNNERS ─────────────────────────────────
-    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
-    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
-    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
-    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
-    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; }
-    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
-    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
-    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; }
+    // Run strategy
+    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; }
-    
-    if (document.getElementById('auto-session')?.checked) {
-        const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
-        if (forexStrategies.includes(bot.config.strategy)) {
-            const hour = new Date().getUTCHours();
-            if (hour < 7 || hour > 20) return;
-        };
-    };
+    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
 
-    const signal = bot.strategy.analyze(
-        bot.config.strategy, bot.candles, bot.h4Candles,
-        bot.rsiState, atr, bot.config.symbol, rsi
-    );
-
-    const now = Date.now();
-    if (signal && (now - bot.lastFiredMs) > 30000) {
-
-        if (bot.config.strategy === 'vwap_reversion' && signal.type === 'BUY') {
-            if (bot.h4Candles.length >= 21) {
-                const k     = 2 / 22;
-                let h4ema   = bot.h4Candles.slice(0,21).reduce((s,c)=>s+c.close,0) / 21;
-                for (let i = 21; i < bot.h4Candles.length; i++)
-                    h4ema = bot.h4Candles[i].close * k + h4ema * (1 - k);
-                const h4Last = bot.h4Candles[bot.h4Candles.length - 1];
-                if (h4Last.close < h4ema) {
-                    log(`VWAP BUY filtered — H4 trend bearish (price ${h4Last.close.toFixed(4)} < EMA21 ${h4ema.toFixed(4)})`, 'neutral');
-                    return;
-                };
-            };
-        };
-
-        if (bot.config.strategy === 'range_boundary') {
-            const msSinceLastSL = now - bot.lastSLTimeMs;
-            const COOLDOWN_MS   = 30 * 60 * 1000;
-            if (bot.lastSLTimeMs > 0 && msSinceLastSL < COOLDOWN_MS) {
-                const minsLeft = Math.ceil((COOLDOWN_MS - msSinceLastSL) / 60000);
-                log(`Range Boundary cooldown — ${minsLeft}m remaining after last SL`, 'neutral');
-                return;
-            };
-        };
-
-        if (bot.config.strategy === 'h4_kiss') {
-            if (bot.h4Candles.length >= 21) {
-                const k     = 2 / 22;
-                let h4ema   = bot.h4Candles.slice(0,21).reduce((s,c)=>s+c.close,0) / 21;
-                for (let i = 21; i < bot.h4Candles.length; i++)
-                    h4ema = bot.h4Candles[i].close * k + h4ema * (1 - k);
-                const candidate  = bot.h4KissCandidate;
-                const isNearKiss = Math.abs(bar.close - h4ema) < atr * 0.8;
-                if (!candidate && isNearKiss) {
-                    bot.h4KissCandidate = { dir: signal.type, bar: bar.time };
-                    log(`H4 Kiss first touch @ ${bar.close.toFixed(4)} — waiting for confirmation bar`, 'neutral');
-                    return;
-                } else if (candidate) {
-                    if (candidate.dir !== signal.type) { bot.h4KissCandidate = null; return; };
-                    bot.h4KissCandidate = null;
-                    log(`H4 Kiss confirmed (2-bar) @ ${bar.close.toFixed(4)}`, 'info');
-                } else {
-                    return;
-                };
-            };
-        };
-
-        if (bot.config.strategy === 'synthetic_scalp') {
-            const barsSinceLastSL = bot.candles.length - bot.lastSLBarIdx;
-            if (bot.lastSLBarIdx > 0 && barsSinceLastSL < 2) {
-                log(`Synthetic scalp re-entry blocked — only ${barsSinceLastSL} bar(s) since last SL`, 'neutral');
-                return;
-            };
-        };
-
-        bot.lastFiredMs = now;
-        fireSignal(bot, signal, bar, atr, rsi, isTrending);
-    };
-};
+    // Default strategy engine fallback
+    const signal = bot.strategy.analyze(bot.candles, atr, rsi);
+    if (signal && (Date.now() - bot.lastFiredMs) > 30000) {
+        bot.lastFiredMs = Date.now();
+        fireSignal(bot, signal, bar, atr, rsi, null);
+    } else if (!signal) {
+        console.log(`[DEBUG] ${bot.config.strategy} → No signal from analyze()`);
+    }
+}
 
 // Expose for console debugging
 window.bots = bots;
