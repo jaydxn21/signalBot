@@ -1434,7 +1434,7 @@ async function _runJump75(bot, bar, atr, rsi) {
     try {
         aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
 
-        if (aiServerReady && aiScore < 42) {
+        if (aiServerReady && aiScore < 38) {
             log(`🤖 AI REJECTED ${signalType} — ${aiScore}%`, 'warn');
             return null;
         } else if (aiServerReady) {
