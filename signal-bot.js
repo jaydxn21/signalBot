@@ -1260,55 +1260,80 @@ function handleData(data) {
 // PROCESS BAR
 // ─────────────────────────────────────────────────────────────
 function processBar(bot, bar, gran) {
+    // ✅ CONSOLIDATED: Store H4 + HTF ONCE (not twice)
     if (gran === 14400) {
-        const last = bot.h4Candles[bot.h4Candles.length - 1];
-        if (last && last.time === bar.time) bot.h4Candles[bot.h4Candles.length - 1] = bar;
-        else bot.h4Candles.push(bar);
-        if (bot.h4Candles.length > 500) bot.h4Candles.shift();
-    };
-    if (gran === bot.htfGran) {
-        const lastH = bot.htfCandles[bot.htfCandles.length - 1];
-        if (lastH && lastH.time === bar.time) bot.htfCandles[bot.htfCandles.length - 1] = bar;
-        else bot.htfCandles.push(bar);
+        const lastH4 = bot.h4Candles[bot.h4Candles.length - 1];
+        if (lastH4 && lastH4.time === bar.time) {
+            bot.h4Candles[bot.h4Candles.length - 1] = bar;  // Update existing
+        } else {
+            bot.h4Candles.push(bar);  // Add new
+        }
+        if (bot.h4Candles.length > 500) bot.h4Candles.shift();  // Keep last 500
+    }
+
+    if (gran === bot.htfGran && gran !== 14400) {  // ✅ Avoid double-storing H4
+        const lastHTF = bot.htfCandles[bot.htfCandles.length - 1];
+        if (lastHTF && lastHTF.time === bar.time) {
+            bot.htfCandles[bot.htfCandles.length - 1] = bar;
+        } else {
+            bot.htfCandles.push(bar);
+        }
         if (bot.htfCandles.length > 500) bot.htfCandles.shift();
+        
         if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, bot.htfCandles);
         if (bot.config.strategy === 'phantom') PhantomStrategy.setHtfCandles(bot.id, bot.htfCandles);
-    };
+    }
 
-    // Store candles for Jump75 on each timeframe
+    // ✅ JUMP75: Store M5, M15, H4 separately (no duplicates)
     if (bot.config.strategy === 'jump75') {
-        if (gran === 300) {
-            bot.m5Candles.push(bar);
-            if (bot.m5Candles.length > 100) bot.m5Candles.shift();
+        if (gran === 300) {  // M5
+            const lastM5 = bot.m5Candles[bot.m5Candles.length - 1];
+            if (lastM5 && lastM5.time === bar.time) {
+                bot.m5Candles[bot.m5Candles.length - 1] = bar;
+            } else {
+                bot.m5Candles.push(bar);
+            }
+            if (bot.m5Candles.length > 120) bot.m5Candles.shift();
             bot.lastM5CloseTime = bar.time;
-        };
-        if (gran === 900) {
-            bot.m15Candles.push(bar);
-            if (bot.m15Candles.length > 50) bot.m15Candles.shift();
+        }
+        
+        if (gran === 900) {  // M15
+            const lastM15 = bot.m15Candles[bot.m15Candles.length - 1];
+            if (lastM15 && lastM15.time === bar.time) {
+                bot.m15Candles[bot.m15Candles.length - 1] = bar;
+            } else {
+                bot.m15Candles.push(bar);
+            }
+            if (bot.m15Candles.length > 60) bot.m15Candles.shift();
             bot.lastM15CloseTime = bar.time;
-        };
-        if (gran === 14400) {
-            bot.h4Candles.push(bar);
-            if (bot.h4Candles.length > 30) bot.h4Candles.shift();
+        }
+        
+        if (gran === 14400) {  // H4 (already handled above, just track time)
             bot.lastH4CloseTime = bar.time;
-        };
-    };
+        }
+    }
 
+    // ✅ Only process main chart TF once
     if (gran !== bot.config.tf) return;
 
     const last = bot.candles[bot.candles.length - 1];
-    if (last && last.time === bar.time) bot.candles[bot.candles.length - 1] = bar;
-    else bot.candles.push(bar);
+    if (last && last.time === bar.time) {
+        bot.candles[bot.candles.length - 1] = bar;
+    } else {
+        bot.candles.push(bar);
+    }
     if (bot.candles.length > 1000) bot.candles.shift();
 
+    // Update chart engines
     const activeEng = _engineFor(bot.id);
     if (activeEng) activeEng.update(bar);
 
     if (!ChartManager.isSplitMode() && bot.id === focusedBotId) {
         const splitEng = ChartManager.get(bot.id);
         if (splitEng && splitEng !== activeEng) splitEng.update(bar);
-    };
+    }
 
+    // Calculate indicators
     const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
     const atr = Indicators.calculateATR(bot.candles);
 
@@ -1331,15 +1356,15 @@ function processBar(bot, bar, gran) {
     checkOutcome(bot);
 
     // ── DIRECT STRATEGY RUNNERS ─────────────────────────────────
-    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; };
-    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; };
-    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; };
-    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; };
-    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; };
-    if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; };
+    if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi);    return; }
+    if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi);   return; }
+    if (bot.config.strategy === 'kismet')  { _runKismet(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'cipher')  { _runCipher(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'jump75')  { _runJump75(bot, bar, atr, rsi);  return; }
+    if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; }
     
     if (document.getElementById('auto-session')?.checked) {
         const forexStrategies = ['momentum','london_breakout','news_fade','swing','h4_kiss'];
@@ -1423,35 +1448,36 @@ window.AI_SERVER_URL = AI_SERVER_URL;
 window.getAIWinProbability = getAIWinProbability;
 
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - ADAPTIVE HYBRID + AI FILTER v3.0
+// JUMP75 RUNNER - FIXED + BETTER AI FILTER + DEBUG
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     const symbol = bot.config.symbol;
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(symbol)) return null;
 
-    // Check candle buffers
-    if (!bot.m5Candles || bot.m5Candles.length < 8) return null;
-    if (!bot.m15Candles || bot.m15Candles.length < 5) return null;
-    if (!bot.h4Candles || bot.h4Candles.length < 3) return null;
+    // Ensure we have enough data
+    if (!bot.m5Candles || bot.m5Candles.length < 10) {
+        console.warn(`[Jump75] Waiting for M5 candles... (${bot.m5Candles?.length || 0}/10)`);
+        return null;
+    }
+    if (!bot.m15Candles || bot.m15Candles.length < 6) {
+        console.warn(`[Jump75] Waiting for M15 candles... (${bot.m15Candles?.length || 0}/6)`);
+        return null;
+    }
+    if (!bot.h4Candles || bot.h4Candles.length < 4) {
+        console.warn(`[Jump75] Waiting for H4 candles... (${bot.h4Candles?.length || 0}/4)`);
+        return null;
+    }
 
     const now = Date.now();
-    if ((now - bot.lastFiredMs) < 25000) return null;
+    if ((now - bot.lastFiredMs) < 18000) return null;   // 18s cooldown (reduced for testing)
 
-    // Apply saved quality mode from UI
+    // Apply Quality Mode
     const savedMode = window._botQualityModes?.[bot.id] ?? 1;
-    if (Jump75Strategy && typeof Jump75Strategy.setMode === 'function') {
+    if (Jump75Strategy?.setMode) {
         Jump75Strategy.setMode(savedMode);
-    } else if (Jump75Strategy) {
-        Jump75Strategy.QUALITY_MODE = savedMode;
-    }
-    
-    // Set symbol on strategy instance for proper logging
-    if (Jump75Strategy && typeof Jump75Strategy.setSymbol === 'function') {
-        Jump75Strategy.setSymbol(symbol);
     }
 
-    // Get signal from strategy
     let signal = null;
     try {
         signal = await Jump75Strategy.checkEntry(
@@ -1461,64 +1487,50 @@ async function _runJump75(bot, bar, atr, rsi) {
             atr
         );
     } catch (err) {
-        console.error('[Jump75] Strategy error:', err);
+        console.error('[Jump75] Strategy Error:', err);
         return null;
     }
 
-    if (!signal) return null;
-
-    // Extract signal type properly
-    let signalType = signal.type || signal.direction;
-    if (signalType === 'LONG') signalType = 'BUY';
-    if (signalType === 'SHORT') signalType = 'SELL';
-    if (!signalType || signalType === 'BUY/SELL') signalType = 'BUY';
-
-    // === AI FILTER (SOFT - only reject very low probability) ===
-    const isBreakout = (signal.mode === 'BREAKOUT' || signal.factors?.some(f => f && f.includes('Break')));
-    let aiScore = 50;
-    let aiFilterPassed = true;
-
-    try {
-        aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
-        
-        // DEBUG: show AI prediction result in console
-        if (aiScore !== null && aiScore !== undefined) {
-            console.log('%c🤖 AI Prediction Result: ' + aiScore + '%', 'background: #a855f7; color: white; font-size: 12px; padding: 2px 6px; border-radius: 4px;');
-            if (aiScore < 45) {
-                console.log('%c❌ AI REJECTED - below threshold', 'background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px;');
-            } else {
-                console.log('%c✅ AI APPROVED - signal will fire', 'background: #10b981; color: white; padding: 2px 6px; border-radius: 4px;');
-            }
-        }
-        
-        // Only reject if AI is confident it's BAD (below 45%)
-        // AND if AI server is actually ready
-        if (aiServerReady && aiScore < 45) {
-            log(`🤖 AI REJECTED ${signal.mode || ''} ${signalType} — ${aiScore}% win prob (below 45%)`, 'warn');
-            aiFilterPassed = false;
-        } else if (aiServerReady && aiScore >= 45 && aiScore < 52) {
-            log(`🤖 AI CAUTION — ${aiScore}% win prob, proceeding anyway`, 'neutral');
-        } else if (aiServerReady) {
-            log(`🤖 AI APPROVED — ${aiScore}% predicted win rate`, 'info');
-        }
-    } catch(e) {
-        console.warn('[Jump75] AI filter error, allowing signal:', e.message);
-        aiScore = 50;
-        aiFilterPassed = true;
+    if (!signal) {
+        // Optional: Uncomment for heavy debug
+        // console.log(`[Jump75] No signal from checkEntry()`);
+        return null;
     }
 
-    if (!aiFilterPassed) return null;
+    let signalType = (signal.type || signal.direction || 'BUY').toUpperCase();
+    if (signalType === 'LONG') signalType = 'BUY';
+    if (signalType === 'SHORT') signalType = 'SELL';
+
+    // === AI FILTER ===
+    const isBreakout = signal.mode === 'BREAKOUT' || 
+                      (signal.factors && signal.factors.some(f => typeof f === 'string' && f.includes('Break')));
+
+    let aiScore = 50;
+    try {
+        aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
+
+        console.log(`%c🤖 JUMP75 AI → ${aiScore.toFixed(1)}%`, 'color:#a855f7;font-weight:bold');
+
+        if (aiServerReady && aiScore < 42) {
+            log(`🤖 AI REJECTED ${signalType} — ${aiScore.toFixed(1)}%`, 'warn');
+            return null;
+        } else if (aiServerReady && aiScore < 52) {
+            log(`🤖 AI CAUTION ${signalType} — ${aiScore.toFixed(1)}%`, 'neutral');
+        } else if (aiServerReady) {
+            log(`🤖 AI APPROVED ${signalType} — ${aiScore.toFixed(1)}%`, 'info');
+        }
+    } catch (e) {
+        console.warn('[AI] Error, proceeding anyway:', e.message);
+    }
 
     // Log the signal
-    const displayType = signalType;
     const modeText = signal.mode ? ` | ${signal.mode}` : '';
-    const factorsText = (signal.factors && Array.isArray(signal.factors) && signal.factors.length > 0) 
-        ? ` | ${signal.factors.slice(0, 3).join(' · ')}` 
-        : '';
+    const factorsText = signal.factors && signal.factors.length ? 
+        ` | ${signal.factors.slice(0,3).join(' · ')}` : '';
     const aiText = aiServerReady ? ` | AI:${Math.round(aiScore)}%` : '';
-    
-    log(`🦘 JUMP75 ${displayType} @ ${bar.close.toFixed(4)}${modeText}${factorsText}${aiText}`, 
-        displayType === 'BUY' ? 'buy' : 'sell');
+
+    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(4)}${modeText}${factorsText}${aiText}`, 
+        signalType === 'BUY' ? 'buy' : 'sell');
 
     bot.lastFiredMs = now;
     fireSignal(bot, signal, bar, atr, rsi, null);
@@ -1731,7 +1743,7 @@ function _novaCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.registerLoss(pnlAmt);
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'nova', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
-    };
+    }
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'nova',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
@@ -1816,7 +1828,7 @@ function _pulseCloseTrade(bot, outcome, pnlAmt, bar) {
         UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
         Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'pulse', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
         Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-    };
+    }
     SessionState.pushTrade({
         time: Date.now(), symbol: bot.config.symbol, strategy: 'pulse',
         type, entry, sl, tp, outcome, pnl: pnlAmt,
@@ -2228,21 +2240,22 @@ function _updatePhantomBadge(botId, session) {
 // FIRE SIGNAL WITH POSITION SIZING
 // ─────────────────────────────────────────────────────────────
 async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
-    // ✅ FIX 1: Properly extract type with fallbacks
+    if (!signal || !bar) return;
+
+    // ✅ FIX 1: Extract type with proper fallbacks
     let type = signal?.type || signal?.direction;
-    
-    // Convert LONG/SHORT to BUY/SELL for display and trading
     if (type === 'LONG') type = 'BUY';
     if (type === 'SHORT') type = 'SELL';
-    
-    // Final fallback - if still no type, try to infer or default
     if (!type || type === 'BUY/SELL') {
         console.warn('[fireSignal] Unknown signal type:', signal);
-        type = 'BUY'; // Default fallback
-    };
-    
+        type = 'BUY';
+    }
+
+    console.log(`[fireSignal] ${type} on ${bot.config.symbol} | Strategy: ${bot.config.strategy}`);
+
     const label = signal.label || type;
 
+    // ✅ FIX 2: Calculate confidence BEFORE position sizing
     let confidence;
     if (signal.isPhantom || signal.isNova || signal.isPulse || signal.isKismet || signal.isVortex || signal.isUltraScalper || signal.isJump75) {
         confidence = {
@@ -2265,7 +2278,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         const confLabel = `${label} [${confidence.grade}${confidence.score}]`;
         log(`SIGNAL ${type} @ ${bar.close.toFixed(4)} — ${confLabel}`, type === 'BUY' ? 'buy' : 'sell');
         if (confidence.factors.length) log(`Confluence: ${confidence.factors.slice(0, 3).join(' · ')}`, 'neutral');
-    };
+    }
 
     window.registerBotSignal(bot.id, type, bar.close.toFixed(4), label, confidence);
 
@@ -2286,86 +2299,72 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
     if (!atr) return;
 
-    // ✅ FIX 2: Calculate slDist and tpDist BEFORE using slMult in position sizing
-    let slDist, tpDist;
-    let slMult = 1.0;  // Define defaults
-    let tpMult = 1.5;  // Define defaults
+    // ✅ FIX 3: DEFINE slMult & tpMult FIRST, then calculate distances
+    let slMult = signal.slMultiplier || 1.0;
+    let tpMult = signal.tpMultiplier || 1.5;
 
-    // If the signal provides explicit distances, use them
+    // Override if signal provides explicit distances
     if (signal._slDist && signal._tpDist) {
-        slDist = signal._slDist;
-        tpDist = signal._tpDist;
-        slMult = slDist / atr;
-        tpMult = tpDist / atr;
-    } else {
-        tpMult = signal.tpMultiplier || 1.5;
-        slMult = signal.slMultiplier || 1.0;
-        slDist = atr * slMult;
-        tpDist = atr * tpMult;
-    };
+        slMult = signal._slDist / atr;
+        tpMult = signal._tpDist / atr;
+    }
+
+    const slDist = atr * slMult;
+    const tpDist = atr * tpMult;
 
     const sl = type === 'BUY' ? bar.close - slDist : bar.close + slDist;
     const tp = type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
 
     console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.toFixed(2)} (${slDist.toFixed(2)} away) | TP: ${tp.toFixed(2)} (${tpDist.toFixed(2)} away)`);
 
-    // ── POSITION SIZING CALCULATION ──────────────────────────────
+    // ✅ FIX 4: Position sizing now has slMult defined
     let riskPercent = 0.75;
     if (signal.isPhantom) riskPercent = 0.5;
     if (signal.isNova) riskPercent = 0.65;
     if (signal.isCipher) riskPercent = 0.7;
     if (signal.isUltraScalper) riskPercent = 0.5;
     if (signal.isJump75) riskPercent = 0.6;
-    
+
     const accountEquity = bot.accountEquity || SessionState.get().accountEquity || 10000;
-    
-    // FORCE RESET position sizing to clear any stale loss streak
-    try {
-        PositionSizing.resetSession(accountEquity);
-        PositionSizing.reset();
-    } catch(e) {
-        log(`Position sizing reset failed: ${e.message}`, 'warn');
-    };
-    
-    let lotSize = 0.01; // Default fallback
-    
+
+    let lotSize = 0.01;
     try {
         const sizing = PositionSizing.calculateLotSize({
             symbol: bot.config.symbol,
             accountEquity: accountEquity,
             atr: atr,
-            slMultiplier: slMult,  // ✅ Now slMult is defined!
+            slMultiplier: slMult,  // ✅ NOW slMult is always defined!
             riskPercent: riskPercent,
             useStreakScaling: false
         });
-        
+
         if (sizing.allowed && sizing.lotSize > 0) {
             lotSize = Math.max(0.01, sizing.lotSize);
             log(`📊 Position sizing: ${lotSize.toFixed(2)} lots | Risk: $${sizing.riskAmount.toFixed(2)} (${sizing.riskPercent}%)`, 'info');
         } else {
             log(`Position sizing not available (${sizing.reason || 'unknown'}) - using fixed 0.01 lot`, 'warn');
             lotSize = 0.01;
-        };
+        }
     } catch(e) {
         log(`Position sizing error: ${e.message} - using fixed 0.01 lot`, 'warn');
         lotSize = 0.01;
-    };
-    
-    // Final safety clamp
+    }
+
     lotSize = Math.min(0.1, Math.max(0.01, lotSize));
 
+    // ✅ Open signal with proper fields
     bot.openSignal = { type, sl, tp, entry: bar.close, lotSize: lotSize, strategy: bot.config.strategy };
     if (signal.isJump75) {
         bot.openSignal.isJump75 = true;
         bot.openSignal.factors = signal.factors || [];
-    };
+    }
     bot.lastConfidence = confidence;
 
     const sigEngine = _engineFor(bot.id);
     if (sigEngine) {
         sigEngine.addMarker(bar.time, type, label);
         sigEngine.drawTradeLevels(sl, tp);
-    };
+    }
 
     // Auto-log training data
     if (document.getElementById('auto-log')?.checked) {
@@ -2385,11 +2384,11 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
                 const seScore = (bearEngulf?1:0) + (allBear?1:0) + (bigBear?1:0);
                 DataLogger.logSignal(type, bar, atr, rsi, ema8, ema21,
                     isTrending, isVol, bScore, seScore, bot.config.symbol, bot.config.tf);
-            };
-        } catch(e) {};
-    };
+            }
+        } catch(e) {}
+    }
 
-       // MT5 Push — Send to LOCAL BRIDGE (bridge.cjs)
+    // MT5 Push
     if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
         const mt5Symbol = MT5_SYMBOL_MAP[bot.config.symbol] 
@@ -2425,1099 +2424,4 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
             }
         }
     }
-};
-
-// ─────────────────────────────────────────────────────────────
-// SHARED TRAILING STOP
-// ─────────────────────────────────────────────────────────────
-function _applyTrailingStop(bot, atr) {
-    const sig = bot.openSignal;
-    if (!sig || !atr) return;
-
-    const closed = bot.candles[bot.candles.length - 2];
-    if (!closed) return;
-
-    const { type, entry, tp } = sig;
-    const tpDist   = Math.abs(tp - entry);
-    const halfway  = tpDist * 0.5;
-    const price    = closed.close;
-    const inProfit = type === 'BUY' ? price - entry : entry - price;
-
-    if (inProfit < halfway) return;
-
-    if (!sig.trailActivated) {
-        sig.trailActivated = true;
-        sig.trailSL = entry;
-        sig.sl      = entry;
-        log(`📈 Trail activated — SL → breakeven @ ${entry.toFixed(4)}`, 'neutral');
-        const eng = _engineFor(bot.id);
-        if (eng) eng.drawTradeLevels(sig.sl, sig.tp);
-        _pushMT5Modify(bot, sig.sl, sig.tp);
-        return;
-    }
-
-    const candidate = type === 'BUY' ? price - atr : price + atr;
-    let moved = false;
-    if (type === 'BUY' && candidate > sig.trailSL) { 
-        sig.trailSL = candidate; 
-        sig.sl = candidate; 
-        moved = true; 
-    } else if (type === 'SELL' && candidate < sig.trailSL) { 
-        sig.trailSL = candidate; 
-        sig.sl = candidate; 
-        moved = true; 
-    }
-
-    if (moved) {
-        const eng = _engineFor(bot.id);
-        if (eng) eng.drawTradeLevels(sig.sl, sig.tp);
-        _pushMT5Modify(bot, sig.sl, sig.tp);
-    }
 }
-
-async function _pushMT5Modify(bot, newSL, tp) {
-    if (!Settings.get('mt5Enabled')) return;
-    const mt5Symbol = bot.config.mt5Symbol || bot.config.symbol;
-    try {
-        await fetch('/api/signal', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action:    'modify',
-                symbol:    mt5Symbol,
-                sl:        parseFloat(newSL.toFixed(5)),
-                tp:        parseFloat(tp.toFixed(5)),
-                magic:     987654,
-                timestamp: Date.now(),
-            })
-        });
-        log(`→ MT5 modify: SL → ${newSL.toFixed(4)}`, 'neutral');
-    } catch(e) {
-        log('MT5 modify push failed', 'warn');
-    };
-};
-
-// ─────────────────────────────────────────────────────────────
-// CHECK OUTCOME
-// ─────────────────────────────────────────────────────────────
-function checkOutcome(bot) {
-    if (!bot.openSignal) return;
-
-    const closed = bot.candles[bot.candles.length - 2];
-    if (!closed || closed.time === bot.openSignal.lastCheckedTime) return;
-    bot.openSignal.lastCheckedTime = closed.time;
-
-    const { type, sl, tp, entry, lotSize: signalLotSize } = bot.openSignal;
-    let hit = null;
-
-    if (type === 'BUY') {
-        if (closed.low  <= sl) hit = 'SL';
-        else if (closed.high >= tp) hit = 'TP';
-    } else {
-        if (closed.high >= sl) hit = 'SL';
-        else if (closed.low  <= tp) hit = 'TP';
-    };
-
-    if (!hit) return;
-
-    // ── JUMP75 EXIT HANDLING ─────────────────────────────────────
-    if (bot.openSignal.isJump75) {
-        const latestM5 = bot.m5Candles[bot.m5Candles.length - 1];
-        if (latestM5) {
-            const closeSignal = Jump75Strategy.checkClose(latestM5, bot.openSignal);
-            if (closeSignal) {
-                if (closeSignal.action === 'CLOSE') {
-                    const lotSizeUsed = signalLotSize || bot.config.lotSize || 0.01;
-                    const pv = _pointValue(bot.config.symbol);
-                    const priceDist = Math.abs(latestM5.close - entry);
-                    const pnlAmt = lotSizeUsed * pv * priceDist;
-                    
-                    log(`🦘 JUMP75 ${closeSignal.reason} — closing trade @ ${latestM5.close.toFixed(4)}`, closeSignal.reason === 'TP' ? 'buy' : 'sell');
-                    
-                    if (closeSignal.reason === 'TP') {
-                        window.registerBotWin(bot.id, pnlAmt);
-                        UIManager.registerWin(pnlAmt);
-                        UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
-                        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'jump75', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
-                        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
-                    } else {
-                        window.registerBotLoss(bot.id, pnlAmt);
-                        UIManager.registerLoss(pnlAmt);
-                        UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
-                        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'jump75', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
-                        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-                    };
-                    
-                    SessionState.pushTrade({
-                        time: Date.now(), symbol: bot.config.symbol, strategy: 'jump75',
-                        type, entry, sl, tp, outcome: closeSignal.reason, pnl: pnlAmt,
-                        confidence: bot.lastConfidence || null,
-                    });
-                    
-                    bot.openSignal = null;
-                    const outcomeEngine = _engineFor(bot.id);
-                    if (outcomeEngine) {
-                        outcomeEngine.clearMarkers();
-                        outcomeEngine.clearPriceLines();
-                    };
-                    return;
-                } else if (closeSignal.action === 'UPDATE_SL') {
-                    bot.openSignal.sl = closeSignal.newSL;
-                    log(`🦘 JUMP75 updating SL to ${closeSignal.newSL.toFixed(4)}`, 'neutral');
-                    const eng = _engineFor(bot.id);
-                    if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
-                    _pushMT5Modify(bot, bot.openSignal.sl, bot.openSignal.tp);
-                    return;
-                };
-            };
-        };
-    };
-
-    // ── PHANTOM SCALE-OUT ─────────────────────────────────────
-    if (bot.openSignal.isPhantom && hit === 'TP' && !bot.openSignal.scaleOutDone) {
-        const lotSize   = signalLotSize || bot.config.phantomLot || bot.config.lotSize || 0.01;
-        const pv        = _pointValue(bot.config.symbol);
-        const halfPnl   = lotSize * pv * Math.abs(tp - entry) * 0.5;
-        bot.openSignal.scaleOutDone = true;
-        bot.openSignal.sl = entry;
-        const atr = Indicators.calculateATR(bot.candles) || Math.abs(tp - entry);
-        bot.openSignal.tp = type === 'BUY' ? entry + atr * 2.5 : entry - atr * 2.5;
-
-        log(`👻 PHANTOM scale-out — 50% closed +${halfPnl.toFixed(4)} | SL → breakeven, trailing remainder`, 'buy');
-        window.registerBotWin(bot.id, halfPnl);
-        UIManager.registerWin(halfPnl);
-        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'phantom', type, entry, sl, tp, outcome: 'TP', pnl: halfPnl });
-        PhantomStrategy.recordTrade(bot.id, 'TP', halfPnl);
-        _updatePhantomBadge(bot.id, PhantomStrategy.getSession());
-
-        const eng = _engineFor(bot.id);
-        if (eng) eng.drawTradeLevels(bot.openSignal.sl, bot.openSignal.tp);
-        return;
-    };
-
-    // ── PnL calculation using signal lotSize ───────────────────
-    const lotSizeUsed = signalLotSize || bot.config.lotSize || bot.config.phantomLot || 0.01;
-    const pv          = _pointValue(bot.config.symbol);
-    const slPriceDist = Math.abs(entry - sl);
-    const tpPriceDist = Math.abs(tp - entry);
-    const pnlAmt      = hit === 'TP'
-        ? lotSizeUsed * pv * tpPriceDist
-        : lotSizeUsed * pv * slPriceDist;
-
-    // Update Position Sizing with outcome
-    const newEquity = (SessionState.get().sessionPnL || 0) + (hit === 'TP' ? pnlAmt : -pnlAmt);
-    PositionSizing.updateAfterTrade(hit, hit === 'TP' ? pnlAmt : -pnlAmt, newEquity + 10000);
-
-    if (bot.openSignal.isPhantom) { _phantomCloseTrade(bot, hit, pnlAmt, closed); return; };
-    if (bot.openSignal.isNova)    { _novaCloseTrade(bot, hit, pnlAmt, closed);    return; };
-    if (bot.openSignal.isPulse)   { _pulseCloseTrade(bot, hit, pnlAmt, closed);   return; };
-    if (bot.openSignal.isKismet)  { _kismetCloseTrade(bot, hit, pnlAmt, closed);  return; };
-    if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; };
-    if (bot.openSignal.isCipher)  { _cipherCloseTrade(bot, hit, pnlAmt, closed);  return; };
-    if (bot.openSignal.isUltraScalper) { _ultraScalperCloseTrade(bot, hit, pnlAmt, closed); return; };
-
-    if (hit === 'TP') {
-        log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
-        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
-        window.registerBotWin(bot.id, pnlAmt);
-        UIManager.registerWin(pnlAmt);
-        DataLogger.logOutcome('TP', entry, sl, tp, closed.time);
-        UIManager.addTradeHistory(type, entry, sl, tp, 'TP', bot.config.symbol);
-        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
-    } else {
-        log(`✗ SL hit  -${pnlAmt.toFixed(4)}`, 'sell');
-        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
-        window.registerBotLoss(bot.id, pnlAmt);
-        UIManager.registerLoss(pnlAmt);
-        DataLogger.logOutcome('SL', entry, sl, tp, closed.time);
-        UIManager.addTradeHistory(type, entry, sl, tp, 'SL', bot.config.symbol);
-        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
-        bot.strategy.registerLoss(bot.config.strategy);
-    };
-
-    SessionState.pushTrade({
-        time: Date.now(), symbol: bot.config.symbol, strategy: bot.config.strategy,
-        type, entry, sl, tp, outcome: hit, pnl: pnlAmt,
-        confidence: bot.lastConfidence || null,
-        overlays: Object.keys(overlayState[bot.id] || {}).filter(k => overlayState[bot.id][k]),
-    });
-
-    const state   = SessionState.get();
-    const wins    = state.wins   + (hit === 'TP' ? 1 : 0);
-    const losses  = state.losses + (hit === 'SL' ? 1 : 0);
-    const pnl     = state.sessionPnL + (hit === 'TP' ? pnlAmt : -pnlAmt);
-    const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
-    SessionState.set({ wins, losses, sessionPnL: pnl, winRate, accountEquity: newEquity + 10000 });
-
-    if (!Auth.isGuest()) {
-        Auth.syncTrades(SessionState.get().trades).catch(() => {});
-    };
-
-    const outcomeEngine = _engineFor(bot.id);
-    if (outcomeEngine) {
-        outcomeEngine.clearMarkers();
-        outcomeEngine.clearPriceLines();
-    };
-
-    bot.openSignal = null;
-
-    if (hit === 'SL') {
-        bot.lastSLTimeMs = Date.now();
-        bot.lastSLBarIdx = bot.candles.length;
-    };
-
-    // ── LOSS PROTECTION (UPDATED: excludes ultra_scalp and jump75) ────────
-    if (hit === 'SL' && Settings.get('lossProtection') && 
-        bot.config.strategy !== 'phantom' && 
-        bot.config.strategy !== 'nova' && 
-        bot.config.strategy !== 'pulse' && 
-        bot.config.strategy !== 'kismet' && 
-        bot.config.strategy !== 'vortex' && 
-        currentPnL <= -maxDailyLoss) {
-        log(`Daily loss limit $${maxDailyLoss} hit — stopping all bots.`, 'warn');
-        _showRiskAlert(`Daily loss limit of $${maxDailyLoss} reached. All bots stopped.`);
-        Object.keys(bots).forEach(bid => window.stopBot(bid));
-    };
-};
-
-// ─────────────────────────────────────────────────────────────
-// STRATEGY STATUS POLLING
-// ─────────────────────────────────────────────────────────────
-
-// ============================================================
-// STRATEGY STATUS POLLING - DEBUGGING FIXED VERSION
-// ============================================================
-// FIX #3: Strategy Status Polling - Debug & Fix
-// Problem: Status only shows heartbeat, never detects signals
-// Solution: Enhanced logging, better error handling, proper initialization
-
-let pollInterval = null;
-let consecutiveErrors = 0;
-let isPolling = false;
-let pollCount = 0;
-
-async function _pollStrategyStatus() {
-    if (isPolling) return;
-    isPolling = true;
-    pollCount++;
-    
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        
-        // ✅ FIX: Remove 'pragma' header - it's not allowed by CORS
-        const response = await fetch('https://nexus-api-khvt.onrender.com/api/strategy-status', {
-            signal: controller.signal,
-            headers: { 
-                'Accept': 'application/json'
-                // Removed: 'Cache-Control': 'no-cache'
-                // Removed: 'Pragma': 'no-cache'  ← This was causing CORS error
-            },
-        });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            console.warn(`[Status] HTTP ${response.status}`);
-            throw new Error(`HTTP ${response.status}`);
-        };
-        
-        const status = await response.json();
-        consecutiveErrors = 0;
-        
-        // Log all status updates to console for debugging
-        console.log(`[Poll #${pollCount}] Status:`, status.status || status.currentState || 'IDLE', {
-            h4Breaks: status.h4Breaks || status.h4BreaksDetected || 0,
-            retests: status.retests || status.retestCount || 0,
-            entries: status.entries || status.entriesFired || 0
-        });
-        
-        _updateStatusUI(status);
-        
-    } catch(e) {
-        consecutiveErrors++;
-        console.warn(`[Status] Poll #${pollCount} failed:`, e.message, `(${consecutiveErrors} consecutive)`);
-        
-        // Update UI to show connection status
-        const statusEl = document.getElementById('strategy-status');
-        const lastEventEl = document.getElementById('last-event-text');
-        
-        if (consecutiveErrors <= 2) {
-            // First couple failures are normal (server cold start)
-            if (statusEl && consecutiveErrors === 1) {
-                statusEl.textContent = 'CONNECTING...';
-                statusEl.style.color = '#f59e0b';
-            };
-            if (lastEventEl && consecutiveErrors === 1) {
-                lastEventEl.textContent = 'Connecting to server...';
-                lastEventEl.style.color = '#f59e0b';
-            };
-        } else if (consecutiveErrors > 3) {
-            // After 3 failures, show offline
-            if (statusEl) {
-                statusEl.textContent = 'OFFLINE';
-                statusEl.style.color = '#ef4444';
-            };
-            
-            if (lastEventEl) {
-                lastEventEl.textContent = `Server offline (${consecutiveErrors} fails) - retrying...`;
-                lastEventEl.style.color = '#ef4444';
-            };
-        };
-        
-    } finally {
-        isPolling = false;
-    };
-};
-
-function _updateStatusUI(status) {
-    if (!status) {
-        console.warn('[Status] No status data received');
-        return;
-    };
-    
-    // Get DOM elements
-    const statusEl = document.getElementById('strategy-status');
-    const breaksEl = document.getElementById('stat-breaks');
-    const retestsEl = document.getElementById('stat-retests');
-    const entriesEl = document.getElementById('stat-entries');
-    const timeEl = document.getElementById('status-time');
-    const lastEventEl = document.getElementById('last-event-text');
-    
-    // Safely get status text with fallbacks
-    const statusText = status.status || status.currentState || 'IDLE';
-    
-    // Update main status
-    if (statusEl) {
-        statusEl.textContent = statusText;
-        
-        // Color coding based on status
-        if (statusText.includes('ENTRY') || statusText === 'ENTRY_SIGNAL_FIRED') {
-            statusEl.style.color = '#10b981';
-            statusEl.style.textShadow = '0 0 5px rgba(16,185,129,0.3)';
-        } else if (statusText.includes('BREAK') || statusText === 'H4_BREAK_DETECTED') {
-            statusEl.style.color = '#f59e0b';
-            statusEl.style.textShadow = '0 0 5px rgba(245,158,11,0.3)';
-        } else if (statusText.includes('CONFIRMATION') || statusText === 'CONFIRMATION_CANDLE') {
-            statusEl.style.color = '#8b5cf6';
-            statusEl.style.textShadow = '0 0 5px rgba(139,92,246,0.3)';
-        } else if (statusText.includes('ACTIVE') || statusText === 'ACTIVE_SETUP') {
-            statusEl.style.color = '#ec4899';
-            statusEl.style.textShadow = '0 0 5px rgba(236,72,153,0.3)';
-        } else if (statusText === 'OFFLINE') {
-            statusEl.style.color = '#ef4444';
-            statusEl.style.textShadow = 'none';
-        } else {
-            statusEl.style.color = 'var(--text-primary)';
-            statusEl.style.textShadow = 'none';
-        };
-    };
-    
-    // Update stats counters with fallback property names
-    if (breaksEl) {
-        const breakCount = status.h4Breaks || status.h4BreaksDetected || 0;
-        breaksEl.textContent = breakCount;
-        if (breakCount > 0) breaksEl.style.color = '#f59e0b';
-        else breaksEl.style.color = '';
-    };
-    
-    if (retestsEl) {
-        const retestCount = status.retests || status.retestsDetected || status.retestCount || 0;
-        retestsEl.textContent = retestCount;
-        if (retestCount > 0) retestsEl.style.color = '#8b5cf6';
-        else retestsEl.style.color = '';
-    };
-    
-    if (entriesEl) {
-        const entryCount = status.entries || status.entriesFired || 0;
-        entriesEl.textContent = entryCount;
-        if (entryCount > 0) entriesEl.style.color = '#10b981';
-        else entriesEl.style.color = '';
-    };
-    
-    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
-    
-    // Update active setup display
-    const setupDiv = document.getElementById('active-setup');
-    if (setupDiv) {
-        const isActiveSetup = (statusText === 'ACTIVE_SETUP' || status.currentState === 'ACTIVE_SETUP');
-        const hasBreakLevel = (status.lastBreakLevel || status.breakLevel);
-        
-        if (isActiveSetup && hasBreakLevel) {
-            setupDiv.style.display = 'block';
-            const setupDetails = document.getElementById('signal-details');
-            if (setupDetails) {
-                const level = status.lastBreakLevel || status.breakLevel || '?';
-                const dir = status.lastBreakDirection || status.direction || '?';
-                const age = (status.setupAge || 0).toFixed(1);
-                const retests = status.retestCount || 0;
-                const maxRetests = status.maxRetests || 3;
-                
-                setupDetails.innerHTML = `
-                    ${dir} @ ${parseFloat(level).toFixed(4)} | ${retests}/${maxRetests} retests | ${age}h old
-                `;
-                
-                console.log('[UI] Setup display updated:', { dir, level, retests, age });
-            };
-            
-            const setupTimer = document.getElementById('setup-timer');
-            if (setupTimer) {
-                const age = (status.setupAge || 0);
-                setupTimer.textContent = `${age.toFixed(1)}h`;
-                setupTimer.style.color = age > 1.5 ? '#ef4444' : '#f59e0b';
-            };
-        } else {
-            setupDiv.style.display = 'none';
-        };
-    };
-    
-    // Update last signal display
-    const signalDiv = document.getElementById('last-signal');
-    if (signalDiv) {
-        const isEntrySignal = (statusText === 'ENTRY_SIGNAL_FIRED');
-        const hasDirection = (status.direction || status.type);
-        
-        if (isEntrySignal && hasDirection) {
-            signalDiv.style.display = 'block';
-            const signalDetails = document.getElementById('signal-details');
-            if (signalDetails) {
-                const dir = status.direction || status.type || '?';
-                const price = status.entryPrice || '?';
-                const rr = status.rr || '?';
-                const sl = status.sl || '?';
-                const tp = status.tp || '?';
-                
-                signalDetails.innerHTML = 
-                    `${dir} @ ${parseFloat(price).toFixed(4)} | ` +
-                    `R:R ${parseFloat(rr).toFixed(2)}:1 | ` +
-                    `SL: ${parseFloat(sl).toFixed(4)} TP: ${parseFloat(tp).toFixed(4)}`;
-                
-                console.log('[UI] Signal display updated:', { dir, price, rr });
-            };
-            
-            const signalTime = document.getElementById('signal-time');
-            if (signalTime && status.timeDetected) {
-                signalTime.textContent = new Date(status.timeDetected).toLocaleTimeString();
-            };
-            
-            // Trigger glow animation
-            signalDiv.style.animation = 'none';
-            signalDiv.offsetHeight; // Force reflow
-            setTimeout(() => { signalDiv.style.animation = 'glowPulse 0.5s ease-in-out'; }, 10);
-            
-        } else {
-            signalDiv.style.display = 'none';
-        };
-    };
-    
-    // Update last event text
-    if (lastEventEl) {
-        let eventText = statusText;
-        if (status.direction) eventText += ` (${status.direction})`;
-        if (status.rr) eventText += ` | R:R ${parseFloat(status.rr).toFixed(2)}`;
-        if (status.callCount) eventText += ` | Calls: ${status.callCount}`;
-        
-        lastEventEl.textContent = eventText;
-        
-        // Color coding for last event
-        if (statusText.includes('ENTRY') || statusText.includes('SIGNAL')) {
-            lastEventEl.style.color = '#10b981';
-        } else if (statusText.includes('OFFLINE')) {
-            lastEventEl.style.color = '#ef4444';
-        } else if (statusText.includes('BREAK')) {
-            lastEventEl.style.color = '#f59e0b';
-        } else {
-            lastEventEl.style.color = '#8b5cf6';
-        };
-    };
-};
-
-function _startStatusPolling() {
-    if (pollInterval) {
-        clearInterval(pollInterval);
-        pollInterval = null;
-    };
-    
-    console.log('[Status Polling] Starting... polling every 5 seconds');
-    
-    // Poll every 5 seconds for faster response
-    pollInterval = setInterval(() => {
-        _pollStrategyStatus().catch(e => console.error('[Status] Poll error:', e));
-    }, 5000);
-    
-    // Initial poll immediately
-    _pollStrategyStatus().catch(e => console.error('[Status] Initial poll error:', e));
-};
-
-function _stopStatusPolling() {
-    if (pollInterval) {
-        clearInterval(pollInterval);
-        pollInterval = null;
-        console.log('[Status Polling] Stopped');
-    };
-};
-
-// Add CSS animation if not already present
-if (!document.querySelector('#status-glow-style')) {
-    const style = document.createElement('style');
-    style.id = 'status-glow-style';
-    style.textContent = `
-        @keyframes glowPulse {
-            0% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); };
-            50% { border-left-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5); };
-            100% { border-left-color: #10b981; box-shadow: 0 0 0px rgba(16,185,129,0); };
-        };
-        
-        #strategy-status {
-            transition: color 0.2s ease, text-shadow 0.2s ease;
-        };
-        
-        .stat-value {
-            transition: color 0.2s ease;
-        };
-    `;
-    document.head.appendChild(style);
-};
-
-// Initialize polling with proper DOM ready handling
-if (typeof window !== 'undefined') {
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('[Init] Starting status polling on DOMContentLoaded');
-            _startStatusPolling();
-        });
-    } else {
-        console.log('[Init] Starting status polling immediately');
-        _startStatusPolling();
-    };
-};
-
-// Stop polling when page unloads
-window.addEventListener('beforeunload', _stopStatusPolling);
-
-// Optional: Expose for debugging
-window._debugStatusPolling = {
-    stop: _stopStatusPolling,
-    start: _startStatusPolling,
-    poll: _pollStrategyStatus,
-    getStats: () => ({ pollCount, consecutiveErrors, isPolling })
-};
-
-// ─────────────────────────────────────────────────────────────
-// OVERLAYS
-// ─────────────────────────────────────────────────────────────
-function redrawOverlays() {
-    if (!focusedBotId || !bots[focusedBotId]) return;
-    const bot    = bots[focusedBotId];
-    const engine = _engineFor(focusedBotId);
-    if (!engine) return;
-    _drawOverlaysOnEngine(engine, bot);
-};
-
-function _drawOverlaysOnEngine(engine, bot) {
-    const series = engine.getCandleSeries();
-    OverlayManager.clearAll(series, engine);
-    if (document.getElementById('show-asian')?.checked)  OverlayManager.drawAsianRange(series, bot.candles);
-    if (document.getElementById('show-pdhpdl')?.checked) OverlayManager.drawPDHPDL(series, bot.h4Candles);
-    if (document.getElementById('show-fvg')?.checked)    OverlayManager.drawFVG(series, bot.candles, engine);
-    if (document.getElementById('show-h4')?.checked)     OverlayManager.drawH4Kiss(series, bot.h4Candles);
-    if (document.getElementById('show-major')?.checked)  OverlayManager.drawMajorSR(series, bot.candles);
-    if (document.getElementById('show-orb')?.checked)    OverlayManager.drawORBRange(series, bot.candles);
-    if (document.getElementById('show-ob')?.checked)     OverlayManager.drawOrderBlocks(series, bot.candles, engine);
-    if (document.getElementById('show-bos')?.checked)    OverlayManager.drawBreakOfStructure(series, bot.candles);
-};
-
-function redrawAllSplitOverlays() {
-    if (!ChartManager.isSplitMode()) return;
-    Object.values(bots).forEach(bot => {
-        if (!bot.isActive) return;
-        const eng = ChartManager.get(bot.id);
-        if (!eng) return;
-        const saved = overlayState[bot.id] || {};
-        const current = {};
-        OVERLAY_IDS.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) { current[id] = el.checked; el.checked = saved[id] || false; };
-        });
-        _drawOverlaysOnEngine(eng, bot);
-        OVERLAY_IDS.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.checked = current[id];
-        });
-    });
-};
-
-// ─────────────────────────────────────────────────────────────
-// RISK ALERT
-// ─────────────────────────────────────────────────────────────
-function _showRiskAlert(message) {
-    let alert = document.getElementById('risk-alert');
-    if (!alert) {
-        alert = document.createElement('div');
-        alert.id = 'risk-alert';
-        alert.style.cssText = `
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: #ef4444; color: white; padding: 12px 24px; border-radius: 8px;
-            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; z-index: 9999;
-            box-shadow: 0 8px 24px rgba(239,68,68,0.4); animation: riskSlideIn 0.3s ease;
-        `;
-        document.body.appendChild(alert);
-    };
-    alert.textContent = '⚠ ' + message;
-    alert.style.display = 'block';
-    clearTimeout(alert._timer);
-    alert._timer = setTimeout(() => { alert.style.display = 'none'; }, 6000);
-};
-
-// ─────────────────────────────────────────────────────────────
-// LOGOUT
-// ─────────────────────────────────────────────────────────────
-function logout() {
-    api?.forgetAll();
-    api?.disconnect();
-    Storage.clearToken();
-    authorised = false;
-    Object.keys(bots).forEach(id => delete bots[id]);
-    SessionState.set({ connected: false, mt5Connected: false, activeBots: 0, botConfigs: [] });
-    document.documentElement.removeAttribute('data-authed');
-    document.getElementById('auth-overlay').style.display     = 'flex';
-    document.getElementById('api-token').value                = '';
-    document.getElementById('connection-indicator').className = 'status-dot status-offline';
-    document.getElementById('conn-label').textContent         = 'Offline';
-    document.getElementById('mt5-indicator').className        = 'status-dot status-offline';
-    const botList = document.getElementById('bot-list');
-    if (botList) botList.innerHTML = '';
-    Object.keys(bots).forEach(id => ChartManager.removeBot(id));
-    const ph = document.getElementById('chart-placeholder-empty');
-    if (ph) ph.style.display = 'flex';
-    log('Logged out', 'warn');
-    const trades = SessionState.get().trades;
-    Auth.syncTrades(trades).finally(() => Auth.logout());
-};
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// QUALITY MODE SELECTOR - CLEAN & RELIABLE
-// ─────────────────────────────────────────────────────────────
-function setupQualityModeSelector(card, botId) {
-    const stratSelect = card.querySelector('.bot-strategy-select');
-    const modeContainer = card.querySelector('.quality-mode-selector');
-    const modeSelect = card.querySelector('.quality-mode-select');
-    const modeBadge = card.querySelector('.quality-mode-badge');
-    const modeInfo = card.querySelector('.quality-mode-info');
-
-    if (!modeContainer || !modeSelect) return;
-
-    if (!window._botQualityModes) window._botQualityModes = {};
-
-    const modesConfig = {
-        jump75: {
-            0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, color: '#ec4899' },
-            1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, color: '#2563eb' },
-            2: { name: 'QUALITY',  emoji: '🎯', minScore: 75, color: '#059669' },
-            3: { name: 'ULTRA',    emoji: '👑', minScore: 85, color: '#9333ea' }
-        }
-    };
-
-    function updateUI() {
-        const strategy = stratSelect.value;
-        const modes = modesConfig[strategy];
-        
-        if (!modes) {
-            modeContainer.style.display = 'none';
-            return;
-        }
-
-        modeContainer.style.display = 'block';
-
-        // Populate dropdown if empty
-        if (modeSelect.options.length <= 1) {
-            modeSelect.innerHTML = '';
-            Object.entries(modes).forEach(([value, mode]) => {
-                const opt = document.createElement('option');
-                opt.value = value;
-                opt.textContent = `${mode.emoji} ${mode.name} (Score ≥${mode.minScore})`;
-                modeSelect.appendChild(opt);
-            });
-        }
-
-        // Load saved mode for this specific bot
-        const savedMode = window._botQualityModes[botId] ?? 1;
-        modeSelect.value = savedMode;
-
-        // Update badge & info
-        const currentMode = modes[savedMode];
-        if (modeBadge && currentMode) {
-            modeBadge.textContent = `${currentMode.emoji} ${currentMode.name}`;
-            modeBadge.style.background = currentMode.color + '22';
-            modeBadge.style.color = currentMode.color;
-        }
-        if (modeInfo && currentMode) {
-            modeInfo.innerHTML = `Min Score: <b>${currentMode.minScore}</b>`;
-        }
-    }
-
-    // Listen for changes
-    stratSelect.addEventListener('change', updateUI);
-    modeSelect.addEventListener('change', () => {
-        window._botQualityModes[botId] = parseInt(modeSelect.value);
-        updateUI();
-        log(`🎯 Bot ${botId} quality mode updated`, 'info');
-    });
-
-    // Initial update
-    setTimeout(updateUI, 100);
-}
-
-// ============================================================
-// HELPER FUNCTION: Update bot instance mode when bot starts
-// ============================================================
-
-// Call this function AFTER creating a bot instance but BEFORE starting it
-function applySavedQualityModeToBot(botId, botInstance) {
-    if (!botInstance) return false;
-    
-    const savedMode = window._botQualityModes ? window._botQualityModes[botId] : null;
-    if (savedMode === undefined) return false;
-    
-    // Get strategy from the card
-    const card = document.querySelector(`.bot-card[data-bot-id="${botId}"]`);
-    if (!card) return false;
-    
-    const strategy = card.querySelector('.bot-strategy-select')?.value;
-    
-    if (strategy === 'jump75' || strategy === 'range_boundary') {
-        if (typeof botInstance.setMode === 'function') {
-            botInstance.setMode(savedMode);
-            console.log(`[Bot ${botId}] Loaded saved quality mode: ${savedMode}`);
-            return true;
-        } else if (botInstance.QUALITY_MODE !== undefined) {
-            botInstance.QUALITY_MODE = savedMode;
-            console.log(`[Bot ${botId}] Loaded saved QUALITY_MODE: ${savedMode}`);
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-// ============================================================
-// OVERRIDE YOUR EXISTING _saveBotConfigs (if it exists)
-// ============================================================
-
-// Find your existing _saveBotConfigs and add qualityMode to it
-// If you can't find it, this will enhance it:
-
-if (typeof window._saveBotConfigs === 'function') {
-    const originalSave = window._saveBotConfigs;
-    window._saveBotConfigs = function() {
-        // Call original first
-        originalSave();
-        
-        // Save quality modes
-        if (window._botQualityModes) {
-            localStorage.setItem('botQualityModes', JSON.stringify(window._botQualityModes));
-        }
-    };
-} else {
-    window._saveBotConfigs = function() {
-        const configs = {};
-        document.querySelectorAll('.bot-card').forEach(card => {
-            const botId = card.dataset.botId;
-            if (botId) {
-                configs[botId] = {
-                    strategy: card.querySelector('.bot-strategy-select')?.value,
-                    symbol: card.querySelector('.bot-symbol-select')?.value,
-                    tf: card.querySelector('.bot-tf-select')?.value,
-                    lotSize: card.querySelector('.bot-lot-input')?.value,
-                    phantomLot: card.querySelector('.phantom-lot-input')?.value,
-                    qualityMode: window._botQualityModes ? window._botQualityModes[botId] : 1
-                };
-            }
-        });
-        localStorage.setItem('botConfigs', JSON.stringify(configs));
-        
-        // Save quality modes separately
-        if (window._botQualityModes) {
-            localStorage.setItem('botQualityModes', JSON.stringify(window._botQualityModes));
-        }
-    };
-}
-
-// ============================================================
-// LOAD SAVED QUALITY MODES ON PAGE LOAD
-// ============================================================
-
-function loadSavedQualityModes() {
-    const saved = localStorage.getItem('botQualityModes');
-    if (saved) {
-        try {
-            window._botQualityModes = JSON.parse(saved);
-            console.log('✅ Loaded saved quality modes:', window._botQualityModes);
-        } catch(e) {
-            console.warn('Failed to load quality modes:', e);
-            window._botQualityModes = {};
-        }
-    } else {
-        window._botQualityModes = {};
-    }
-}
-
-// Call this when your page loads
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadSavedQualityModes);
-} else {
-    loadSavedQualityModes();
-}
-
-// ─────────────────────────────────────────────────────────────
-// CREATE BOT CARD
-// ─────────────────────────────────────────────────────────────
-function _createBotCard(id, savedConfig) {
-    const template = document.getElementById('bot-card-template');
-    if (!template) { console.error('bot-card-template missing'); return; }
-    const clone = template.content.cloneNode(true);
-    const card = clone.querySelector('.bot-card');
-    if (!card) { console.error('.bot-card missing from template'); return; }
-    
-    card.dataset.botId = id;
-    
-    const stratSelect = card.querySelector('.bot-strategy-select');
-    stratSelect.innerHTML = '';
-    STRATEGY_GROUPS.forEach(group => {
-        const og = document.createElement('optgroup');
-        og.label = group.label;
-        og.title = group.desc;
-        group.strategies.forEach(({ value, label }) => {
-            const opt = document.createElement('option');
-            opt.value = value;
-            opt.textContent = label;
-            og.appendChild(opt);
-        });
-        stratSelect.appendChild(og);
-    });
-    
-    const symbolSelect = card.querySelector('.bot-symbol-select');
-    Object.entries(SYMBOL_MAP).forEach(([val, name]) => {
-        const opt = document.createElement('option');
-        opt.value = val;
-        opt.textContent = name.replace(' Index', '').trim();
-        symbolSelect.appendChild(opt);
-    });
-    
-    if (savedConfig) {
-        stratSelect.value = savedConfig.strategy;
-        symbolSelect.value = savedConfig.symbol;
-        const tfSelect = card.querySelector('.bot-tf-select');
-        if (tfSelect) tfSelect.value = savedConfig.tf;
-        const lotInput = card.querySelector('.bot-lot-input');
-        if (lotInput && savedConfig.lotSize) lotInput.value = savedConfig.lotSize;
-        const phantomLotInput = card.querySelector('.phantom-lot-input');
-        if (phantomLotInput && savedConfig.phantomLot) phantomLotInput.value = savedConfig.phantomLot;
-    }
-    
-    const updateLabel = () => {
-        const labelEl = card.querySelector('.bot-symbol-label');
-        if (labelEl) {
-            labelEl.textContent = (SYMBOL_MAP[symbolSelect.value] || symbolSelect.value).replace(' Index', '').trim();
-        }
-    };
-    symbolSelect.addEventListener('change', updateLabel);
-    updateLabel();
-    
-    const phantomPanel = card.querySelector('.phantom-settings');
-    const tfSelect = card.querySelector('.bot-tf-select');
-    const showHidePhantom = () => {
-        if (phantomPanel) phantomPanel.style.display = stratSelect.value === 'phantom' ? 'block' : 'none';
-        const isM1Strat = stratSelect.value === 'nova' || stratSelect.value === 'kismet';
-        let m1Notice = card.querySelector('.m1-notice');
-        if (isM1Strat) {
-            if (tfSelect) { tfSelect.value = '300'; tfSelect.disabled = true; }
-            if (!m1Notice) {
-                m1Notice = document.createElement('div');
-                m1Notice.className = 'm1-notice';
-                m1Notice.style.cssText = 'font-size:9px;color:#f59e0b;margin-top:4px;opacity:0.8;';
-                m1Notice.textContent = '📊 M5 locked — NOVA/KISMET run on M5 for correct R:R';
-                tfSelect?.closest('.bot-field-group')?.appendChild(m1Notice);
-            }
-        } else {
-            if (tfSelect) tfSelect.disabled = false;
-            if (m1Notice) m1Notice.remove();
-        }
-    };
-    stratSelect.addEventListener('change', showHidePhantom);
-    showHidePhantom();
-    
-    
-    // ✅ SETUP QUALITY MODE SELECTOR FOR JUMP75 - ADD THIS LINE
-    setupQualityModeSelector(card, id);
-    
-    const configureBtn = card.querySelector('.phantom-configure-btn');
-    if (configureBtn) {
-        configureBtn.onclick = () => {
-            const targetInput = card.querySelector('.phantom-target-input');
-            const lossInput = card.querySelector('.phantom-loss-input');
-            const target = parseFloat(targetInput?.value) || 0;
-            const loss = parseFloat(lossInput?.value) || 0;
-            if (target <= 0 && loss <= 0) {
-                log('PHANTOM: enter a profit target or loss limit first', 'warn');
-                return;
-            }
-            const session = PhantomStrategy.configureSession(target, loss);
-            _updatePhantomBadge(id, session);
-            configureBtn.textContent = '✓ SESSION CONFIGURED';
-            configureBtn.style.color = '#34d399';
-            setTimeout(() => {
-                configureBtn.textContent = 'SET SESSION TARGETS';
-                configureBtn.style.color = '#a78bfa';
-            }, 2000);
-            log(`👻 PHANTOM session set — Target: $${target} | Limit: $${loss}`, 'info');
-        };
-    }
-    
-    if (savedConfig?.strategy === 'phantom') {
-        _updatePhantomBadge(id, PhantomStrategy.getSession());
-    }
-    
-    const toggleBtn = card.querySelector('.bot-toggle-btn');
-    toggleBtn.onclick = () => {
-        if (card.classList.contains('stopped')) {
-            window.startBot(id);
-        } else {
-            window.stopBot(id);
-        }
-    };
-    
-    card.querySelector('.bot-remove-btn').onclick = (e) => {
-        e.stopPropagation();
-        window.stopBot(id);
-        card.remove();
-        delete bots[id];
-        _saveBotConfigs();
-    };
-    
-    card.onclick = (e) => {
-        if (e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') {
-            window.focusBot(id);
-            document.querySelectorAll('.bot-card').forEach(c => c.style.outline = 'none');
-            card.style.outline = '2px solid var(--accent-light)';
-        }
-    };
-    
-    document.getElementById('bot-list').appendChild(card);
-    if (!savedConfig) log('Bot card created — select a symbol and strategy', 'info');
-}
-window._botQualityModes = window._botQualityModes || {};
-window.QUALITY_MODE_DESCRIPTIONS = {
-    0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, minMomentum: 0.15 },
-    1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, minMomentum: 0.25 },
-    2: { name: 'QUALITY', emoji: '🎯', minScore: 75, minMomentum: 0.40 },
-    3: { name: 'ULTRA', emoji: '👑', minScore: 85, minMomentum: 0.60 }
-};
-
-// ─────────────────────────────────────────────────────────────
-// WINDOW HELPERS
-// ─────────────────────────────────────────────────────────────
-window.getBotConfig = function(id) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return null;
-    const strategy = card.querySelector('.bot-strategy-select').value;
-    const tfRaw    = parseInt(card.querySelector('.bot-tf-select').value);
-    const tf       = (strategy === 'nova' || strategy === 'kismet') ? 300 : tfRaw;
-    return {
-        strategy,
-        symbol:              card.querySelector('.bot-symbol-select').value,
-        tf,
-        lotSize:             parseFloat(card.querySelector('.bot-lot-input')?.value)     || 0.01,
-        phantomLot:          parseFloat(card.querySelector('.phantom-lot-input')?.value) || 0.01,
-        phantomCooldownBars: 3,
-    };
-};
-
-window.setBotRunning = function(id, isRunning) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const btn = card.querySelector('.bot-toggle-btn');
-    const dot = card.querySelector('.bot-status-dot');
-    if (isRunning) {
-        card.classList.replace('stopped', 'running');
-        btn.textContent = 'STOP BOT';
-        dot.className   = 'status-dot status-online bot-status-dot';
-    } else {
-        card.classList.replace('running', 'stopped');
-        btn.textContent = 'START BOT';
-        dot.className   = 'status-dot status-offline bot-status-dot';
-    };
-    const activeEl = document.getElementById('stat-active');
-    if (activeEl) {
-        const count = document.querySelectorAll('.bot-card.running').length;
-        activeEl.textContent = count;
-        activeEl.style.color = count >  0 ? 'var(--accent)' : 'var(--text-muted)';
-    };
-};
-
-window.setBotOnline = function(id) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const dot = card.querySelector('.bot-status-dot');
-    if (dot) dot.className = 'status-dot status-online bot-status-dot';
-};
-
-window.registerBotSignal = function(id, type, price, label, confidence) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (card && confidence) {
-        let badge = card.querySelector('.bot-confidence-badge');
-        if (!badge) {
-            badge = document.createElement('div');
-            badge.className = 'bot-confidence-badge';
-            badge.style.cssText = `
-                font-size:0.58rem;font-weight:700;letter-spacing:0.06em;
-                padding:3px 8px;border-radius:6px;margin-top:6px;
-                text-align:center;font-family:var(--font-mono);
-            `;
-            const wlRow = card.querySelector('.bot-card-stats');
-            if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
-        };
-        badge.textContent = `SIGNAL ${type} · ${confidence.grade} (${confidence.score}%)`;
-        badge.style.background = confidence.color + '22';
-        badge.style.color      = confidence.color;
-        badge.style.border     = `1px solid ${confidence.color}55`;
-        badge.style.borderRadius = '6px';
-        badge.style.padding = '3px 8px';
-        badge.style.fontSize = '0.65rem';
-        badge.style.fontWeight = '600';
-        clearTimeout(badge._timer);
-        badge._timer = setTimeout(() => { badge.textContent = ''; badge.style.background = 'none'; badge.style.border = 'none'; }, 60000);
-    };
-};
-
-window.registerBotWin = function(id, pnl) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const bot = bots[id];
-    if (bot) { bot.wins++; bot.pnl += pnl; };
-    const winsEl = card.querySelector('.bot-wins');
-    const pnlEl  = card.querySelector('.bot-pnl');
-    if (winsEl && bot) winsEl.textContent = bot.wins;
-    if (pnlEl  && bot) {
-        pnlEl.textContent = bot.pnl.toFixed(2);
-        pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
-};
-
-window.registerBotLoss = function(id, pnl) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card) return;
-    const bot = bots[id];
-    if (bot) { bot.losses++; bot.pnl -= pnl; };
-    const lossEl = card.querySelector('.bot-losses');
-    const pnlEl  = card.querySelector('.bot-pnl');
-    if (lossEl && bot) lossEl.textContent = bot.losses;
-    if ( pnlEl  && bot) {
-        pnlEl.textContent = bot.pnl.toFixed(2);
-        pnlEl.style.color = bot.pnl >= 0 ? 'var(--accent2)' : 'var(--accent3)';
-    };
-};
-
-function log(msg, type = 'neutral') { UIManager.log(msg, type); };
-
-document.addEventListener('DOMContentLoaded', init);
