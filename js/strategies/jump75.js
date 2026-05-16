@@ -61,30 +61,30 @@ export const Jump75Strategy = {
     
     _getModeConfig() {
         const modes = {
-            0: { // QUANTITY - Many signals (50-100/day)
-                name: 'QUANTITY',
-                displayName: 'QUANTITY (High Frequency)',
-                minScore: 48,
-                cooldownMs: 25000,      // 30 seconds
-                minMomentum: 0.08,
-                minRangeATR: 2.0,
-                nearFibATR: 1.2,
-                requireTrend: false,
-                riskPercent: 0.5,
-                lotMultiplier: 0.8
-            },
-            1: { // BALANCED - Good signals (20-40/day)
-                name: 'BALANCED',
-                displayName: 'BALANCED (Recommended)',
-                minScore: 60,
-                cooldownMs: 60000,      // 1 minute
-                minMomentum: 0.20,
-                minRangeATR: 2.5,
-                nearFibATR: 1.0,
-                requireTrend: false,
-                riskPercent: 0.75,
-                lotMultiplier: 1.0
-            },
+            0: { // QUANTITY - Much more aggressive
+            name: 'QUANTITY',
+            displayName: 'QUANTITY (High Frequency)',
+            minScore: 48,           // Lowered
+            cooldownMs: 25000,      // Faster entries
+            minMomentum: 0.08,      // Much lower threshold
+            minRangeATR: 1.5,       // Easier to qualify
+            nearFibATR: 1.8,        // Wider fib acceptance
+            requireTrend: false,
+            riskPercent: 0.6,
+            lotMultiplier: 0.9
+        },
+            1: { // BALANCED
+            name: 'BALANCED',
+            displayName: 'BALANCED (Recommended)',
+            minScore: 60,
+            cooldownMs: 60000,
+            minMomentum: 0.18,
+            minRangeATR: 2.3,
+            nearFibATR: 1.2,
+            requireTrend: false,
+            riskPercent: 0.75,
+            lotMultiplier: 1.0
+        },
             2: { // QUALITY - Fewer signals (10-20/day)
                 name: 'QUALITY',
                 displayName: 'QUALITY (Selective)',
