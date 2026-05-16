@@ -1393,87 +1393,20 @@ window.AI_SERVER_URL = AI_SERVER_URL;
 window.getAIWinProbability = getAIWinProbability;
 
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - FIXED + ROBUST AI FILTER
+// JUMP75 RUNNER - AI BYPASS MODE + STRONG DEBUG (v3.1)
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     const symbol = bot.config.symbol;
     const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
     if (!jumpSymbols.includes(symbol)) return null;
 
-    // Candle buffer safety
+    // Candle buffer check
     if (!bot.m5Candles || bot.m5Candles.length < 10) return null;
     if (!bot.m15Candles || bot.m15Candles.length < 6) return null;
     if (!bot.h4Candles || bot.h4Candles.length < 4) return null;
 
-    // 🧪 DEBUG: Log Jump75 buffer health once per minute
-    if (!bot._lastDebugLog || Date.now() - bot._lastDebugLog > 60000) {
-        bot._lastDebugLog = Date.now();
-        console.log(`[Jump75 Debug] ${symbol} | M5:${bot.m5Candles.length} | M15:${bot.m15Candles.length} | H4:${bot.h4Candles.length} | ATR:${atr?.toFixed(4)}`);
-        const lastM5 = bot.m5Candles[bot.m5Candles.length - 1];
-        if (lastM5) {
-            const latestH4 = bot.h4Candles[bot.h4Candles.length - 1];
-            const h4Range = latestH4 ? (latestH4.high - latestH4.low).toFixed(4) : 'n/a';
-            console.log(`   Price: ${lastM5.close} | H4 Range: ${h4Range}`);
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────
-// TEST AI BUTTON - Add to bot cards
-// ─────────────────────────────────────────────────────────────
-async function testAISignal(botId) {
-    const bot = bots[botId];
-    if (!bot) {
-        console.log('❌ Bot not found');
-        return;
-    }
-    
-    if (bot.config?.strategy !== 'jump75') {
-        console.log('⚠️ This bot is not a Jump75 bot');
-        return;
-    }
-    
-    console.log('🧪 TESTING AI FOR BOT:', botId, bot.config?.symbol);
-    
-    // Create a test signal
-    const testSignal = {
-        type: 'BUY',
-        mode: 'TEST',
-        tpMultiplier: 2.2,
-        slMultiplier: 1.0,
-        symbol: bot.config?.symbol || 'JD75',
-        factors: ['🧪 TEST BUTTON SIGNAL']
-    };
-    
-    // Get current ATR from candles
-    let atr = 50; // default
-    if (bot.m5Candles && bot.m5Candles.length > 20) {
-        const sum = bot.m5Candles.slice(-14).reduce((acc, c, i, arr) => {
-            if (i === 0) return 0;
-            const tr = Math.max(c.high - c.low, Math.abs(c.high - arr[i-1].close), Math.abs(c.low - arr[i-1].close));
-            return acc + tr;
-        }, 0);
-        atr = sum / 14;
-    }
-    
-    // Call AI
-    try {
-        const aiScore = await getAIWinProbability(testSignal, atr, null, false);
-        console.log(`🤖 AI RESULT: ${aiScore}% win probability`);
-        alert(`🤖 AI Prediction: ${aiScore}% win probability\n${aiScore >= 52 ? '✅ APPROVED' : '❌ REJECTED'}`);
-        
-        // Also log to the UI
-        log(`🧪 TEST: AI would ${aiScore >= 52 ? 'APPROVE' : 'REJECT'} this signal (${aiScore}%)`, aiScore >= 52 ? 'info' : 'warn');
-    } catch(e) {
-        console.error('AI Error:', e);
-        alert('❌ AI Error: ' + e.message);
-    }
-}
-
-// Expose to window for button clicks
-window.testAISignal = testAISignal;
-
     const now = Date.now();
-    if ((now - bot.lastFiredMs) < 18000) return null;   // 18s cooldown
+    if ((now - bot.lastFiredMs) < 15000) return null;   // 15s cooldown
 
     // Quality Mode
     const savedMode = window._botQualityModes?.[bot.id] ?? 1;
@@ -1481,49 +1414,63 @@ window.testAISignal = testAISignal;
 
     let signal = null;
     try {
-        signal = await Jump75Strategy.checkEntry(bot.m5Candles, bot.m15Candles, bot.h4Candles, atr);
+        signal = await Jump75Strategy.checkEntry(
+            bot.m5Candles, 
+            bot.m15Candles, 
+            bot.h4Candles, 
+            atr
+        );
     } catch (err) {
-        console.error('[Jump75] Strategy crashed:', err);
+        console.error('[Jump75] Strategy Error:', err);
         return null;
     }
 
-    if (!signal) return null;
+    if (!signal) {
+        // Uncomment the line below if you want to see why no signal (very noisy)
+        // console.log(`[Jump75 NO SIGNAL] ${symbol} - checkEntry returned null`);
+        return null;
+    }
 
     let signalType = (signal.type || signal.direction || 'BUY').toUpperCase();
     if (signalType === 'LONG') signalType = 'BUY';
     if (signalType === 'SHORT') signalType = 'SELL';
 
-    // AI Filter
+    // === AI FILTER - SOFT (you can disable for testing) ===
     const isBreakout = signal.mode === 'BREAKOUT' || 
-                      (Array.isArray(signal.factors) && signal.factors.some(f => f && f.includes('Break')));
+                      (Array.isArray(signal.factors) && signal.factors.some(f => f.includes('Break')));
 
     let aiScore = 50;
+    let aiFilterPassed = true;
+
     try {
         aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
 
-        if (aiServerReady && aiScore < 10) {
+        if (aiServerReady && aiScore < 35) {           // Lowered to 35 for more signals
             log(`🤖 AI REJECTED ${signalType} — ${aiScore}%`, 'warn');
-            return null;
+            aiFilterPassed = false;
         } else if (aiServerReady) {
-            log(`🤖 AI ${aiScore >= 52 ? 'APPROVED' : 'CAUTION'} ${signalType} — ${aiScore}%`, 
-                aiScore >= 52 ? 'info' : 'neutral');
+            log(`🤖 AI ${aiScore >= 55 ? 'APPROVED' : 'CAUTION'} ${signalType} — ${aiScore}%`, 
+                aiScore >= 55 ? 'info' : 'neutral');
         }
     } catch (e) {
-        console.warn('[AI] Failed → proceeding', e.message);
+        console.warn('[AI] Error, allowing signal:', e.message);
     }
 
-    // Final signal log
+    if (!aiFilterPassed) return null;
+
+    // Log signal
     const modeText = signal.mode ? ` | ${signal.mode}` : '';
-    const factors = Array.isArray(signal.factors) ? signal.factors.slice(0,3).join(' · ') : '';
+    const factorsText = Array.isArray(signal.factors) ? ` | ${signal.factors.slice(0,3).join(' · ')}` : '';
     const aiText = aiServerReady ? ` | AI:${Math.round(aiScore)}%` : '';
 
-    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(4)}${modeText}${factors ? ' | '+factors : ''}${aiText}`, 
+    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(4)}${modeText}${factorsText}${aiText}`, 
         signalType === 'BUY' ? 'buy' : 'sell');
 
     bot.lastFiredMs = now;
     fireSignal(bot, signal, bar, atr, rsi, null);
-}
 
+    return signal;
+}
 // ─────────────────────────────────────────────────────────────
 // RANGE BOUNDARY RUNNER
 // ─────────────────────────────────────────────────────────────
