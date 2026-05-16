@@ -114,207 +114,152 @@ export const Jump75Strategy = {
     },
     
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        // 🆚 FIX 1: Validate price first (QUICK CHECK)
-        if (!m5Candles || m5Candles.length < 2) return null;
-        
-        const latestCandle = m5Candles[m5Candles.length - 1];
-        const previousCandle = m5Candles[m5Candles.length - 2];
-        
-        if (!latestCandle || !latestCandle.close || latestCandle.close <= 0 || isNaN(latestCandle.close)) {
-            console.log(`❌ [${this._symbol}] Invalid price in candle: ${latestCandle?.close}`);
-            return null;
-        }
-        
-        // 🆚 FIX 2: Check feed is active
-        if (!feedMonitor.isSymbolActive(this._symbol, latestCandle.time)) {
-            console.log(`⏸️ [${this._symbol}] Skipping — no active feed`);
-            return null;
-        }
-        
-        // 🆚 FIX 3: Session startup buffer (don't trade in first 5 seconds)
-        if (!feedMonitor.isSessionStartBufferPassed(5000)) {
-            // console.log(`⏳ [${this._symbol}] Session startup buffer — waiting`);
-            return null;
-        }
-        
-        const config = this._getModeConfig();
-        
-        // Minimum candles check
-        if (!m5Candles || m5Candles.length < 20) return null;
-        if (!h4Candles || h4Candles.length < 10) return null;
-        
-        const now = Date.now();
-        if (now - this._lastTradeTime < config.cooldownMs) return null;
-        if (this._consecutiveLosses >= 2 && now - this._lastTradeTime < config.cooldownMs * 2) return null;
-        
-        if (!atr || atr === 0) return null;
-        
-        // Calculate H4 range and Fibonacci levels
-        const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
-        const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
-        const range = h4High - h4Low;
-        
-        if (range < atr * config.minRangeATR) return null;
-        
-        const fib618 = h4High - (range * 0.618);
-        const fib50 = h4High - (range * 0.5);
-        const fib382 = h4High - (range * 0.382);
-        
-        const price = latestCandle.close;
-        const near618 = Math.abs(price - fib618) < atr * config.nearFibATR;
-        const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
-        const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
-        
-        // Momentum via EMA crossover
-        const ema8 = this._calculateEMA(m5Candles, 8);
-        const ema21 = this._calculateEMA(m5Candles, 21);
-        if (!ema8 || !ema21) return null;
-        
-        const momentum = (ema8 - ema21) / atr;
-        
-        // Candle patterns
-        const bullishCandle = latestCandle.close > latestCandle.open;
-        const bearishCandle = latestCandle.close < latestCandle.open;
-        const strongCandle = Math.abs(latestCandle.close - latestCandle.open) > atr * 0.6;
-        
-        // Trend on M15
-        const m15Trend = this._getM15Trend(m15Candles);
-        const trendOk = !config.requireTrend || (momentum > 0 && m15Trend === 'UP') || (momentum < 0 && m15Trend === 'DOWN');
-        
-        let signal = null;
-        let score = config.minScore;
-        
-        // LONG signal
-        if (momentum > config.minMomentum && bullishCandle) {
-            if (near618) score += 15;
-            else if (near50) score += 10;
-            else if (near382) score += 5;
-            
-            if (strongCandle) score += 8;
-            if (trendOk) score += 5;
-            
-            if (score >= config.minScore) {
-                const zone = near618 ? '61.8%' : (near50 ? '50%' : (near382 ? '38.2%' : 'Support'));
-                signal = {
-                    type: 'BUY',
-                    entry: price,
-                    score: Math.min(score, 95),
-                    tpMultiplier: 2.0,
-                    slMultiplier: 1.0,
-                    riskPercent: config.riskPercent,
-                    lotMultiplier: config.lotMultiplier,
-                    isJump75: true,
-                    factors: [`📈 ${zone} bounce`, `Momentum ${momentum.toFixed(2)}`, strongCandle ? 'Strong candle' : ''].filter(f => f)
-                };
-            }
-        }
-        
-        // SHORT signal
-        if (!signal && momentum < -config.minMomentum && bearishCandle) {
-            score = config.minScore;
-            
-            if (near618) score += 15;
-            else if (near50) score += 10;
-            else if (near382) score += 5;
-            
-            if (strongCandle) score += 8;
-            if (trendOk) score += 5;
-            
-            if (score >= config.minScore) {
-                const zone = near618 ? '61.8%' : (near50 ? '50%' : (near382 ? '38.2%' : 'Resistance'));
-                signal = {
-                    type: 'SELL',
-                    entry: price,
-                    score: Math.min(score, 95),
-                    tpMultiplier: 2.0,
-                    slMultiplier: 1.0,
-                    riskPercent: config.riskPercent,
-                    lotMultiplier: config.lotMultiplier,
-                    isJump75: true,
-                    factors: [`📉 ${zone} rejection`, `Momentum ${Math.abs(momentum).toFixed(2)}`, strongCandle ? 'Strong candle' : ''].filter(f => f)
-                };
-            }
-        }
-        
-        // 🆚 FIX 4: Price validation with retry (FULL VERSION)
-        if (signal) {
-            const slDistance = atr * signal.slMultiplier;
-            const tpDistance = atr * signal.tpMultiplier;
-            
-            let validatedPrice = null;
-            let priceValid = false;
-            
-            // Try up to 3 times to get a valid price
-            for (let retry = 0; retry < 3; retry++) {
-                try {
-                    // Get the absolute latest price from the most recent candle
-                    const freshCandle = m5Candles[m5Candles.length - 1];
-                    
-                    if (freshCandle && freshCandle.close && freshCandle.close > 0 && !isNaN(freshCandle.close)) {
-                        validatedPrice = freshCandle.close;
-                        priceValid = true;
-                        break;
-                    }
-                    
-                    // Alternative: Check if there's a newer candle since we started
-                    if (retry === 0 && previousCandle && previousCandle.close > 0) {
-                        // Use previous candle as fallback on first try
-                        validatedPrice = previousCandle.close;
-                        priceValid = true;
-                        console.log(`⚠️ [${this._symbol}] Using previous candle price: ${validatedPrice}`);
-                        break;
-                    }
-                    
-                    if (!priceValid) {
-                        console.log(`⚠️ [${this._symbol}] Invalid price — retry ${retry + 1}/3`);
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                    }
-                } catch (err) {
-                    console.log(`⚠️ [${this._symbol}] Price check error: ${err.message}`);
-                }
-            }
-            
-            // Final validation
-            if (!priceValid || !validatedPrice || validatedPrice <= 0 || isNaN(validatedPrice)) {
-                console.log(`❌ [${this._symbol}] CRITICAL: Cannot get valid price — ABORTING signal`);
-                console.log(`   Original price: ${price}, Validated: ${validatedPrice}`);
-                return null;
-            }
-            
-            // Update signal with validated price
-            signal.entry = validatedPrice;
-            
-            // Recalculate SL/TP with validated price
-            if (signal.type === 'BUY') {
-                signal.sl = validatedPrice - slDistance;
-                signal.tp = validatedPrice + tpDistance;
-            } else {
-                signal.sl = validatedPrice + slDistance;
-                signal.tp = validatedPrice - tpDistance;
-            }
-            
-            // Ensure minimum stop distance (broker requirement)
-            const minStop = 0.01 * validatedPrice; // 1% minimum
-            if (signal.type === 'BUY' && (validatedPrice - signal.sl) < minStop) {
-                signal.sl = validatedPrice - minStop;
-                console.log(`⚠️ [${this._symbol}] Adjusted SL to minimum: ${minStop.toFixed(2)}`);
-            }
-            if (signal.type === 'SELL' && (signal.sl - validatedPrice) < minStop) {
-                signal.sl = validatedPrice + minStop;
-                console.log(`⚠️ [${this._symbol}] Adjusted SL to minimum: ${minStop.toFixed(2)}`);
-            }
-            
-            this._lastTradeTime = now;
-            this._tradesCount++;
-            
-            console.log(`[Jump75 ${config.name}] ${signal.type} | Score ${signal.score} | ${signal.factors.join(' · ')}`);
-            console.log(`   Entry: ${validatedPrice.toFixed(2)} | TP: ${signal.tp.toFixed(2)} | SL: ${signal.sl.toFixed(2)} | Risk: ${((Math.abs(validatedPrice - signal.sl) / atr)).toFixed(1)}x ATR`);
-            
-            return signal;
-        }
-        
+    const symbol = this._symbol || 'UNKNOWN';
+    console.log(`[Jump75 ${symbol}] === ENTRY CHECK START (Mode: ${this.QUALITY_MODE}) ===`);
+
+    // 1. Basic buffer check
+    if (!m5Candles || m5Candles.length < 20) {
+        console.log(`❌ [${symbol}] BLOCKED: Not enough M5 candles (${m5Candles?.length || 0}/20)`);
         return null;
-    },
+    }
+    if (!h4Candles || h4Candles.length < 10) {
+        console.log(`❌ [${symbol}] BLOCKED: Not enough H4 candles (${h4Candles?.length || 0}/10)`);
+        return null;
+    }
+    if (!m15Candles || m15Candles.length < 8) {
+        console.log(`⚠️ [${symbol}] Warning: Low M15 candles (${m15Candles?.length || 0})`);
+    }
+
+    const latestCandle = m5Candles[m5Candles.length - 1];
+    const previousCandle = m5Candles[m5Candles.length - 2];
+
+    // 2. Price validation
+    if (!latestCandle || !latestCandle.close || latestCandle.close <= 0 || isNaN(latestCandle.close)) {
+        console.log(`❌ [${symbol}] BLOCKED: Invalid price ${latestCandle?.close}`);
+        return null;
+    }
+    console.log(`✅ [${symbol}] Price OK: ${latestCandle.close.toFixed(2)}`);
+
+    // 3. Feed monitor
+    if (!feedMonitor.isSymbolActive(symbol, latestCandle.time)) {
+        console.log(`⏸️ [${symbol}] BLOCKED: Feed inactive`);
+        return null;
+    }
+
+    // 4. Session buffer
+    if (!feedMonitor.isSessionStartBufferPassed(5000)) {
+        console.log(`⏳ [${symbol}] BLOCKED: Session startup buffer`);
+        return null;
+    }
+
+    const config = this._getModeConfig();
+    const now = Date.now();
+
+    // 5. Cooldown
+    if (now - this._lastTradeTime < config.cooldownMs) {
+        console.log(`⏳ [${symbol}] BLOCKED: Cooldown active (${Math.round((now - this._lastTradeTime)/1000)}s / ${config.cooldownMs/1000}s)`);
+        return null;
+    }
+
+    if (!atr || atr === 0) {
+        console.log(`❌ [${symbol}] BLOCKED: Invalid ATR`);
+        return null;
+    }
+
+    // 6. H4 Range Check
+    const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
+    const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
+    const range = h4High - h4Low;
+
+    if (range < atr * config.minRangeATR) {
+        console.log(`❌ [${symbol}] BLOCKED: Range too small (${range.toFixed(2)} < ${ (atr * config.minRangeATR).toFixed(2) })`);
+        return null;
+    }
+    console.log(`✅ [${symbol}] Range OK: ${range.toFixed(2)}`);
+
+    // 7. Fibonacci zones
+    const fib618 = h4High - (range * 0.618);
+    const fib50 = h4High - (range * 0.5);
+    const fib382 = h4High - (range * 0.382);
+
+    const price = latestCandle.close;
+    const near618 = Math.abs(price - fib618) < atr * config.nearFibATR;
+    const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
+    const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
+
+    console.log(`📍 [${symbol}] Fib proximity → 61.8:${near618 ? 'YES' : 'no'} | 50:${near50 ? 'YES' : 'no'} | 38.2:${near382 ? 'YES' : 'no'}`);
+
+    // 8. Momentum
+    const ema8 = this._calculateEMA(m5Candles, 8);
+    const ema21 = this._calculateEMA(m5Candles, 21);
+    if (!ema8 || !ema21) {
+        console.log(`❌ [${symbol}] BLOCKED: Cannot calculate EMAs`);
+        return null;
+    }
+
+    const momentum = (ema8 - ema21) / atr;
+    console.log(`📈 [${symbol}] Momentum: ${momentum.toFixed(3)} (need > ${config.minMomentum})`);
+
+    // 9. Candle patterns
+    const bullishCandle = latestCandle.close > latestCandle.open;
+    const bearishCandle = latestCandle.close < latestCandle.open;
+    const strongCandle = Math.abs(latestCandle.close - latestCandle.open) > atr * 0.6;
+
+    // 10. Final signal logic
+    let signal = null;
+    let score = config.minScore;
+
+    // LONG
+    if (momentum > config.minMomentum && bullishCandle) {
+        if (near618) score += 15;
+        else if (near50) score += 10;
+        else if (near382) score += 5;
+        if (strongCandle) score += 8;
+
+        if (score >= config.minScore) {
+            const zone = near618 ? '61.8%' : (near50 ? '50%' : (near382 ? '38.2%' : 'Support'));
+            signal = {
+                type: 'BUY',
+                entry: price,
+                score: Math.min(score, 95),
+                tpMultiplier: 2.0,
+                slMultiplier: 1.0,
+                isJump75: true,
+                factors: [`📈 ${zone} bounce`, `Momentum ${momentum.toFixed(2)}`, strongCandle ? 'Strong candle' : ''].filter(Boolean)
+            };
+            console.log(`✅ [${symbol}] LONG SIGNAL GENERATED | Score: ${score}`);
+        }
+    }
+
+    // SHORT
+    if (!signal && momentum < -config.minMomentum && bearishCandle) {
+        score = config.minScore;
+        if (near618) score += 15;
+        else if (near50) score += 10;
+        else if (near382) score += 5;
+        if (strongCandle) score += 8;
+
+        if (score >= config.minScore) {
+            const zone = near618 ? '61.8%' : (near50 ? '50%' : (near382 ? '38.2%' : 'Resistance'));
+            signal = {
+                type: 'SELL',
+                entry: price,
+                score: Math.min(score, 95),
+                tpMultiplier: 2.0,
+                slMultiplier: 1.0,
+                isJump75: true,
+                factors: [`📉 ${zone} rejection`, `Momentum ${Math.abs(momentum).toFixed(2)}`, strongCandle ? 'Strong candle' : ''].filter(Boolean)
+            };
+            console.log(`✅ [${symbol}] SHORT SIGNAL GENERATED | Score: ${score}`);
+        }
+    }
+
+    if (!signal) {
+        console.log(`❌ [${symbol}] No signal met criteria (Score ${score} < ${config.minScore})`);
+    }
+
+    return signal;
+},
     
     _calculateEMA(candles, period) {
         if (candles.length < period) return null;
