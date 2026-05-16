@@ -40,7 +40,7 @@ import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 // AI SERVER CONFIGURATION - RAILWAY CLOUD DEPLOYMENT
 // ─────────────────────────────────────────────────────────────
 const AI_SERVER_URL = 'https://ai-server-production-8bc5.up.railway.app';
-const USE_LOCAL_AI = false; // Set to true for local development
+const USE_LOCAL_AI = true; // Set to true for local development
 
 console.log("%c🤖 AI SERVER CONFIGURATION", "color: #a855f7; font-size: 14px; font-weight: bold");
 console.log(`   Mode: ${USE_LOCAL_AI ? 'LOCAL' : 'CLOUD (Railway)'}`);
