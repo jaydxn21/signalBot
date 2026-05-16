@@ -64,9 +64,9 @@ export const Jump75Strategy = {
             0: { // QUANTITY - Many signals (50-100/day)
                 name: 'QUANTITY',
                 displayName: 'QUANTITY (High Frequency)',
-                minScore: 50,
-                cooldownMs: 30000,      // 30 seconds
-                minMomentum: 0.10,
+                minScore: 48,
+                cooldownMs: 25000,      // 30 seconds
+                minMomentum: 0.08,
                 minRangeATR: 2.0,
                 nearFibATR: 1.2,
                 requireTrend: false,
