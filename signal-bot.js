@@ -1277,29 +1277,31 @@ function handleData(data) {
 };
 
 
+
 // ─────────────────────────────────────────────────────────────
-// PROCESS BAR - ENHANCED WITH DEBUG + BETTER CANDLE HANDLING
+// PROCESS BAR - FIXED FOR JUMP75 MULTI-TF + DEBUG
 // ─────────────────────────────────────────────────────────────
 function processBar(bot, bar, gran) {
-    // Multi-TF storage for Jump75 and others
+    // ── STORE CANDLES FOR JUMP75 (Multi-TF) ─────────────────────
     if (bot.config.strategy === 'jump75') {
-        if (gran === 300) {
+        if (gran === 300) {           // M5
             bot.m5Candles.push(bar);
             if (bot.m5Candles.length > 150) bot.m5Candles.shift();
             bot.lastM5CloseTime = bar.time;
         }
-        if (gran === 900) {
+        if (gran === 900) {           // M15
             bot.m15Candles.push(bar);
             if (bot.m15Candles.length > 80) bot.m15Candles.shift();
             bot.lastM15CloseTime = bar.time;
         }
-        if (gran === 14400) {
+        if (gran === 14400) {         // H4
             bot.h4Candles.push(bar);
             if (bot.h4Candles.length > 50) bot.h4Candles.shift();
             bot.lastH4CloseTime = bar.time;
         }
     }
 
+    // H4 & HTF storage for other strategies
     if (gran === 14400) {
         const last = bot.h4Candles[bot.h4Candles.length - 1];
         if (last && last.time === bar.time) bot.h4Candles[bot.h4Candles.length - 1] = bar;
@@ -1312,12 +1314,21 @@ function processBar(bot, bar, gran) {
         if (lastH && lastH.time === bar.time) bot.htfCandles[bot.htfCandles.length - 1] = bar;
         else bot.htfCandles.push(bar);
         if (bot.htfCandles.length > 500) bot.htfCandles.shift();
-        
+
         if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, bot.htfCandles);
         if (bot.config.strategy === 'phantom') PhantomStrategy.setHtfCandles(bot.id, bot.htfCandles);
     }
 
-    // Only process main timeframe candles
+    // ── JUMP75 EXECUTION ON M5 CANDLES ─────────────────────────
+    if (bot.config.strategy === 'jump75' && gran === 300) {
+        const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
+        const atr = Indicators.calculateATR(bot.candles);
+        
+        _runJump75(bot, bar, atr, rsi);
+        return;
+    }
+
+    // ── NORMAL SINGLE-TF PROCESSING FOR OTHER STRATEGIES ───────
     if (gran !== bot.config.tf) return;
 
     // Update main candles
@@ -1328,10 +1339,6 @@ function processBar(bot, bar, gran) {
         bot.candles.push(bar);
         if (bot.candles.length > 1000) bot.candles.shift();
     }
-
-    // ── DEBUG INFORMATION ─────────────────────────────────────
-    const cooldownSec = Math.round((Date.now() - (bot.lastFiredMs || 0)) / 1000);
-    console.log(`[DEBUG] ${bot.config.strategy.toUpperCase()} | ${bot.config.symbol} | Candles:${bot.candles.length} | M5:${bot.m5Candles?.length||0} | Cooldown:${cooldownSec}s`);
 
     const activeEng = _engineFor(bot.id);
     if (activeEng) activeEng.update(bar);
@@ -1358,15 +1365,8 @@ function processBar(bot, bar, gran) {
 
     checkOutcome(bot);
 
-    // ── STRATEGY RUNNERS ─────────────────────────────────────
-    if (bot.config.strategy === 'jump75') {
-        _runJump75(bot, bar, atr, rsi);
-        return;
-    }
-    if (bot.config.strategy === 'range_boundary') {
-        _runRangeBoundary(bot, bar, atr, rsi);
-        return;
-    }
+    // ── OTHER STRATEGY RUNNERS ─────────────────────────────────
+    if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi); return; }
@@ -1375,9 +1375,11 @@ function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
 
-    // Default fallback
-    console.log(`[DEBUG] Using default analyze() for ${bot.config.strategy}`);
-    const signal = bot.strategy.analyze(bot.config.strategy, bot.candles, bot.h4Candles, bot.rsiState, atr, bot.config.symbol, rsi);
+    // Default fallback for other strategies
+    const signal = bot.strategy.analyze(
+        bot.config.strategy, bot.candles, bot.h4Candles,
+        bot.rsiState, atr, bot.config.symbol, rsi
+    );
 
     const now = Date.now();
     if (signal && (now - bot.lastFiredMs) > 30000) {
