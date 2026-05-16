@@ -1417,6 +1417,61 @@ async function _runJump75(bot, bar, atr, rsi) {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────
+// TEST AI BUTTON - Add to bot cards
+// ─────────────────────────────────────────────────────────────
+async function testAISignal(botId) {
+    const bot = bots[botId];
+    if (!bot) {
+        console.log('❌ Bot not found');
+        return;
+    }
+    
+    if (bot.config?.strategy !== 'jump75') {
+        console.log('⚠️ This bot is not a Jump75 bot');
+        return;
+    }
+    
+    console.log('🧪 TESTING AI FOR BOT:', botId, bot.config?.symbol);
+    
+    // Create a test signal
+    const testSignal = {
+        type: 'BUY',
+        mode: 'TEST',
+        tpMultiplier: 2.2,
+        slMultiplier: 1.0,
+        symbol: bot.config?.symbol || 'JD75',
+        factors: ['🧪 TEST BUTTON SIGNAL']
+    };
+    
+    // Get current ATR from candles
+    let atr = 50; // default
+    if (bot.m5Candles && bot.m5Candles.length > 20) {
+        const sum = bot.m5Candles.slice(-14).reduce((acc, c, i, arr) => {
+            if (i === 0) return 0;
+            const tr = Math.max(c.high - c.low, Math.abs(c.high - arr[i-1].close), Math.abs(c.low - arr[i-1].close));
+            return acc + tr;
+        }, 0);
+        atr = sum / 14;
+    }
+    
+    // Call AI
+    try {
+        const aiScore = await getAIWinProbability(testSignal, atr, null, false);
+        console.log(`🤖 AI RESULT: ${aiScore}% win probability`);
+        alert(`🤖 AI Prediction: ${aiScore}% win probability\n${aiScore >= 52 ? '✅ APPROVED' : '❌ REJECTED'}`);
+        
+        // Also log to the UI
+        log(`🧪 TEST: AI would ${aiScore >= 52 ? 'APPROVE' : 'REJECT'} this signal (${aiScore}%)`, aiScore >= 52 ? 'info' : 'warn');
+    } catch(e) {
+        console.error('AI Error:', e);
+        alert('❌ AI Error: ' + e.message);
+    }
+}
+
+// Expose to window for button clicks
+window.testAISignal = testAISignal;
+
     const now = Date.now();
     if ((now - bot.lastFiredMs) < 18000) return null;   // 18s cooldown
 
@@ -3329,6 +3384,24 @@ function _createBotCard(id, savedConfig) {
             window.stopBot(id);
         }
     };
+
+    const testBtn = document.createElement('button');
+testBtn.textContent = '🧪 TEST AI';
+testBtn.style.cssText = `
+    background: #a855f7;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-left: 8px;
+`;
+testBtn.onclick = (e) => {
+    e.stopPropagation();
+    window.testAISignal(id);
+};
+card.querySelector('.bot-actions')?.appendChild(testBtn);
     
     card.querySelector('.bot-remove-btn').onclick = (e) => {
         e.stopPropagation();
