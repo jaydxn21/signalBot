@@ -1405,6 +1405,18 @@ async function _runJump75(bot, bar, atr, rsi) {
     if (!bot.m15Candles || bot.m15Candles.length < 6) return null;
     if (!bot.h4Candles || bot.h4Candles.length < 4) return null;
 
+    // 🧪 DEBUG: Log Jump75 buffer health once per minute
+    if (!bot._lastDebugLog || Date.now() - bot._lastDebugLog > 60000) {
+        bot._lastDebugLog = Date.now();
+        console.log(`[Jump75 Debug] ${symbol} | M5:${bot.m5Candles.length} | M15:${bot.m15Candles.length} | H4:${bot.h4Candles.length} | ATR:${atr?.toFixed(4)}`);
+        const lastM5 = bot.m5Candles[bot.m5Candles.length - 1];
+        if (lastM5) {
+            const latestH4 = bot.h4Candles[bot.h4Candles.length - 1];
+            const h4Range = latestH4 ? (latestH4.high - latestH4.low).toFixed(4) : 'n/a';
+            console.log(`   Price: ${lastM5.close} | H4 Range: ${h4Range}`);
+        }
+    }
+
     const now = Date.now();
     if ((now - bot.lastFiredMs) < 18000) return null;   // 18s cooldown
 
@@ -2163,8 +2175,8 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     let type = signal?.type || signal?.direction;
     
     // Convert LONG/SHORT to BUY/SELL for display and trading
-    if (type === 'LONG') type = 'BUY';
-    if (type === 'SHORT') type = 'SELL';
+    if (type === 'LONG') signal.type = 'BUY';
+    if (type === 'SHORT') signal.type = 'SELL';
     
     // Final fallback - if still no type, try to infer or default
     if (!type || type === 'BUY/SELL') {
