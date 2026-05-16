@@ -113,71 +113,77 @@ export const Jump75Strategy = {
         return modes[this.QUALITY_MODE] || modes[1];
     },
     
-    async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
+   async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
     const symbol = this._symbol || 'UNKNOWN';
-    console.log(`[Jump75 ${symbol}] === ENTRY CHECK START (Mode: ${this.QUALITY_MODE}) ===`);
+    const now = Date.now();
+    
+    // ── DIAGNOSTIC LOGGING (every 5 seconds) ─────────────────────
+    if (!this._lastDebugLog || now - this._lastDebugLog > 5000) {
+        console.log(`[J75 CALL] ${symbol} | M5:${m5Candles?.length || 0} | M15:${m15Candles?.length || 0} | H4:${h4Candles?.length || 0} | ATR:${atr?.toFixed(2) || 'null'}`);
+        this._lastDebugLog = now;
+    }
 
-    // 1. Basic buffer check
+    // Gate 1: Basic candle checks
     if (!m5Candles || m5Candles.length < 20) {
-        console.log(`❌ [${symbol}] BLOCKED: Not enough M5 candles (${m5Candles?.length || 0}/20)`);
+        console.log(`[J75 GATE 1] BLOCKED: M5 too small (${m5Candles?.length || 0}/20)`);
         return null;
     }
     if (!h4Candles || h4Candles.length < 10) {
-        console.log(`❌ [${symbol}] BLOCKED: Not enough H4 candles (${h4Candles?.length || 0}/10)`);
+        console.log(`[J75 GATE 2] BLOCKED: H4 too small (${h4Candles?.length || 0}/10)`);
         return null;
     }
     if (!m15Candles || m15Candles.length < 8) {
-        console.log(`⚠️ [${symbol}] Warning: Low M15 candles (${m15Candles?.length || 0})`);
+        console.log(`[J75 GATE 3] Warning: Low M15 candles (${m15Candles?.length || 0})`);
     }
 
     const latestCandle = m5Candles[m5Candles.length - 1];
-    const previousCandle = m5Candles[m5Candles.length - 2];
-
-    // 2. Price validation
+    
+    // Gate 2: Price validation
     if (!latestCandle || !latestCandle.close || latestCandle.close <= 0 || isNaN(latestCandle.close)) {
-        console.log(`❌ [${symbol}] BLOCKED: Invalid price ${latestCandle?.close}`);
+        console.log(`[J75 GATE 4] BLOCKED: Invalid price ${latestCandle?.close}`);
         return null;
     }
-    console.log(`✅ [${symbol}] Price OK: ${latestCandle.close.toFixed(2)}`);
 
-    // 3. Feed monitor
+    // Gate 3: Feed monitor
     if (!feedMonitor.isSymbolActive(symbol, latestCandle.time)) {
-        console.log(`⏸️ [${symbol}] BLOCKED: Feed inactive`);
+        console.log(`[J75 GATE 5] BLOCKED: Feed inactive`);
         return null;
     }
 
-    // 4. Session buffer
+    // Gate 4: Session buffer
     if (!feedMonitor.isSessionStartBufferPassed(5000)) {
-        console.log(`⏳ [${symbol}] BLOCKED: Session startup buffer`);
+        console.log(`[J75 GATE 6] BLOCKED: Session startup buffer`);
         return null;
     }
 
     const config = this._getModeConfig();
-    const now = Date.now();
 
-    // 5. Cooldown
+    // Gate 5: Cooldown
     if (now - this._lastTradeTime < config.cooldownMs) {
-        console.log(`⏳ [${symbol}] BLOCKED: Cooldown active (${Math.round((now - this._lastTradeTime)/1000)}s / ${config.cooldownMs/1000}s)`);
+        if (!this._lastCooldownLog || now - this._lastCooldownLog > 30000) {
+            const secondsLeft = Math.round((config.cooldownMs - (now - this._lastTradeTime)) / 1000);
+            console.log(`[J75 GATE 7] Cooldown: ${secondsLeft}s remaining`);
+            this._lastCooldownLog = now;
+        }
         return null;
     }
 
+    // Gate 6: ATR
     if (!atr || atr === 0) {
-        console.log(`❌ [${symbol}] BLOCKED: Invalid ATR`);
+        console.log(`[J75 GATE 8] BLOCKED: Invalid ATR`);
         return null;
     }
 
-    // 6. H4 Range Check
+    // ── Continue with original signal logic (rest of your function) ──
     const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
     const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
     const range = h4High - h4Low;
 
     if (range < atr * config.minRangeATR) {
-        console.log(`❌ [${symbol}] BLOCKED: Range too small (${range.toFixed(2)} < ${ (atr * config.minRangeATR).toFixed(2) })`);
+        console.log(`[J75 GATE 9] BLOCKED: Range too small (${range.toFixed(2)})`);
         return null;
     }
-    console.log(`✅ [${symbol}] Range OK: ${range.toFixed(2)}`);
 
-    // 7. Fibonacci zones
     const fib618 = h4High - (range * 0.618);
     const fib50 = h4High - (range * 0.5);
     const fib382 = h4High - (range * 0.382);
@@ -187,25 +193,19 @@ export const Jump75Strategy = {
     const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
     const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
 
-    console.log(`📍 [${symbol}] Fib proximity → 61.8:${near618 ? 'YES' : 'no'} | 50:${near50 ? 'YES' : 'no'} | 38.2:${near382 ? 'YES' : 'no'}`);
-
-    // 8. Momentum
     const ema8 = this._calculateEMA(m5Candles, 8);
     const ema21 = this._calculateEMA(m5Candles, 21);
-    if (!ema8 || !ema21) {
-        console.log(`❌ [${symbol}] BLOCKED: Cannot calculate EMAs`);
-        return null;
-    }
+    if (!ema8 || !ema21) return null;
 
     const momentum = (ema8 - ema21) / atr;
-    console.log(`📈 [${symbol}] Momentum: ${momentum.toFixed(3)} (need > ${config.minMomentum})`);
 
-    // 9. Candle patterns
     const bullishCandle = latestCandle.close > latestCandle.open;
     const bearishCandle = latestCandle.close < latestCandle.open;
     const strongCandle = Math.abs(latestCandle.close - latestCandle.open) > atr * 0.6;
 
-    // 10. Final signal logic
+    const m15Trend = this._getM15Trend(m15Candles);
+    const trendOk = !config.requireTrend || (momentum > 0 && m15Trend === 'UP') || (momentum < 0 && m15Trend === 'DOWN');
+
     let signal = null;
     let score = config.minScore;
 
@@ -215,6 +215,7 @@ export const Jump75Strategy = {
         else if (near50) score += 10;
         else if (near382) score += 5;
         if (strongCandle) score += 8;
+        if (trendOk) score += 5;
 
         if (score >= config.minScore) {
             const zone = near618 ? '61.8%' : (near50 ? '50%' : (near382 ? '38.2%' : 'Support'));
@@ -227,7 +228,6 @@ export const Jump75Strategy = {
                 isJump75: true,
                 factors: [`📈 ${zone} bounce`, `Momentum ${momentum.toFixed(2)}`, strongCandle ? 'Strong candle' : ''].filter(Boolean)
             };
-            console.log(`✅ [${symbol}] LONG SIGNAL GENERATED | Score: ${score}`);
         }
     }
 
@@ -238,6 +238,7 @@ export const Jump75Strategy = {
         else if (near50) score += 10;
         else if (near382) score += 5;
         if (strongCandle) score += 8;
+        if (trendOk) score += 5;
 
         if (score >= config.minScore) {
             const zone = near618 ? '61.8%' : (near50 ? '50%' : (near382 ? '38.2%' : 'Resistance'));
@@ -250,12 +251,13 @@ export const Jump75Strategy = {
                 isJump75: true,
                 factors: [`📉 ${zone} rejection`, `Momentum ${Math.abs(momentum).toFixed(2)}`, strongCandle ? 'Strong candle' : ''].filter(Boolean)
             };
-            console.log(`✅ [${symbol}] SHORT SIGNAL GENERATED | Score: ${score}`);
         }
     }
 
-    if (!signal) {
-        console.log(`❌ [${symbol}] No signal met criteria (Score ${score} < ${config.minScore})`);
+    if (signal) {
+        console.log(`✅ [J75 ${symbol}] SIGNAL GENERATED | ${signal.type} | Score ${signal.score}`);
+    } else {
+        console.log(`❌ [J75 ${symbol}] No signal met criteria (Score ${score} < ${config.minScore})`);
     }
 
     return signal;
