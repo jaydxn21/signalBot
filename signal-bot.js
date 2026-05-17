@@ -33,8 +33,27 @@ import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
-import { Jump75Strategy } from './js/strategies/jump75.js'; 
-import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
+// Dynamically load Jump75Strategy with error handling
+let Jump75Strategy = null;
+import('./js/strategies/jump75.js')
+    .then(module => {
+        Jump75Strategy = module.Jump75Strategy || module.default;
+        window.Jump75Strategy = Jump75Strategy;
+        console.log('✅ Jump75Strategy loaded successfully');
+    })
+    .catch(err => {
+        console.error('❌ Failed to load Jump75Strategy:', err);
+        // Fallback stub
+        Jump75Strategy = {
+            QUALITY_MODE: 1,
+            setMode: () => {},
+            checkEntry: async () => null,
+            checkClose: () => null
+        };
+    });
+    import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
+
+    window.Jump75Strategy = Jump75Strategy; // Make it globally accessible
 
 // ─────────────────────────────────────────────────────────────
 // AI SERVER CONFIGURATION - RAILWAY CLOUD DEPLOYMENT
