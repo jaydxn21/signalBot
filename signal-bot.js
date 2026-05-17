@@ -1140,27 +1140,37 @@ function _updateChartH4Levels(botId, bot) {
     };
 };
 
+
 // ─────────────────────────────────────────────────────────────
-// HANDLE DERIV API DATA
+// HANDLE DERIV API DATA - WITH SYMBOL NORMALIZATION (FIXED)
 // ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// HANDLE DERIV API DATA - CORRECTED VERSION
-// ─────────────────────────────────────────────────────────────
+function normalizeSymbol(raw) {
+    if (!raw) return raw;
+    
+    const MAP = {
+        'Jump 10 Index': 'JD10',
+        'Jump 25 Index': 'JD25',
+        'Jump 50 Index': 'JD50',
+        'Jump 75 Index': 'JD75',
+        'Jump 100 Index': 'JD100',
+        'JD10': 'JD10',
+        'JD25': 'JD25',
+        'JD50': 'JD50',
+        'JD75': 'JD75',
+        'JD100': 'JD100',
+        // Add more if you see other names in console
+    };
+    return MAP[raw] || raw;
+}
+
 function handleData(data) {
     if (data.error) {
         const req = data.echo_req || {};
         const sym = req.ticks_history || req.subscribe || '?';
         const gran = req.granularity ? ` (${TF_LABEL[req.granularity] || req.granularity})` : '';
         log(`API Error [${sym}${gran}]: ${data.error.message}`, 'warn');
-        if (req.granularity && req.granularity !== 14400) {
-            Object.values(bots).forEach(bot => {
-                if (bot.isActive && bot.config.symbol === sym) {
-                    log(`Bot on ${sym} may not function — check account permissions`, 'warn');
-                };
-            });
-        };
         return;
-    };
+    }
 
     if (data.msg_type === 'authorize') {
         authorised = true;
@@ -1173,16 +1183,21 @@ function handleData(data) {
             window.setBotOnline(bot.id);
             if (bot.isActive) subscribeBot(bot);
         });
-    };
+    }
 
     if (data.msg_type === 'active_symbols') {
         data.active_symbols.forEach(s => { symbolMap[s.symbol] = s.display_name; });
         log(`${data.active_symbols.length} symbols loaded`, 'info');
-    };
+    }
 
+    // ── CANDLES HISTORY ─────────────────────────────────────
     if (data.msg_type === 'candles') {
         const gran = data.echo_req.granularity;
-        const symbol = data.echo_req.ticks_history;
+        const rawSymbol = data.echo_req.ticks_history;
+        const symbol = normalizeSymbol(rawSymbol);
+
+        console.log(`[CANDLES] ${rawSymbol} → ${symbol} | ${TF_LABEL[gran] || gran}s`);
+
         const history = data.candles.map(c => ({
             time: parseInt(c.epoch),
             open: parseFloat(c.open),
@@ -1192,75 +1207,42 @@ function handleData(data) {
         }));
 
         Object.values(bots).forEach(bot => {
-            if (!bot.isActive) return;
-            if (bot.config.symbol !== symbol) return;
-            
-            // Store candles for Jump75 strategy
+            if (!bot.isActive || bot.config.symbol !== symbol) return;
+
             if (bot.config.strategy === 'jump75') {
                 if (gran === 300) {
-                    history.forEach(candle => {
-                        bot.m5Candles.push(candle);
-                        if (bot.m5Candles.length > 100) bot.m5Candles.shift();
-                        bot.lastM5CloseTime = candle.time;
-                    });
-                };
-                
+                    history.forEach(c => bot.m5Candles.push(c));
+                    if (bot.m5Candles.length > 150) bot.m5Candles = bot.m5Candles.slice(-150);
+                    bot.lastM5CloseTime = history[history.length-1].time;
+                }
                 if (gran === 900) {
-                    history.forEach(candle => {
-                        bot.m15Candles.push(candle);
-                        if (bot.m15Candles.length > 50) bot.m15Candles.shift();
-                        bot.lastM15CloseTime = candle.time;
-                    });
-                };
-                
+                    history.forEach(c => bot.m15Candles.push(c));
+                    if (bot.m15Candles.length > 80) bot.m15Candles = bot.m15Candles.slice(-80);
+                    bot.lastM15CloseTime = history[history.length-1].time;
+                }
                 if (gran === 14400) {
-                    history.forEach(candle => {
-                        bot.h4Candles.push(candle);
-                        if (bot.h4Candles.length > 30) bot.h4Candles.shift();
-                        bot.lastH4CloseTime = candle.time;
-                    });
-                };
-            };
-            
-            // Store original candles for all strategies
+                    history.forEach(c => bot.h4Candles.push(c));
+                    if (bot.h4Candles.length > 50) bot.h4Candles = bot.h4Candles.slice(-50);
+                    bot.lastH4CloseTime = history[history.length-1].time;
+                }
+            }
+
             if (gran === bot.config.tf) {
                 bot.candles = history;
                 const eng = ChartManager.get(bot.id);
-                if (eng) {
-                    eng.setData(history);
-                    if (bot.id === focusedBotId) redrawOverlays();
-                    else if (ChartManager.isSplitMode()) {
-                        const saved = overlayState[bot.id] || {};
-                        const current = {};
-                        OVERLAY_IDS.forEach(oid => {
-                            const el = document.getElementById(oid);
-                            if (el) {
-                                current[oid] = el.checked;
-                                el.checked = saved[oid] || false;
-                            };
-                        });
-                        _drawOverlaysOnEngine(eng, bot);
-                        OVERLAY_IDS.forEach(oid => {
-                            const el = document.getElementById(oid);
-                            if (el) el.checked = current[oid];
-                        });
-                    };
-                };
-            };
-            
-            if (gran === 14400 && bot.config.symbol === symbol) {
-                bot.h4Candles = history;
-            };
-            if (gran === bot.htfGran && bot.config.symbol === symbol) {
-                bot.htfCandles = history;
-                if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, history);
-            };
+                if (eng) eng.setData(history);
+            }
         });
-    };
+    }
 
+    // ── LIVE OHLC BARS ─────────────────────────────────────
     if (data.msg_type === 'ohlc') {
         const gran = data.echo_req.granularity;
-        const symbol = data.ohlc.symbol || data.echo_req.ticks_history;
+        const rawSymbol = data.ohlc.symbol || data.echo_req.ticks_history;
+        const symbol = normalizeSymbol(rawSymbol);
+
+        console.log(`[OHLC] ${rawSymbol} → ${symbol} | ${TF_LABEL[gran] || gran}s`);
+
         const bar = {
             time: parseInt(data.ohlc.open_time),
             open: parseFloat(data.ohlc.open),
@@ -1268,13 +1250,14 @@ function handleData(data) {
             low: parseFloat(data.ohlc.low),
             close: parseFloat(data.ohlc.close)
         };
+
         Object.values(bots).forEach(bot => {
             if (bot.isActive && bot.config.symbol === symbol) {
                 processBar(bot, bar, gran);
-            };
+            }
         });
-    };
-};
+    }
+}
 
 
 
