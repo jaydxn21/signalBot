@@ -9,6 +9,116 @@
 //   - PnL calculation: stake×multiplier → lotSize×pointValue×priceDist
 //   - _pointValue() helper for per-symbol dollar-per-point calibration
 //   - Added ULTRA SCALPER strategy (fast momentum scalper)
+
+// Jump75 Strategy - Inline minimal version
+const Jump75Strategy = {
+    QUALITY_MODE: 1,
+    _lastTradeTime: 0,
+    
+    setMode(mode) {
+        if (![0, 1, 2, 3].includes(mode)) {
+            console.warn(`[Jump75] Invalid mode ${mode}. Using BALANCED (1).`);
+            this.QUALITY_MODE = 1;
+            return false;
+        }
+        this.QUALITY_MODE = mode;
+        console.log(`[Jump75] ✅ Mode set to ${mode}`);
+        return true;
+    },
+    
+    async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
+        const now = Date.now();
+        
+        // Gate 1: Check candle counts
+        if (!m5Candles || m5Candles.length < 20) return null;
+        if (!m15Candles || m15Candles.length < 8) return null;
+        if (!h4Candles || h4Candles.length < 5) return null;
+        
+        // Gate 2: Cooldown check
+        if (now - this._lastTradeTime < 12000) return null;
+        
+        // Gate 3: Get latest candle
+        const latestM5 = m5Candles[m5Candles.length - 1];
+        if (!latestM5 || !latestM5.close || latestM5.close <= 0) return null;
+        
+        // Gate 4: ATR check
+        if (!atr || atr <= 0) return null;
+        
+        // ── SIMPLE BREAKOUT LOGIC ──────────────────────────
+        const price = latestM5.close;
+        const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
+        const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
+        const range = h4High - h4Low;
+        
+        // Check if price is near support
+        const fib382 = h4High - (range * 0.382);
+        const nearFib = Math.abs(price - fib382) < atr * 1.2;
+        
+        if (!nearFib) return null;
+        
+        // Check M5 momentum
+        const bullish = latestM5.close > latestM5.open;
+        const bearish = latestM5.close < latestM5.open;
+        const strongCandle = Math.abs(latestM5.close - latestM5.open) > atr * 0.5;
+        
+        if (!strongCandle) return null;
+        
+        let signal = null;
+        
+        if (bullish) {
+            signal = {
+                type: 'BUY',
+                direction: 'BUY',
+                entry: price,
+                score: 65,
+                mode: 'SUPPORT_BOUNCE',
+                tpMultiplier: 2.0,
+                slMultiplier: 1.0,
+                isJump75: true,
+                factors: ['Support bounce', 'Strong candle']
+            };
+        } else if (bearish) {
+            signal = {
+                type: 'SELL',
+                direction: 'SELL',
+                entry: price,
+                score: 65,
+                mode: 'RESISTANCE_REJECTION',
+                tpMultiplier: 2.0,
+                slMultiplier: 1.0,
+                isJump75: true,
+                factors: ['Resistance rejection', 'Strong candle']
+            };
+        }
+        
+        if (signal) {
+            this._lastTradeTime = now;
+            console.log(`✅ [Jump75] Signal: ${signal.type} @ ${price.toFixed(4)}`);
+        }
+        
+        return signal;
+    },
+    
+    checkClose(currentCandle, trade) {
+        if (!currentCandle || !trade) return null;
+        
+        const pnl = trade.type === 'BUY' 
+            ? currentCandle.close - trade.entry 
+            : trade.entry - currentCandle.close;
+        
+        const tpDist = Math.abs(trade.tp - trade.entry);
+        const slDist = Math.abs(trade.sl - trade.entry);
+        
+        if (pnl >= tpDist * 0.7) return { action: 'CLOSE', reason: 'TP' };
+        if (pnl <= -slDist * 0.95) return { action: 'CLOSE', reason: 'SL' };
+        
+        return null;
+    }
+};
+
+window.Jump75Strategy = Jump75Strategy;
+console.log('✅ Jump75Strategy loaded (inline)');
+
 if (location.hostname !== 'localhost') console.log = () => {};
 
 import { DerivAPI }          from './js/deriv-api.js';
@@ -33,27 +143,9 @@ import { Auth }              from './js/auth.js';
 import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
-// Dynamically load Jump75Strategy with error handling
-let Jump75Strategy = null;
-import('./js/strategies/jump75.js')
-    .then(module => {
-        Jump75Strategy = module.Jump75Strategy || module.default;
-        window.Jump75Strategy = Jump75Strategy;
-        console.log('✅ Jump75Strategy loaded successfully');
-    })
-    .catch(err => {
-        console.error('❌ Failed to load Jump75Strategy:', err);
-        // Fallback stub
-        Jump75Strategy = {
-            QUALITY_MODE: 1,
-            setMode: () => {},
-            checkEntry: async () => null,
-            checkClose: () => null
-        };
-    });
-    import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
+import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
-    window.Jump75Strategy = Jump75Strategy; // Make it globally accessible
+window.Jump75Strategy = Jump75Strategy; // Make it globally accessible
 
 // ─────────────────────────────────────────────────────────────
 // AI SERVER CONFIGURATION - RAILWAY CLOUD DEPLOYMENT
