@@ -1279,29 +1279,29 @@ function handleData(data) {
 
 
 // ─────────────────────────────────────────────────────────────
-// PROCESS BAR - FIXED FOR JUMP75 MULTI-TF + DEBUG
+// PROCESS BAR - FIXED FOR JUMP75 MULTI-TF
 // ─────────────────────────────────────────────────────────────
 function processBar(bot, bar, gran) {
-    // ── STORE CANDLES FOR JUMP75 (Multi-TF) ─────────────────────
+    // Store candles for Jump75 on all relevant timeframes
     if (bot.config.strategy === 'jump75') {
-        if (gran === 300) {           // M5
+        if (gran === 300) {                    // M5
             bot.m5Candles.push(bar);
             if (bot.m5Candles.length > 150) bot.m5Candles.shift();
             bot.lastM5CloseTime = bar.time;
         }
-        if (gran === 900) {           // M15
+        if (gran === 900) {                    // M15
             bot.m15Candles.push(bar);
             if (bot.m15Candles.length > 80) bot.m15Candles.shift();
             bot.lastM15CloseTime = bar.time;
         }
-        if (gran === 14400) {         // H4
+        if (gran === 14400) {                  // H4
             bot.h4Candles.push(bar);
             if (bot.h4Candles.length > 50) bot.h4Candles.shift();
             bot.lastH4CloseTime = bar.time;
         }
     }
 
-    // H4 & HTF storage for other strategies
+    // Standard storage for H4 and HTF
     if (gran === 14400) {
         const last = bot.h4Candles[bot.h4Candles.length - 1];
         if (last && last.time === bar.time) bot.h4Candles[bot.h4Candles.length - 1] = bar;
@@ -1314,21 +1314,17 @@ function processBar(bot, bar, gran) {
         if (lastH && lastH.time === bar.time) bot.htfCandles[bot.htfCandles.length - 1] = bar;
         else bot.htfCandles.push(bar);
         if (bot.htfCandles.length > 500) bot.htfCandles.shift();
-
-        if (bot.config.strategy === 'vortex') VortexStrategy.setHtfCandles(bot.id, bot.htfCandles);
-        if (bot.config.strategy === 'phantom') PhantomStrategy.setHtfCandles(bot.id, bot.htfCandles);
     }
 
-    // ── JUMP75 EXECUTION ON M5 CANDLES ─────────────────────────
+    // ── EXECUTE JUMP75 ON EVERY NEW M5 CANDLE ─────────────────
     if (bot.config.strategy === 'jump75' && gran === 300) {
         const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
         const atr = Indicators.calculateATR(bot.candles);
-        
         _runJump75(bot, bar, atr, rsi);
         return;
     }
 
-    // ── NORMAL SINGLE-TF PROCESSING FOR OTHER STRATEGIES ───────
+    // ── NORMAL PROCESSING FOR OTHER STRATEGIES ───────────────
     if (gran !== bot.config.tf) return;
 
     // Update main candles
@@ -1357,7 +1353,7 @@ function processBar(bot, bar, gran) {
     ChartManager.updatePanelHUD(bot.id, rsi, atr, marketCond);
     if (bot.id === focusedBotId) UIManager.updateHUD(rsi, atr, marketCond);
 
-    // Live price update
+    // Live prices
     const livePrices = SessionState.get().livePrices || {};
     const displaySym = SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
     livePrices[displaySym] = { price: bar.close, change: 0 };
@@ -1365,7 +1361,7 @@ function processBar(bot, bar, gran) {
 
     checkOutcome(bot);
 
-    // ── OTHER STRATEGY RUNNERS ─────────────────────────────────
+    // Other strategy runners
     if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi); return; }
@@ -1375,7 +1371,7 @@ function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'vortex')  { _runVortex(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'ultra_scalp') { _runUltraScalper(bot, bar, atr, rsi); return; }
 
-    // Default fallback for other strategies
+    // Default fallback
     const signal = bot.strategy.analyze(
         bot.config.strategy, bot.candles, bot.h4Candles,
         bot.rsiState, atr, bot.config.symbol, rsi
@@ -1384,7 +1380,7 @@ function processBar(bot, bar, gran) {
     const now = Date.now();
     if (signal && (now - bot.lastFiredMs) > 30000) {
         bot.lastFiredMs = now;
-        fireSignal(bot, signal, bar, atr, rsi, isTrending);
+        fireSignal(bot, signal, bar, atr, rsi, null);
     }
 }
 
