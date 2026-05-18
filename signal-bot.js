@@ -12,88 +12,149 @@
 
 // Jump75 Strategy - Inline minimal version
 const Jump75Strategy = {
-    QUALITY_MODE: 1,
     _lastTradeTime: 0,
+    _consecutiveLosses: 0,
+    _symbol: null,
+    QUALITY_MODE: 1,  // 0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA
     
-    setMode(mode) {
-        if (![0, 1, 2, 3].includes(mode)) {
-            console.warn(`[Jump75] Invalid mode ${mode}. Using BALANCED (1).`);
-            this.QUALITY_MODE = 1;
-            return false;
+    setSymbol(symbol) {
+        this._symbol = symbol;
+    },
+    
+    _getModeConfig() {
+        const modes = {
+            0: { name: 'QUANTITY', minScore: 48, cooldownMs: 25000, minMomentum: 0.08, minRangeATR: 1.5, nearFibATR: 1.8, requireTrend: false },
+            1: { name: 'BALANCED', minScore: 60, cooldownMs: 60000, minMomentum: 0.18, minRangeATR: 2.3, nearFibATR: 1.2, requireTrend: false },
+            2: { name: 'QUALITY',  minScore: 70, cooldownMs: 120000, minMomentum: 0.30, minRangeATR: 3.0, nearFibATR: 0.8, requireTrend: true },
+            3: { name: 'ULTRA',    minScore: 80, cooldownMs: 180000, minMomentum: 0.40, minRangeATR: 3.5, nearFibATR: 0.6, requireTrend: true }
+        };
+        return modes[this.QUALITY_MODE] || modes[1];
+    },
+    
+    _calculateEMA(candles, period) {
+        if (!candles || candles.length < period) return null;
+        const k = 2 / (period + 1);
+        let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
+        for (let i = period; i < candles.length; i++) {
+            ema = candles[i].close * k + ema * (1 - k);
         }
-        this.QUALITY_MODE = mode;
-        console.log(`[Jump75] ✅ Mode set to ${mode}`);
-        return true;
+        return ema;
+    },
+    
+    _getM15Trend(m15Candles) {
+        if (!m15Candles || m15Candles.length < 10) return 'NEUTRAL';
+        const ema8 = this._calculateEMA(m15Candles, 8);
+        const ema21 = this._calculateEMA(m15Candles, 21);
+        if (!ema8 || !ema21) return 'NEUTRAL';
+        const latest = m15Candles[m15Candles.length - 1];
+        if (latest.close > ema8 && ema8 > ema21) return 'UP';
+        if (latest.close < ema8 && ema8 < ema21) return 'DOWN';
+        return 'NEUTRAL';
     },
     
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
         const now = Date.now();
         
-        // Gate 1: Check candle counts
+        // Gate 1: Minimum candles
         if (!m5Candles || m5Candles.length < 20) return null;
-        if (!m15Candles || m15Candles.length < 8) return null;
-        if (!h4Candles || h4Candles.length < 5) return null;
+        if (!h4Candles || h4Candles.length < 10) return null;
         
-        // Gate 2: Cooldown check
-        if (now - this._lastTradeTime < 12000) return null;
+        const config = this._getModeConfig();
         
-        // Gate 3: Get latest candle
+        // Gate 2: Cooldown
+        if (now - this._lastTradeTime < config.cooldownMs) return null;
+        
         const latestM5 = m5Candles[m5Candles.length - 1];
-        if (!latestM5 || !latestM5.close || latestM5.close <= 0) return null;
-        
-        // Gate 4: ATR check
+        if (!latestM5 || !latestM5.close) return null;
         if (!atr || atr <= 0) return null;
         
-        // ── SIMPLE BREAKOUT LOGIC ──────────────────────────
-        const price = latestM5.close;
+        // ── H4 RANGE & FIBONACCI ──────────────────────────
         const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
         const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
         const range = h4High - h4Low;
         
-        // Check if price is near support
+        // Gate 3: Minimum range
+        if (range < atr * config.minRangeATR) return null;
+        
+        const fib618 = h4High - (range * 0.618);
+        const fib50 = h4High - (range * 0.5);
         const fib382 = h4High - (range * 0.382);
-        const nearFib = Math.abs(price - fib382) < atr * 1.2;
+        const price = latestM5.close;
         
-        if (!nearFib) return null;
+        const near618 = Math.abs(price - fib618) < atr * config.nearFibATR;
+        const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
+        const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
         
-        // Check M5 momentum
-        const bullish = latestM5.close > latestM5.open;
-        const bearish = latestM5.close < latestM5.open;
-        const strongCandle = Math.abs(latestM5.close - latestM5.open) > atr * 0.5;
+        // Gate 4: Must be near a Fibonacci level
+        if (!near618 && !near50 && !near382) return null;
         
-        if (!strongCandle) return null;
+        // ── MOMENTUM CALCULATION ──────────────────────────
+        const ema8 = this._calculateEMA(m5Candles, 8);
+        const ema21 = this._calculateEMA(m5Candles, 21);
+        if (!ema8 || !ema21) return null;
+        
+        const momentum = (ema8 - ema21) / atr;
+        const bullishCandle = latestM5.close > latestM5.open;
+        const bearishCandle = latestM5.close < latestM5.open;
+        const strongCandle = Math.abs(latestM5.close - latestM5.open) > atr * 0.6;
+        
+        // ── TREND CONFIRMATION ────────────────────────────
+        const m15Trend = this._getM15Trend(m15Candles);
+        const trendOk = !config.requireTrend || (momentum > 0 && m15Trend === 'UP') || (momentum < 0 && m15Trend === 'DOWN');
         
         let signal = null;
+        let score = config.minScore;
         
-        if (bullish) {
-            signal = {
-                type: 'BUY',
-                direction: 'BUY',
-                entry: price,
-                score: 65,
-                mode: 'SUPPORT_BOUNCE',
-                tpMultiplier: 2.0,
-                slMultiplier: 1.0,
-                isJump75: true,
-                factors: ['Support bounce', 'Strong candle']
-            };
-        } else if (bearish) {
-            signal = {
-                type: 'SELL',
-                direction: 'SELL',
-                entry: price,
-                score: 65,
-                mode: 'RESISTANCE_REJECTION',
-                tpMultiplier: 2.0,
-                slMultiplier: 1.0,
-                isJump75: true,
-                factors: ['Resistance rejection', 'Strong candle']
-            };
+        // LONG Signal
+        if (momentum > config.minMomentum && bullishCandle) {
+            if (near618) score += 15;
+            else if (near50) score += 10;
+            else if (near382) score += 5;
+            if (strongCandle) score += 8;
+            if (trendOk) score += 5;
+            
+            if (score >= config.minScore) {
+                const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
+                signal = {
+                    type: 'BUY',
+                    entry: price,
+                    score: Math.min(score, 95),
+                    tpMultiplier: 2.0,
+                    slMultiplier: 1.0,
+                    isJump75: true,
+                    mode: zone,
+                    factors: [`📈 ${zone} bounce`, `Mom ${momentum.toFixed(2)}`, strongCandle ? 'Strong' : ''].filter(Boolean)
+                };
+            }
+        }
+        
+        // SHORT Signal
+        if (!signal && momentum < -config.minMomentum && bearishCandle) {
+            score = config.minScore;
+            if (near618) score += 15;
+            else if (near50) score += 10;
+            else if (near382) score += 5;
+            if (strongCandle) score += 8;
+            if (trendOk) score += 5;
+            
+            if (score >= config.minScore) {
+                const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
+                signal = {
+                    type: 'SELL',
+                    entry: price,
+                    score: Math.min(score, 95),
+                    tpMultiplier: 2.0,
+                    slMultiplier: 1.0,
+                    isJump75: true,
+                    mode: zone,
+                    factors: [`📉 ${zone} reject`, `Mom ${Math.abs(momentum).toFixed(2)}`, strongCandle ? 'Strong' : ''].filter(Boolean)
+                };
+            }
         }
         
         if (signal) {
             this._lastTradeTime = now;
-            console.log(`✅ [Jump75] Signal: ${signal.type} @ ${price.toFixed(4)}`);
+            console.log(`✅ JUMP75 ${signal.type} | Score ${signal.score} | ${signal.mode} | ${signal.factors.join(' · ')}`);
         }
         
         return signal;
@@ -102,19 +163,41 @@ const Jump75Strategy = {
     checkClose(currentCandle, trade) {
         if (!currentCandle || !trade) return null;
         
-        const pnl = trade.type === 'BUY' 
-            ? currentCandle.close - trade.entry 
-            : trade.entry - currentCandle.close;
-        
+        const pnl = trade.type === 'BUY' ? currentCandle.close - trade.entry : trade.entry - currentCandle.close;
         const tpDist = Math.abs(trade.tp - trade.entry);
         const slDist = Math.abs(trade.sl - trade.entry);
         
         if (pnl >= tpDist * 0.7) return { action: 'CLOSE', reason: 'TP' };
         if (pnl <= -slDist * 0.95) return { action: 'CLOSE', reason: 'SL' };
         
+        // Trail stop at 50% profit
+        if (pnl >= tpDist * 0.5 && !trade.trailSet) {
+            const newSL = trade.type === 'BUY' ? trade.entry + (pnl * 0.4) : trade.entry - (pnl * 0.4);
+            trade.trailSet = true;
+            return { action: 'UPDATE_SL', newSL };
+        }
+        
         return null;
+    },
+    
+    setMode(mode) {
+        if (![0, 1, 2, 3].includes(mode)) {
+            console.warn(`[Jump75] Invalid mode ${mode}. Using BALANCED (1).`);
+            this.QUALITY_MODE = 1;
+            return false;
+        }
+        this.QUALITY_MODE = mode;
+        const config = this._getModeConfig();
+        console.log(`[Jump75] ✅ Mode set to ${config.name} | Min Score: ${config.minScore} | Min Momentum: ${config.minMomentum}`);
+        return true;
     }
 };
+
+window.Jump75Strategy = Jump75Strategy;
+console.log('✅ Jump75Strategy FULL VERSION loaded');
+
+window.Jump75Strategy = Jump75Strategy;
+console.log('✅ Jump75Strategy FULL VERSION loaded');
 
 window.Jump75Strategy = Jump75Strategy;
 console.log('✅ Jump75Strategy loaded (inline)');
