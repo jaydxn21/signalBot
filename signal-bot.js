@@ -1381,6 +1381,27 @@ window.aiServerReady = aiServerReady;
 window.AI_SERVER_URL = AI_SERVER_URL;
 window.getAIWinProbability = getAIWinProbability;
 
+// Wrap _runJump75 with logging - Add this right after the function definition
+const originalRunJump75 = _runJump75;
+window._runJump75 = _runJump75; // Expose to window for debugging
+window._runJump75Calls = 0;
+
+_runJump75 = async function(bot, bar, atr, rsi) {
+    window._runJump75Calls++;
+    console.log(`[J75 CALL #${window._runJump75Calls}] ${bot.config.symbol} at ${new Date().toISOString()}`);
+    console.log(`   Candles: M5=${bot.m5Candles?.length}, M15=${bot.m15Candles?.length}, H4=${bot.h4Candles?.length}`);
+    console.log(`   Last fired: ${new Date(bot.lastFiredMs).toISOString()}`);
+    
+    const result = await originalRunJump75(bot, bar, atr, rsi);
+    
+    if (result) {
+        console.log(`   ✅ SIGNAL GENERATED: ${result.type}`);
+    } else {
+        console.log(`   ❌ No signal`);
+    }
+    
+    return result;
+};
 
 // ─────────────────────────────────────────────────────────────
 // JUMP75 RUNNER - FINAL VERSION (Good logging + AI filter)
