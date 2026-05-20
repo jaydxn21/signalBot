@@ -1404,32 +1404,22 @@ _runJump75 = async function(bot, bar, atr, rsi) {
 };
 
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - v25 COMPATIBLE (Full Diagnostics + Feed Monitor)
+// JUMP75 RUNNER - FIXED for v25
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     const symbol = bot.config.symbol;
-    const jumpSymbols = ['JD10', 'JD25', 'JD50', 'JD75', 'JD100'];
-    if (!jumpSymbols.includes(symbol)) return null;
+    if (!['JD10','JD25','JD50','JD75','JD100'].includes(symbol)) return null;
 
-    // Candle buffer check
-    if (!bot.m5Candles || bot.m5Candles.length < 20) {
-        console.log(`[J75 ${symbol}] Waiting for M5 candles... (${bot.m5Candles?.length || 0}/20)`);
-        return null;
-    }
-    if (!bot.m15Candles || bot.m15Candles.length < 8) {
-        console.log(`[J75 ${symbol}] Warning: Low M15 candles (${bot.m15Candles?.length || 0})`);
-    }
-    if (!bot.h4Candles || bot.h4Candles.length < 10) {
-        console.log(`[J75 ${symbol}] Waiting for H4 candles... (${bot.h4Candles?.length || 0}/10)`);
-        return null;
-    }
+    // Candle checks
+    if (!bot.m5Candles || bot.m5Candles.length < 20) return null;
+    if (!bot.h4Candles || bot.h4Candles.length < 10) return null;
 
     const now = Date.now();
-    if ((now - bot.lastFiredMs) < 12000) return null;   // 12s cooldown
+    if (now - bot.lastFiredMs < 12000) return null;
 
-    // === Apply Quality Mode ===
+    // Apply Quality Mode
     const savedMode = window._botQualityModes?.[bot.id] ?? 1;
-    if (Jump75Strategy?.setMode) {
+    if (typeof Jump75Strategy.setMode === 'function') {
         Jump75Strategy.setMode(savedMode);
     } else if (Jump75Strategy) {
         Jump75Strategy.QUALITY_MODE = savedMode;
@@ -1439,41 +1429,33 @@ async function _runJump75(bot, bar, atr, rsi) {
     try {
         signal = await Jump75Strategy.checkEntry(
             bot.m5Candles,
-            bot.m15Candles,
+            bot.m15Candles || [],
             bot.h4Candles,
             atr
         );
     } catch (err) {
-        console.error(`[Jump75 ${symbol}] Strategy Error:`, err);
+        console.error(`[Jump75 ${symbol}] checkEntry Error:`, err);
         return null;
     }
 
     if (!signal) return null;
 
-    // Convert signal type
     let signalType = (signal.type || 'BUY').toUpperCase();
     if (signalType === 'LONG') signalType = 'BUY';
     if (signalType === 'SHORT') signalType = 'SELL';
 
     // AI Filter
-    const isBreakout = false; // Jump75 is mean-reversion / fib bounce
     let aiScore = 50;
     try {
-        aiScore = await getAIWinProbability(signal, atr, rsi, isBreakout);
+        aiScore = await getAIWinProbability(signal, atr, rsi);
         if (aiServerReady && aiScore < 38) {
-            console.log(`🤖 AI REJECTED ${signalType} — ${aiScore}%`);
+            console.log(`🤖 AI REJECTED ${signalType} on ${symbol} (${aiScore}%)`);
             return null;
         }
-    } catch (e) {
-        console.warn('[AI] Error, allowing signal');
-    }
+    } catch (e) {}
 
-    // Final logging
-    const modeText = signal.mode ? ` | ${signal.mode}` : '';
-    const factorsText = Array.isArray(signal.factors) ? ` | ${signal.factors.slice(0, 3).join(' · ')}` : '';
-    const aiText = aiServerReady ? ` | AI:${Math.round(aiScore)}%` : '';
-
-    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(2)}${modeText}${factorsText}${aiText}`, 
+    // Log signal
+    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(2)} | Score ${signal.score || '?'}${aiServerReady ? ` | AI:${Math.round(aiScore)}%` : ''}`, 
         signalType === 'BUY' ? 'buy' : 'sell');
 
     bot.lastFiredMs = now;
