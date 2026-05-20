@@ -1,5 +1,29 @@
 [
   {
+    "ticket": 1368756183,
+    "symbol": "Jump 100 Index",
+    "action": "sell",
+    "entry": 467.97,
+    "sl": 474.88,
+    "tp": 462.52714,
+    "pnl": -0.7,
+    "outcome": "SL",
+    "close_time": 1779296373,
+    "received_at": 1779296373166
+  },
+  {
+    "ticket": 1368773881,
+    "symbol": "Jump 75 Index",
+    "action": "sell",
+    "entry": 10720.06,
+    "sl": 10735.06,
+    "tp": 10623.34429,
+    "pnl": -4.19,
+    "outcome": "SL",
+    "close_time": 1779296334,
+    "received_at": 1779296334289
+  },
+  {
     "ticket": 1368115363,
     "symbol": "Jump 100 Index",
     "action": "sell",
