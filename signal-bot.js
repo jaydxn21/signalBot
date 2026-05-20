@@ -10,7 +10,7 @@
 //   - _pointValue() helper for per-symbol dollar-per-point calibration
 //   - Added ULTRA SCALPER strategy (fast momentum scalper)
 
-if (location.hostname !== 'localhost') console.log = () => {};
+import Jump75Strategy from './js/strategies/jump75.js';
 
 import { DerivAPI }          from './js/deriv-api.js';
 import { StrategyEngine }    from './js/strategy-engine.js';
@@ -40,6 +40,9 @@ window.Jump75Strategy = Jump75Strategy;
 
 console.log('✅ All strategies imported successfully');
 console.log('✅ Jump75Strategy v25 (Full Featured) loaded');
+
+if (location.hostname !== 'localhost') console.log = () => {};
+
 
 // ─────────────────────────────────────────────────────────────
 // AI SERVER CONFIGURATION - RAILWAY CLOUD DEPLOYMENT
