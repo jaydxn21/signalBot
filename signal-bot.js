@@ -10,198 +10,6 @@
 //   - _pointValue() helper for per-symbol dollar-per-point calibration
 //   - Added ULTRA SCALPER strategy (fast momentum scalper)
 
-// Jump75 Strategy - Inline minimal version
-const Jump75Strategy = {
-    _lastTradeTime: 0,
-    _consecutiveLosses: 0,
-    _symbol: null,
-    QUALITY_MODE: 1,  // 0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA
-    
-    setSymbol(symbol) {
-        this._symbol = symbol;
-    },
-    
-    _getModeConfig() {
-        const modes = {
-            0: { name: 'QUANTITY', minScore: 48, cooldownMs: 25000, minMomentum: 0.08, minRangeATR: 1.5, nearFibATR: 1.8, requireTrend: false },
-            1: { name: 'BALANCED', minScore: 60, cooldownMs: 60000, minMomentum: 0.18, minRangeATR: 2.3, nearFibATR: 1.2, requireTrend: false },
-            2: { name: 'QUALITY',  minScore: 70, cooldownMs: 120000, minMomentum: 0.30, minRangeATR: 3.0, nearFibATR: 0.8, requireTrend: true },
-            3: { name: 'ULTRA',    minScore: 80, cooldownMs: 180000, minMomentum: 0.40, minRangeATR: 3.5, nearFibATR: 0.6, requireTrend: true }
-        };
-        return modes[this.QUALITY_MODE] || modes[1];
-    },
-    
-    _calculateEMA(candles, period) {
-        if (!candles || candles.length < period) return null;
-        const k = 2 / (period + 1);
-        let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
-        for (let i = period; i < candles.length; i++) {
-            ema = candles[i].close * k + ema * (1 - k);
-        }
-        return ema;
-    },
-    
-    _getM15Trend(m15Candles) {
-        if (!m15Candles || m15Candles.length < 10) return 'NEUTRAL';
-        const ema8 = this._calculateEMA(m15Candles, 8);
-        const ema21 = this._calculateEMA(m15Candles, 21);
-        if (!ema8 || !ema21) return 'NEUTRAL';
-        const latest = m15Candles[m15Candles.length - 1];
-        if (latest.close > ema8 && ema8 > ema21) return 'UP';
-        if (latest.close < ema8 && ema8 < ema21) return 'DOWN';
-        return 'NEUTRAL';
-    },
-    
-    async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
-        const now = Date.now();
-        
-        // Gate 1: Minimum candles
-        if (!m5Candles || m5Candles.length < 20) return null;
-        if (!h4Candles || h4Candles.length < 10) return null;
-        
-        const config = this._getModeConfig();
-        
-        // Gate 2: Cooldown
-        if (now - this._lastTradeTime < config.cooldownMs) return null;
-        
-        const latestM5 = m5Candles[m5Candles.length - 1];
-        if (!latestM5 || !latestM5.close) return null;
-        if (!atr || atr <= 0) return null;
-        
-        // ── H4 RANGE & FIBONACCI ──────────────────────────
-        const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
-        const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
-        const range = h4High - h4Low;
-        
-        // Gate 3: Minimum range
-        if (range < atr * config.minRangeATR) return null;
-        
-        const fib618 = h4High - (range * 0.618);
-        const fib50 = h4High - (range * 0.5);
-        const fib382 = h4High - (range * 0.382);
-        const price = latestM5.close;
-        
-        const near618 = Math.abs(price - fib618) < atr * config.nearFibATR;
-        const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
-        const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
-        
-        // Gate 4: Must be near a Fibonacci level
-        if (!near618 && !near50 && !near382) return null;
-        
-        // ── MOMENTUM CALCULATION ──────────────────────────
-        const ema8 = this._calculateEMA(m5Candles, 8);
-        const ema21 = this._calculateEMA(m5Candles, 21);
-        if (!ema8 || !ema21) return null;
-        
-        const momentum = (ema8 - ema21) / atr;
-        const bullishCandle = latestM5.close > latestM5.open;
-        const bearishCandle = latestM5.close < latestM5.open;
-        const strongCandle = Math.abs(latestM5.close - latestM5.open) > atr * 0.6;
-        
-        // ── TREND CONFIRMATION ────────────────────────────
-        const m15Trend = this._getM15Trend(m15Candles);
-        const trendOk = !config.requireTrend || (momentum > 0 && m15Trend === 'UP') || (momentum < 0 && m15Trend === 'DOWN');
-        
-        let signal = null;
-        let score = config.minScore;
-        
-        // LONG Signal
-        if (momentum > config.minMomentum && bullishCandle) {
-            if (near618) score += 15;
-            else if (near50) score += 10;
-            else if (near382) score += 5;
-            if (strongCandle) score += 8;
-            if (trendOk) score += 5;
-            
-            if (score >= config.minScore) {
-                const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
-                signal = {
-                    type: 'BUY',
-                    entry: price,
-                    score: Math.min(score, 95),
-                    tpMultiplier: 2.0,
-                    slMultiplier: 1.0,
-                    isJump75: true,
-                    mode: zone,
-                    factors: [`📈 ${zone} bounce`, `Mom ${momentum.toFixed(2)}`, strongCandle ? 'Strong' : ''].filter(Boolean)
-                };
-            }
-        }
-        
-        // SHORT Signal
-        if (!signal && momentum < -config.minMomentum && bearishCandle) {
-            score = config.minScore;
-            if (near618) score += 15;
-            else if (near50) score += 10;
-            else if (near382) score += 5;
-            if (strongCandle) score += 8;
-            if (trendOk) score += 5;
-            
-            if (score >= config.minScore) {
-                const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
-                signal = {
-                    type: 'SELL',
-                    entry: price,
-                    score: Math.min(score, 95),
-                    tpMultiplier: 2.0,
-                    slMultiplier: 1.0,
-                    isJump75: true,
-                    mode: zone,
-                    factors: [`📉 ${zone} reject`, `Mom ${Math.abs(momentum).toFixed(2)}`, strongCandle ? 'Strong' : ''].filter(Boolean)
-                };
-            }
-        }
-        
-        if (signal) {
-            this._lastTradeTime = now;
-            console.log(`✅ JUMP75 ${signal.type} | Score ${signal.score} | ${signal.mode} | ${signal.factors.join(' · ')}`);
-        }
-        
-        return signal;
-    },
-    
-    checkClose(currentCandle, trade) {
-        if (!currentCandle || !trade) return null;
-        
-        const pnl = trade.type === 'BUY' ? currentCandle.close - trade.entry : trade.entry - currentCandle.close;
-        const tpDist = Math.abs(trade.tp - trade.entry);
-        const slDist = Math.abs(trade.sl - trade.entry);
-        
-        if (pnl >= tpDist * 0.7) return { action: 'CLOSE', reason: 'TP' };
-        if (pnl <= -slDist * 0.95) return { action: 'CLOSE', reason: 'SL' };
-        
-        // Trail stop at 50% profit
-        if (pnl >= tpDist * 0.5 && !trade.trailSet) {
-            const newSL = trade.type === 'BUY' ? trade.entry + (pnl * 0.4) : trade.entry - (pnl * 0.4);
-            trade.trailSet = true;
-            return { action: 'UPDATE_SL', newSL };
-        }
-        
-        return null;
-    },
-    
-    setMode(mode) {
-        if (![0, 1, 2, 3].includes(mode)) {
-            console.warn(`[Jump75] Invalid mode ${mode}. Using BALANCED (1).`);
-            this.QUALITY_MODE = 1;
-            return false;
-        }
-        this.QUALITY_MODE = mode;
-        const config = this._getModeConfig();
-        console.log(`[Jump75] ✅ Mode set to ${config.name} | Min Score: ${config.minScore} | Min Momentum: ${config.minMomentum}`);
-        return true;
-    }
-};
-
-window.Jump75Strategy = Jump75Strategy;
-console.log('✅ Jump75Strategy FULL VERSION loaded');
-
-window.Jump75Strategy = Jump75Strategy;
-console.log('✅ Jump75Strategy FULL VERSION loaded');
-
-window.Jump75Strategy = Jump75Strategy;
-console.log('✅ Jump75Strategy loaded (inline)');
-
 if (location.hostname !== 'localhost') console.log = () => {};
 
 import { DerivAPI }          from './js/deriv-api.js';
@@ -228,7 +36,10 @@ import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
 
-window.Jump75Strategy = Jump75Strategy; // Make it globally accessible
+window.Jump75Strategy = Jump75Strategy;
+
+console.log('✅ All strategies imported successfully');
+console.log('✅ Jump75Strategy v25 (Full Featured) loaded');
 
 // ─────────────────────────────────────────────────────────────
 // AI SERVER CONFIGURATION - RAILWAY CLOUD DEPLOYMENT
@@ -1582,13 +1393,23 @@ async function _runJump75(bot, bar, atr, rsi) {
     if (!bot.h4Candles || bot.h4Candles.length < 5) return null;
 
     const now = Date.now();
-    if ((now - bot.lastFiredMs) < 12000) return null;   // 12 seconds cooldown
+    if ((now - bot.lastFiredMs) < 12000) return null;
 
-    // Apply Quality Mode
+    // ✅ Apply Quality Mode from UI storage
     const savedMode = window._botQualityModes?.[bot.id] ?? 1;
+    
     if (Jump75Strategy?.setMode) {
         Jump75Strategy.setMode(savedMode);
+    } else if (Jump75Strategy) {
+        Jump75Strategy.QUALITY_MODE = savedMode;
     }
+    
+    // ✅ Log current mode for debugging
+    const modeConfig = Jump75Strategy?.getCurrentConfig?.() || 
+                      window.QUALITY_MODE_DESCRIPTIONS?.[savedMode] || 
+                      { name: 'BALANCED', minScore: 65 };
+    
+    console.log(`[Jump75 ${symbol}] Mode: ${modeConfig.name} (minScore: ${modeConfig.minScore})`);
 
     let signal = null;
     try {
@@ -1604,10 +1425,9 @@ async function _runJump75(bot, bar, atr, rsi) {
     }
 
     if (!signal) {
-        // Light logging (only every 30 seconds to avoid spam)
         if (!bot._lastNoSignalLog || now - bot._lastNoSignalLog > 30000) {
             bot._lastNoSignalLog = now;
-            console.log(`[Jump75 ${symbol}] No setup found (Mode ${savedMode})`);
+            console.log(`[Jump75 ${symbol}] No setup found (Mode ${modeConfig.name})`);
         }
         return null;
     }
@@ -3659,6 +3479,22 @@ window.registerBotLoss = function(id, pnl) {
     };
 };
 
+// At the bottom of signal-bot.js, attach everything to window
+window.bots = bots;
+window.startBot = startBot;
+window.stopBot = stopBot;
+window.focusBot = focusBot;
+window.getBotConfig = getBotConfig;
+window.setBotRunning = setBotRunning;
+window.setBotOnline = setBotOnline;
+window.registerBotSignal = registerBotSignal;
+window.registerBotWin = registerBotWin;
+window.registerBotLoss = registerBotLoss;
+window._botQualityModes = window._botQualityModes || {};
+window.QUALITY_MODE_DESCRIPTIONS = QUALITY_MODE_DESCRIPTIONS;
+
 function log(msg, type = 'neutral') { UIManager.log(msg, type); };
 
 document.addEventListener('DOMContentLoaded', init);
+
+
