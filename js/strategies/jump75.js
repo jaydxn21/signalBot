@@ -1,12 +1,8 @@
-// js/strategies/jump75.js - v26: ALL ROOT CAUSES FIXED
-// FIXES:
-// #1 Feed monitor stale time bug - FIXED (proper timestamp handling)
-// #2 Broken export structure - FIXED (dual export)
-// #3 Symbol never initialized - FIXED (setSymbol called properly)
-// #4 EMA21 impossible with 8 candles - FIXED (minimum candles check)
-// #5 Cooldown never updated - FIXED (_lastTradeTime updated on signals)
+// js/strategies/jump75.js - v27: OPTIMIZED THRESHOLDS FOR JUMP INDICES
+// Based on real Jump 75 Index behavior analysis
+// QUALITY mode momentum reduced from 0.30 → 0.22 (realistic)
+// ULTRA mode momentum reduced from 0.40 → 0.30
 
-// 🆚 FEED MONITOR MODULE - FIXED
 const feedMonitor = {
     _lastPriceTime: {},
     _sessionStartTime: null,
@@ -21,20 +17,17 @@ const feedMonitor = {
         }
     },
     
-    // FIX #1: Proper timestamp handling (convert seconds to ms if needed)
     isSymbolActive(symbol, currentCandleTime) {
         const now = Date.now();
         const lastTime = this._lastPriceTime[symbol];
         
-        // FIX: Convert candle time from seconds to milliseconds if needed
         let candleTimeMs = currentCandleTime;
-        if (candleTimeMs && candleTimeMs < 10000000000) { // If timestamp is in seconds (pre-2286)
+        if (candleTimeMs && candleTimeMs < 10000000000) {
             candleTimeMs = candleTimeMs * 1000;
         }
         
         const candleAge = candleTimeMs ? (now - candleTimeMs) : (now - (lastTime || now));
         
-        // If no price update in 15 seconds, feed might be dead (increased from 10s)
         if (candleAge > 15000 && lastTime && lastTime > 0) {
             console.log(`⚠️ ${symbol} feed stale: ${(candleAge/1000).toFixed(1)}s old`);
             return false;
@@ -57,11 +50,10 @@ const feedMonitor = {
     resetSession() {
         this._sessionStartTime = Date.now();
         this._lastPriceTime = {};
-        console.log(`[FeedMonitor] Session reset at ${new Date().toISOString()}`);
+        console.log(`[FeedMonitor] Session reset`);
     }
 };
 
-// FIX #2 & #3: Proper export structure + symbol initialization
 const Jump75Strategy = {
     _lastTradeTime: 0,
     _consecutiveLosses: 0,
@@ -70,12 +62,9 @@ const Jump75Strategy = {
     _tradesCount: 0,
     _symbol: null,
     _lastDebugLog: 0,
-    _lastCooldownLog: 0,
     
-    // Quality mode (0=QUANTITY, 1=BALANCED, 2=QUALITY, 3=ULTRA)
-    QUALITY_MODE: 1,
+    QUALITY_MODE: 1, // Start with BALANCED
     
-    // FIX #3: Proper symbol initialization
     setSymbol(symbol) {
         if (!symbol) {
             console.warn('[Jump75] setSymbol called with null/undefined symbol');
@@ -88,61 +77,55 @@ const Jump75Strategy = {
     
     _getModeConfig() {
         const modes = {
-            0: {
+            0: { // QUANTITY - Aggressive, many signals
                 name: 'QUANTITY',
-                displayName: 'QUANTITY (High Frequency)',
+                displayName: '🚀 QUANTITY (High Frequency)',
                 minScore: 48,
                 cooldownMs: 25000,
-                minMomentum: 0.08,
+                minMomentum: 0.06,      // Very low threshold
                 minRangeATR: 1.5,
                 nearFibATR: 1.8,
                 requireTrend: false,
-                riskPercent: 0.6,
-                lotMultiplier: 0.9
+                riskPercent: 0.6
             },
-            1: {
+            1: { // BALANCED - Default, moderate signals
                 name: 'BALANCED',
-                displayName: 'BALANCED (Recommended)',
+                displayName: '⚖️ BALANCED (Recommended)',
                 minScore: 60,
                 cooldownMs: 60000,
-                minMomentum: 0.18,
-                minRangeATR: 2.3,
+                minMomentum: 0.12,      // Realistic for Jump indices
+                minRangeATR: 2.0,
                 nearFibATR: 1.2,
                 requireTrend: false,
-                riskPercent: 0.75,
-                lotMultiplier: 1.0
+                riskPercent: 0.75
             },
-            2: {
+            2: { // QUALITY - Selective, fewer signals
                 name: 'QUALITY',
-                displayName: 'QUALITY (Selective)',
+                displayName: '🎯 QUALITY (Selective)',
                 minScore: 70,
                 cooldownMs: 120000,
-                minMomentum: 0.30,
-                minRangeATR: 3.0,
-                nearFibATR: 0.8,
+                minMomentum: 0.22,      // FIXED: Was 0.30 (too high)
+                minRangeATR: 2.5,
+                nearFibATR: 0.9,
                 requireTrend: true,
-                riskPercent: 0.7,
-                lotMultiplier: 0.9
+                riskPercent: 0.7
             },
-            3: {
+            3: { // ULTRA - Very selective, rare signals
                 name: 'ULTRA',
-                displayName: 'ULTRA (Very Selective)',
+                displayName: '👑 ULTRA (Very Selective)',
                 minScore: 80,
                 cooldownMs: 180000,
-                minMomentum: 0.40,
-                minRangeATR: 3.5,
-                nearFibATR: 0.6,
+                minMomentum: 0.30,      // FIXED: Was 0.40 (impossible)
+                minRangeATR: 3.0,
+                nearFibATR: 0.7,
                 requireTrend: true,
-                riskPercent: 0.6,
-                lotMultiplier: 0.7
+                riskPercent: 0.6
             }
         };
         return modes[this.QUALITY_MODE] || modes[1];
     },
     
-    // FIX #4: Minimum candles check for EMA
     _calculateEMA(candles, period) {
-        // Need at least period*2 candles for reliable EMA
         if (!candles || candles.length < period + 5) {
             return null;
         }
@@ -155,7 +138,7 @@ const Jump75Strategy = {
     },
     
     _getM15Trend(m15Candles) {
-        if (!m15Candles || m15Candles.length < 21) return 'NEUTRAL'; // Need 21 for EMA21
+        if (!m15Candles || m15Candles.length < 21) return 'NEUTRAL';
         const ema8 = this._calculateEMA(m15Candles, 8);
         const ema21 = this._calculateEMA(m15Candles, 21);
         if (!ema8 || !ema21) return 'NEUTRAL';
@@ -169,60 +152,36 @@ const Jump75Strategy = {
         const symbol = this._symbol || 'UNKNOWN';
         const now = Date.now();
         
-        // Diagnostic logging (every 10 seconds to reduce noise)
-        if (!this._lastDebugLog || now - this._lastDebugLog > 10000) {
-            console.log(`[J75] ${symbol} | M5:${m5Candles?.length || 0} M15:${m15Candles?.length || 0} H4:${h4Candles?.length || 0} ATR:${atr?.toFixed(2) || 'null'} Mode:${this._getModeConfig().name}`);
+        // Diagnostic every 30 seconds
+        if (!this._lastDebugLog || now - this._lastDebugLog > 30000) {
+            const config = this._getModeConfig();
+            console.log(`[J75] ${symbol} | M5:${m5Candles?.length || 0} M15:${m15Candles?.length || 0} H4:${h4Candles?.length || 0} | Mode:${config.name} (minMom:${config.minMomentum})`);
             this._lastDebugLog = now;
         }
 
-        // Gate 1: Basic candle checks (increased requirements)
-        if (!m5Candles || m5Candles.length < 30) {
-            return null;
-        }
-        if (!h4Candles || h4Candles.length < 12) {
-            return null;
-        }
-        if (!m15Candles || m15Candles.length < 21) {
-            return null;
-        }
+        // Gate 1: Basic candle checks
+        if (!m5Candles || m5Candles.length < 30) return null;
+        if (!h4Candles || h4Candles.length < 12) return null;
+        if (!m15Candles || m15Candles.length < 21) return null;
 
         const latestCandle = m5Candles[m5Candles.length - 1];
         
-        // Gate 2: Price validation
-        if (!latestCandle || !latestCandle.close || latestCandle.close <= 0 || isNaN(latestCandle.close)) {
-            return null;
-        }
+        if (!latestCandle || !latestCandle.close || latestCandle.close <= 0) return null;
 
-        // Gate 3: Feed monitor with fixed timestamp
-        if (!feedMonitor.isSymbolActive(symbol, latestCandle.time)) {
-            return null;
-        }
-
-        // Gate 4: Session buffer
-        if (!feedMonitor.isSessionStartBufferPassed(5000)) {
-            return null;
-        }
+        if (!feedMonitor.isSymbolActive(symbol, latestCandle.time)) return null;
+        if (!feedMonitor.isSessionStartBufferPassed(5000)) return null;
 
         const config = this._getModeConfig();
 
-        // Gate 5: Cooldown (FIX #5: properly checked)
-        if (this._lastTradeTime > 0 && (now - this._lastTradeTime) < config.cooldownMs) {
-            return null;
-        }
-
-        // Gate 6: ATR
-        if (!atr || atr <= 0 || isNaN(atr)) {
-            return null;
-        }
+        if (this._lastTradeTime > 0 && (now - this._lastTradeTime) < config.cooldownMs) return null;
+        if (!atr || atr <= 0 || isNaN(atr)) return null;
 
         // Calculate range and Fibonacci levels
         const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
         const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
         const range = h4High - h4Low;
 
-        if (range < atr * config.minRangeATR) {
-            return null;
-        }
+        if (range < atr * config.minRangeATR) return null;
 
         const fib618 = h4High - (range * 0.618);
         const fib50 = h4High - (range * 0.5);
@@ -233,12 +192,8 @@ const Jump75Strategy = {
         const near50 = Math.abs(price - fib50) < atr * config.nearFibATR;
         const near382 = Math.abs(price - fib382) < atr * config.nearFibATR;
 
-        // Skip if not near any Fibonacci level
-        if (!near618 && !near50 && !near382) {
-            return null;
-        }
+        if (!near618 && !near50 && !near382) return null;
 
-        // Calculate EMAs (now with sufficient candles)
         const ema8 = this._calculateEMA(m5Candles, 8);
         const ema21 = this._calculateEMA(m5Candles, 21);
         if (!ema8 || !ema21) return null;
@@ -250,12 +205,14 @@ const Jump75Strategy = {
         const strongCandle = Math.abs(latestCandle.close - latestCandle.open) > atr * 0.6;
 
         const m15Trend = this._getM15Trend(m15Candles);
-        const trendOk = !config.requireTrend || (momentum > 0 && m15Trend === 'UP') || (momentum < 0 && m15Trend === 'DOWN');
+        const trendOk = !config.requireTrend || 
+                       (momentum > 0 && m15Trend === 'UP') || 
+                       (momentum < 0 && m15Trend === 'DOWN');
 
         let signal = null;
         let score = config.minScore;
 
-        // LONG Signal
+        // LONG Signal - more permissive momentum check
         if (momentum > config.minMomentum && bullishCandle) {
             if (near618) score += 15;
             else if (near50) score += 10;
@@ -302,11 +259,10 @@ const Jump75Strategy = {
             }
         }
 
-        // FIX #5: Update cooldown timestamp on signal
         if (signal) {
             this._lastTradeTime = now;
             this._tradesCount++;
-            console.log(`✅ [J75] ${signal.type} signal | Score ${signal.score} | ${signal.mode}`);
+            console.log(`✅ [J75] ${signal.type} @ ${price.toFixed(2)} | Score:${signal.score} | ${signal.mode} | Mom:${momentum.toFixed(3)}`);
         }
 
         return signal;
@@ -328,7 +284,6 @@ const Jump75Strategy = {
             return { action: 'CLOSE', reason: 'SL' };
         }
         
-        // Trail stop at 50% profit
         if (pnl >= tpDist * 0.5 && !trade.trailSet) {
             const newSL = trade.type === 'BUY' ? trade.entry + (pnl * 0.4) : trade.entry - (pnl * 0.4);
             trade.trailSet = true;
@@ -376,7 +331,7 @@ const Jump75Strategy = {
         }
         this.QUALITY_MODE = modeNumber;
         const config = this._getModeConfig();
-        console.log(`[Jump75] ✅ Mode switched to ${config.displayName}`);
+        console.log(`[Jump75] ✅ Mode switched to ${config.displayName} (minMomentum: ${config.minMomentum})`);
         return true;
     },
     
@@ -393,6 +348,5 @@ const Jump75Strategy = {
     }
 };
 
-// FIX #2: Dual export for maximum compatibility
 export { Jump75Strategy };
 export default Jump75Strategy;
