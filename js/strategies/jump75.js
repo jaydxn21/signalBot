@@ -1,7 +1,6 @@
-// js/strategies/jump75.js - v27: OPTIMIZED THRESHOLDS FOR JUMP INDICES
-// Based on real Jump 75 Index behavior analysis
-// QUALITY mode momentum reduced from 0.30 → 0.22 (realistic)
-// ULTRA mode momentum reduced from 0.40 → 0.30
+// js/strategies/jump75.js - v28: HYBRID MODE
+// Takes ALL QUANTITY signals but filters them with intelligent quality scoring
+// Best of both worlds: quantity entry + quality filtering
 
 const feedMonitor = {
     _lastPriceTime: {},
@@ -62,8 +61,10 @@ const Jump75Strategy = {
     _tradesCount: 0,
     _symbol: null,
     _lastDebugLog: 0,
+    _recentMomentum: [],  // Store recent momentum for quality scoring
     
-    QUALITY_MODE: 1, // Start with BALANCED
+    // HYBRID MODE: 0=QUANTITY, 1=HYBRID (default), 2=QUALITY, 3=ULTRA
+    QUALITY_MODE: 1, // Start with HYBRID mode
     
     setSymbol(symbol) {
         if (!symbol) {
@@ -77,58 +78,142 @@ const Jump75Strategy = {
     
     _getModeConfig() {
         const modes = {
-            0: { // QUANTITY - Aggressive, many signals
+            0: { // QUANTITY - Take almost everything
                 name: 'QUANTITY',
                 displayName: '🚀 QUANTITY (High Frequency)',
-                minScore: 48,
-                cooldownMs: 25000,
-                minMomentum: 0.06,      // Very low threshold
+                minMomentum: 0.06,
                 minRangeATR: 1.5,
-                nearFibATR: 1.8,
+                nearFibATR: 2.0,
                 requireTrend: false,
-                riskPercent: 0.6
+                cooldownMs: 25000,
+                qualityThreshold: 0,  // No quality filter
+                scalePosition: false
             },
-            1: { // BALANCED - Default, moderate signals
-                name: 'BALANCED',
-                displayName: '⚖️ BALANCED (Recommended)',
-                minScore: 60,
-                cooldownMs: 60000,
-                minMomentum: 0.12,      // Realistic for Jump indices
-                minRangeATR: 2.0,
-                nearFibATR: 1.2,
-                requireTrend: false,
-                riskPercent: 0.75
+            1: { // HYBRID - Take all signals, scale size by quality
+                name: 'HYBRID',
+                displayName: '🔄 HYBRID (Smart Scaling)',
+                minMomentum: 0.06,      // Same as QUANTITY
+                minRangeATR: 1.5,       // Same as QUANTITY  
+                nearFibATR: 2.0,        // Same as QUANTITY
+                requireTrend: false,    // Same as QUANTITY
+                cooldownMs: 25000,      // Same as QUANTITY
+                qualityThreshold: 40,   // Minimum quality to trade
+                scalePosition: true     // Scale lot size by quality
             },
-            2: { // QUALITY - Selective, fewer signals
+            2: { // QUALITY - Traditional quality mode (few signals)
                 name: 'QUALITY',
                 displayName: '🎯 QUALITY (Selective)',
-                minScore: 70,
-                cooldownMs: 120000,
-                minMomentum: 0.22,      // FIXED: Was 0.30 (too high)
+                minMomentum: 0.22,
                 minRangeATR: 2.5,
                 nearFibATR: 0.9,
                 requireTrend: true,
-                riskPercent: 0.7
+                cooldownMs: 120000,
+                qualityThreshold: 70,
+                scalePosition: false
             },
-            3: { // ULTRA - Very selective, rare signals
+            3: { // ULTRA - Very selective
                 name: 'ULTRA',
                 displayName: '👑 ULTRA (Very Selective)',
-                minScore: 80,
-                cooldownMs: 180000,
-                minMomentum: 0.30,      // FIXED: Was 0.40 (impossible)
+                minMomentum: 0.30,
                 minRangeATR: 3.0,
                 nearFibATR: 0.7,
                 requireTrend: true,
-                riskPercent: 0.6
+                cooldownMs: 180000,
+                qualityThreshold: 80,
+                scalePosition: false
             }
         };
         return modes[this.QUALITY_MODE] || modes[1];
     },
     
-    _calculateEMA(candles, period) {
-        if (!candles || candles.length < period + 5) {
-            return null;
+    // Calculate signal quality score (0-100)
+    _calculateQualityScore(signal, m5Candles, h4Candles, atr) {
+        let score = 50; // Start at neutral
+        let reasons = [];
+        
+        // 1. Fibonacci level quality
+        if (signal.mode === '61.8%') {
+            score += 20;
+            reasons.push('Golden Fib');
+        } else if (signal.mode === '50%') {
+            score += 10;
+            reasons.push('Mid Fib');
+        } else if (signal.mode === '38.2%') {
+            score += 5;
+            reasons.push('Shallow Fib');
         }
+        
+        // 2. Momentum strength
+        const momValue = parseFloat(signal.factors.find(f => f.includes('Mom'))?.split(' ')[1] || 0);
+        if (momValue > 0.15) {
+            score += 15;
+            reasons.push('Strong Momentum');
+        } else if (momValue > 0.10) {
+            score += 8;
+            reasons.push('Good Momentum');
+        }
+        
+        // 3. Candle strength
+        if (signal.factors.some(f => f.includes('Strong'))) {
+            score += 10;
+            reasons.push('Strong Candle');
+        }
+        
+        // 4. Trend alignment
+        if (m5Candles && m5Candles.length > 20) {
+            const ema8 = this._calculateEMA(m5Candles, 8);
+            const ema21 = this._calculateEMA(m5Candles, 21);
+            if (ema8 && ema21) {
+                const trendAligned = (signal.type === 'BUY' && ema8 > ema21) ||
+                                    (signal.type === 'SELL' && ema8 < ema21);
+                if (trendAligned) {
+                    score += 10;
+                    reasons.push('Trend Aligned');
+                }
+            }
+        }
+        
+        // 5. Range quality (tighter range = better)
+        if (h4Candles && h4Candles.length >= 12) {
+            const h4High = Math.max(...h4Candles.slice(-12).map(c => c.high));
+            const h4Low = Math.min(...h4Candles.slice(-12).map(c => c.low));
+            const range = h4High - h4Low;
+            const rangeATR = range / atr;
+            if (rangeATR >= 3.0) {
+                score += 8;
+                reasons.push('Wide Range');
+            } else if (rangeATR >= 2.0) {
+                score += 4;
+                reasons.push('Good Range');
+            }
+        }
+        
+        // 6. Recent win rate (adaptive)
+        if (this._tradesCount > 10) {
+            const recentWinRate = this._getRecentWinRate();
+            if (recentWinRate > 55) {
+                score += 5;
+                reasons.push('Hot Streak');
+            } else if (recentWinRate < 40) {
+                score -= 10;
+                reasons.push('Cold Streak');
+            }
+        }
+        
+        return { score: Math.min(100, Math.max(0, score)), reasons };
+    },
+    
+    _getRecentWinRate() {
+        // Track last 20 trades win/loss
+        if (!this._recentResults) this._recentResults = [];
+        const last20 = this._recentResults.slice(-20);
+        if (last20.length === 0) return 50;
+        const wins = last20.filter(r => r === 'win').length;
+        return (wins / last20.length) * 100;
+    },
+    
+    _calculateEMA(candles, period) {
+        if (!candles || candles.length < period + 5) return null;
         const k = 2 / (period + 1);
         let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
         for (let i = period; i < candles.length; i++) {
@@ -148,31 +233,61 @@ const Jump75Strategy = {
         return 'NEUTRAL';
     },
     
+    // Track trade outcome for adaptive quality
+    recordOutcome(outcome, pnl) {
+        if (!this._recentResults) this._recentResults = [];
+        this._recentResults.push(outcome === 'TP' ? 'win' : 'loss');
+        if (this._recentResults.length > 100) this._recentResults.shift();
+        
+        if (outcome === 'TP') {
+            this._consecutiveLosses = 0;
+            this._dailyProfit += pnl;
+        } else {
+            this._consecutiveLosses++;
+            this._dailyProfit -= Math.abs(pnl);
+        }
+    },
+    
+    // Calculate dynamic lot size based on quality
+    _calculateDynamicLotSize(baseLot, qualityScore, config) {
+        if (!config.scalePosition) return baseLot;
+        
+        let multiplier = 1.0;
+        if (qualityScore >= 80) multiplier = 2.0;      // Double on A+ signals
+        else if (qualityScore >= 70) multiplier = 1.5;  // 50% more on A signals
+        else if (qualityScore >= 60) multiplier = 1.0;  // Full size on B signals
+        else if (qualityScore >= 50) multiplier = 0.5;  // Half size on C signals
+        else multiplier = 0.25;                         // Quarter size on D signals
+        
+        // Reduce size during cold streak
+        const recentWinRate = this._getRecentWinRate();
+        if (recentWinRate < 40) {
+            multiplier *= 0.5;
+        }
+        
+        return Math.max(0.01, baseLot * multiplier);
+    },
+    
     async checkEntry(m5Candles, m15Candles, h4Candles, atr) {
         const symbol = this._symbol || 'UNKNOWN';
         const now = Date.now();
+        const config = this._getModeConfig();
         
         // Diagnostic every 30 seconds
         if (!this._lastDebugLog || now - this._lastDebugLog > 30000) {
-            const config = this._getModeConfig();
-            console.log(`[J75] ${symbol} | M5:${m5Candles?.length || 0} M15:${m15Candles?.length || 0} H4:${h4Candles?.length || 0} | Mode:${config.name} (minMom:${config.minMomentum})`);
+            console.log(`[J75] ${symbol} | M5:${m5Candles?.length || 0} | Mode:${config.name} | Quality:${config.qualityThreshold}`);
             this._lastDebugLog = now;
         }
 
-        // Gate 1: Basic candle checks
-        if (!m5Candles || m5Candles.length < 30) return null;
-        if (!h4Candles || h4Candles.length < 12) return null;
-        if (!m15Candles || m15Candles.length < 21) return null;
+        // Minimum candle requirements (reduced for faster signals)
+        if (!m5Candles || m5Candles.length < 15) return null;
+        if (!h4Candles || h4Candles.length < 8) return null;
 
         const latestCandle = m5Candles[m5Candles.length - 1];
-        
         if (!latestCandle || !latestCandle.close || latestCandle.close <= 0) return null;
 
         if (!feedMonitor.isSymbolActive(symbol, latestCandle.time)) return null;
         if (!feedMonitor.isSessionStartBufferPassed(5000)) return null;
-
-        const config = this._getModeConfig();
-
         if (this._lastTradeTime > 0 && (now - this._lastTradeTime) < config.cooldownMs) return null;
         if (!atr || atr <= 0 || isNaN(atr)) return null;
 
@@ -199,6 +314,10 @@ const Jump75Strategy = {
         if (!ema8 || !ema21) return null;
 
         const momentum = (ema8 - ema21) / atr;
+        
+        // Store momentum for quality scoring
+        this._recentMomentum.push(momentum);
+        if (this._recentMomentum.length > 20) this._recentMomentum.shift();
 
         const bullishCandle = latestCandle.close > latestCandle.open;
         const bearishCandle = latestCandle.close < latestCandle.open;
@@ -210,59 +329,55 @@ const Jump75Strategy = {
                        (momentum < 0 && m15Trend === 'DOWN');
 
         let signal = null;
-        let score = config.minScore;
-
-        // LONG Signal - more permissive momentum check
-        if (momentum > config.minMomentum && bullishCandle) {
-            if (near618) score += 15;
-            else if (near50) score += 10;
-            else if (near382) score += 5;
-            if (strongCandle) score += 8;
-            if (trendOk) score += 5;
-
-            if (score >= config.minScore) {
-                const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
+        
+        // Check for signals using QUANTITY thresholds
+        const enoughMomentum = Math.abs(momentum) > config.minMomentum;
+        
+        if (enoughMomentum && ((momentum > 0 && bullishCandle) || (momentum < 0 && bearishCandle))) {
+            const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
+            const type = momentum > 0 ? 'BUY' : 'SELL';
+            
+            // Calculate quality score for this signal
+            const quality = this._calculateQualityScore(
+                { type, mode: zone, factors: [strongCandle ? 'Strong' : ''] },
+                m5Candles,
+                h4Candles,
+                atr
+            );
+            
+            // HYBRID MODE: Apply quality filter
+            if (quality.score >= config.qualityThreshold) {
                 signal = {
-                    type: 'BUY',
+                    type: type,
                     entry: price,
-                    score: Math.min(score, 95),
+                    rawScore: Math.floor(50 + Math.abs(momentum) * 100),
+                    qualityScore: quality.score,
+                    qualityReasons: quality.reasons,
                     tpMultiplier: 2.0,
                     slMultiplier: 1.0,
                     isJump75: true,
                     mode: zone,
-                    factors: [`📈 ${zone} bounce`, `Mom ${momentum.toFixed(2)}`, strongCandle ? 'Strong' : ''].filter(Boolean)
+                    dynamicLotMultiplier: config.scalePosition ? 
+                        (quality.score >= 80 ? 2.0 : quality.score >= 70 ? 1.5 : quality.score >= 60 ? 1.0 : quality.score >= 50 ? 0.5 : 0.25) : 1.0,
+                    factors: [
+                        `📈 ${zone}`,
+                        `Mom ${momentum.toFixed(2)}`,
+                        `Quality: ${quality.score}%`,
+                        ...quality.reasons.slice(0, 2)
+                    ].filter(Boolean)
                 };
-            }
-        }
-
-        // SHORT Signal
-        if (!signal && momentum < -config.minMomentum && bearishCandle) {
-            score = config.minScore;
-            if (near618) score += 15;
-            else if (near50) score += 10;
-            else if (near382) score += 5;
-            if (strongCandle) score += 8;
-            if (trendOk) score += 5;
-
-            if (score >= config.minScore) {
-                const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
-                signal = {
-                    type: 'SELL',
-                    entry: price,
-                    score: Math.min(score, 95),
-                    tpMultiplier: 2.0,
-                    slMultiplier: 1.0,
-                    isJump75: true,
-                    mode: zone,
-                    factors: [`📉 ${zone} reject`, `Mom ${Math.abs(momentum).toFixed(2)}`, strongCandle ? 'Strong' : ''].filter(Boolean)
-                };
+                
+                console.log(`✅ [J75 HYBRID] ${signal.type} | Quality:${quality.score}% | ${quality.reasons.join(', ')} | Lot x${signal.dynamicLotMultiplier}`);
+            } else {
+                // Signal rejected by quality filter
+                console.log(`⏭️ [J75 SKIP] ${type} | Quality:${quality.score}% < ${config.qualityThreshold}% | ${quality.reasons.join(', ')}`);
+                return null;
             }
         }
 
         if (signal) {
             this._lastTradeTime = now;
             this._tradesCount++;
-            console.log(`✅ [J75] ${signal.type} @ ${price.toFixed(2)} | Score:${signal.score} | ${signal.mode} | Mom:${momentum.toFixed(3)}`);
         }
 
         return signal;
@@ -276,11 +391,11 @@ const Jump75Strategy = {
         const slDist = Math.abs(trade.sl - trade.entry);
         
         if (pnl >= tpDist * 0.7) {
-            this._consecutiveLosses = 0;
+            this.recordOutcome('TP', pnl);
             return { action: 'CLOSE', reason: 'TP' };
         }
         if (pnl <= -slDist * 0.95) {
-            this._consecutiveLosses++;
+            this.recordOutcome('SL', Math.abs(pnl));
             return { action: 'CLOSE', reason: 'SL' };
         }
         
@@ -302,7 +417,8 @@ const Jump75Strategy = {
             consecutiveLosses: this._consecutiveLosses,
             dailyProfit: this._dailyProfit,
             winRate: this._tradesCount > 0 ? Math.round((this._tradesCount - this._consecutiveLosses) / this._tradesCount * 100) : 0,
-            symbol: this._symbol
+            symbol: this._symbol,
+            recentWinRate: this._getRecentWinRate()
         };
     },
     
@@ -316,22 +432,23 @@ const Jump75Strategy = {
     
     getAllModes() {
         return {
-            0: { ...this._getModeConfig.call({ QUALITY_MODE: 0 }) },
-            1: { ...this._getModeConfig.call({ QUALITY_MODE: 1 }) },
-            2: { ...this._getModeConfig.call({ QUALITY_MODE: 2 }) },
-            3: { ...this._getModeConfig.call({ QUALITY_MODE: 3 }) }
+            0: { name: 'QUANTITY', desc: 'Take all signals, no filtering' },
+            1: { name: 'HYBRID', desc: 'Take all signals, scale size by quality' },
+            2: { name: 'QUALITY', desc: 'Only high quality signals (few trades)' },
+            3: { name: 'ULTRA', desc: 'Only perfect signals (rare trades)' }
         };
     },
     
     setMode(modeNumber) {
         if (![0, 1, 2, 3].includes(modeNumber)) {
-            console.warn(`[Jump75] Invalid mode ${modeNumber}. Using BALANCED (1).`);
+            console.warn(`[Jump75] Invalid mode ${modeNumber}. Using HYBRID (1).`);
             this.QUALITY_MODE = 1;
             return false;
         }
         this.QUALITY_MODE = modeNumber;
         const config = this._getModeConfig();
-        console.log(`[Jump75] ✅ Mode switched to ${config.displayName} (minMomentum: ${config.minMomentum})`);
+        console.log(`[Jump75] ✅ Mode switched to ${config.displayName}`);
+        console.log(`   Quality threshold: ${config.qualityThreshold}% | Scale position: ${config.scalePosition}`);
         return true;
     },
     
@@ -340,6 +457,8 @@ const Jump75Strategy = {
         this._consecutiveLosses = 0;
         this._dailyProfit = 0;
         this._tradesCount = 0;
+        this._recentMomentum = [];
+        this._recentResults = [];
         feedMonitor.resetSession();
     },
     
