@@ -830,18 +830,15 @@ window.startBot = function(id) {
     
     // ✅ APPLY QUALITY MODE BEFORE STARTING BOT
     if (config.strategy === 'jump75') {
-        const savedMode = window._botQualityModes?.[id] ?? 1;
-        const modeInfo = QUALITY_MODE_DESCRIPTIONS[savedMode];
-        console.log(`[Jump75] Starting bot ${id} with quality mode ${savedMode} (${modeInfo.name})`);
-        
-        if (window.Jump75Strategy && typeof window.Jump75Strategy.setMode === 'function') {
+        const savedMode = window._botQualityModes?.[id] ?? 1; // HYBRID default
+        if (window.Jump75Strategy?.setMode) {
             window.Jump75Strategy.setMode(savedMode);
         } else if (window.Jump75Strategy) {
             window.Jump75Strategy.QUALITY_MODE = savedMode;
         }
         
-        log(`🎯 Jump75 Quality Mode: ${modeInfo.emoji} ${modeInfo.name}`, 'info');
-        log(`   Min Score: ${modeInfo.minScore} | Min Momentum: ${modeInfo.minMomentum}`, 'info');
+        const modeInfo = QUALITY_MODE_DESCRIPTIONS[savedMode] || { name: 'BALANCED', emoji: '⚖️', minScore: 65 };
+        log(`🎯 Jump75 started in HYBRID mode with ${modeInfo.emoji} ${modeInfo.name} (Smart Quality Scaling)`, 'info');
     }
     
     // ✅ APPLY QUALITY MODE FOR RANGE_BOUNDARY
@@ -1384,12 +1381,8 @@ function processBar(bot, bar, gran) {
     }
 }
 
-// Expose for console debugging
-window.bots = bots;
-window.aiServerReady = aiServerReady;
-window.AI_SERVER_URL = AI_SERVER_URL;
-window.getAIWinProbability = getAIWinProbability;
-
+// Debugging: Monitor all signals from Jump75
+window._runJump75Debug = [];
 // Wrap _runJump75 with logging - Add this right after the function definition
 const originalRunJump75 = _runJump75;
 window._runJump75 = _runJump75; // Expose to window for debugging
@@ -1405,6 +1398,7 @@ _runJump75 = async function(bot, bar, atr, rsi) {
     
     if (result) {
         console.log(`   ✅ SIGNAL GENERATED: ${result.type}`);
+        window._runJump75Debug.push({ bot: bot.config.symbol, type: result.type, time: Date.now() });
     } else {
         console.log(`   ❌ No signal`);
     }
@@ -1413,25 +1407,22 @@ _runJump75 = async function(bot, bar, atr, rsi) {
 };
 
 // ─────────────────────────────────────────────────────────────
-// JUMP75 RUNNER - FIXED for v25
+// JUMP75 RUNNER - v29 HYBRID + DYNAMIC LOT
 // ─────────────────────────────────────────────────────────────
 async function _runJump75(bot, bar, atr, rsi) {
     const symbol = bot.config.symbol;
     if (!['JD10','JD25','JD50','JD75','JD100'].includes(symbol)) return null;
 
-    // Candle checks
-    if (!bot.m5Candles || bot.m5Candles.length < 20) return null;
-    if (!bot.h4Candles || bot.h4Candles.length < 10) return null;
+    if (!bot.m5Candles || bot.m5Candles.length < 15) return null;
+    if (!bot.h4Candles || bot.h4Candles.length < 8) return null;
 
     const now = Date.now();
-    if (now - bot.lastFiredMs < 12000) return null;
+    if (now - bot.lastFiredMs < 8000) return null;
 
-    // Apply Quality Mode
-    const savedMode = window._botQualityModes?.[bot.id] ?? 1;
+    // Apply selected mode
+    const savedMode = window._botQualityModes?.[bot.id] ?? 1; // HYBRID default
     if (typeof Jump75Strategy.setMode === 'function') {
         Jump75Strategy.setMode(savedMode);
-    } else if (Jump75Strategy) {
-        Jump75Strategy.QUALITY_MODE = savedMode;
     }
 
     let signal = null;
@@ -1449,27 +1440,25 @@ async function _runJump75(bot, bar, atr, rsi) {
 
     if (!signal) return null;
 
-    let signalType = (signal.type || 'BUY').toUpperCase();
-    if (signalType === 'LONG') signalType = 'BUY';
-    if (signalType === 'SHORT') signalType = 'SELL';
+    const signalType = signal.type === 'BUY' ? 'BUY' : 'SELL';
 
     // AI Filter
     let aiScore = 50;
     try {
         aiScore = await getAIWinProbability(signal, atr, rsi);
-        if (aiServerReady && aiScore < 38) {
-            console.log(`🤖 AI REJECTED ${signalType} on ${symbol} (${aiScore}%)`);
-            return null;
-        }
+        if (aiServerReady && aiScore < 35) return null;
     } catch (e) {}
 
-    // Log signal
-    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(2)} | Score ${signal.score || '?'}${aiServerReady ? ` | AI:${Math.round(aiScore)}%` : ''}`, 
+    const quality = signal.qualityScore || 50;
+    const lotMultiplier = signal.dynamicLotMultiplier || 1.0;
+
+    log(`🦘 JUMP75 ${signalType} @ ${bar.close.toFixed(2)} | Q:${quality}% ×${lotMultiplier.toFixed(1)}${aiServerReady ? ` | AI:${Math.round(aiScore)}%` : ''}`, 
         signalType === 'BUY' ? 'buy' : 'sell');
 
     bot.lastFiredMs = now;
-    fireSignal(bot, signal, bar, atr, rsi, null);
+    signal._dynamicLotMultiplier = lotMultiplier;   // Pass to fireSignal
 
+    fireSignal(bot, signal, bar, atr, rsi, null);
     return signal;
 }
 
@@ -2254,12 +2243,31 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     console.log(`[FireSignal] ${type} | Entry: ${bar.close.toFixed(2)} | SL: ${sl.toFixed(2)} (${slDist.toFixed(2)} away) | TP: ${tp.toFixed(2)} (${tpDist.toFixed(2)} away)`);
 
     // ── POSITION SIZING CALCULATION ──────────────────────────────
+    // HYBRID DYNAMIC POSITION SIZING (v29)
     let riskPercent = 0.75;
-    if (signal.isPhantom) riskPercent = 0.5;
-    if (signal.isNova) riskPercent = 0.65;
-    if (signal.isCipher) riskPercent = 0.7;
-    if (signal.isUltraScalper) riskPercent = 0.5;
-    if (signal.isJump75) riskPercent = 0.6;
+    
+    if (signal.isJump75) {
+        const quality = signal.qualityScore || 50;
+        const multiplier = signal._dynamicLotMultiplier || 1.0;
+        
+        riskPercent = 0.75 * multiplier;
+        
+        if (quality >= 85) riskPercent = 1.15;           // Excellent
+        else if (quality >= 75) riskPercent = 0.95;      // Very Good
+        else if (quality >= 65) riskPercent = 0.75;      // Good
+        else if (quality >= 55) riskPercent = 0.55;      // Acceptable
+        else riskPercent = 0.35;                         // Marginal
+        
+        console.log(`[Jump75 Risk] Quality: ${quality} | Multiplier: ${multiplier.toFixed(2)} | Risk %: ${riskPercent.toFixed(2)}`);
+    } else if (signal.isPhantom) {
+        riskPercent = 0.5;
+    } else if (signal.isNova) {
+        riskPercent = 0.65;
+    } else if (signal.isCipher) {
+        riskPercent = 0.7;
+    } else if (signal.isUltraScalper) {
+        riskPercent = 0.5;
+    }
     
     const accountEquity = bot.accountEquity || SessionState.get().accountEquity || 10000;
     
@@ -2269,7 +2277,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         PositionSizing.reset();
     } catch(e) {
         log(`Position sizing reset failed: ${e.message}`, 'warn');
-    };
+    }
     
     let lotSize = 0.01; // Default fallback
     
@@ -2289,11 +2297,11 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         } else {
             log(`Position sizing not available (${sizing.reason || 'unknown'}) - using fixed 0.01 lot`, 'warn');
             lotSize = 0.01;
-        };
+        }
     } catch(e) {
         log(`Position sizing error: ${e.message} - using fixed 0.01 lot`, 'warn');
         lotSize = 0.01;
-    };
+    }
     
     // Final safety clamp
     lotSize = Math.min(0.1, Math.max(0.01, lotSize));
