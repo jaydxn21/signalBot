@@ -837,8 +837,7 @@ window.startBot = function(id) {
             window.Jump75Strategy.QUALITY_MODE = savedMode;
         }
         
-        const modeInfo = QUALITY_MODE_DESCRIPTIONS[savedMode] || { name: 'BALANCED', emoji: '⚖️', minScore: 65 };
-        log(`🎯 Jump75 started in HYBRID mode with ${modeInfo.emoji} ${modeInfo.name} (Smart Quality Scaling)`, 'info');
+        log(`🎯 Jump75 started in ${['QUANTITY','HYBRID','QUALITY','ULTRA'][savedMode]} mode`, 'info');
     }
     
     // ✅ APPLY QUALITY MODE FOR RANGE_BOUNDARY
@@ -1389,20 +1388,10 @@ window._runJump75 = _runJump75; // Expose to window for debugging
 window._runJump75Calls = 0;
 
 _runJump75 = async function(bot, bar, atr, rsi) {
-    window._runJump75Calls++;
-    console.log(`[J75 CALL #${window._runJump75Calls}] ${bot.config.symbol} at ${new Date().toISOString()}`);
-    console.log(`   Candles: M5=${bot.m5Candles?.length}, M15=${bot.m15Candles?.length}, H4=${bot.h4Candles?.length}`);
-    console.log(`   Last fired: ${new Date(bot.lastFiredMs).toISOString()}`);
-    
     const result = await originalRunJump75(bot, bar, atr, rsi);
-    
     if (result) {
-        console.log(`   ✅ SIGNAL GENERATED: ${result.type}`);
-        window._runJump75Debug.push({ bot: bot.config.symbol, type: result.type, time: Date.now() });
-    } else {
-        console.log(`   ❌ No signal`);
+        console.log(`[J75 SIGNAL] ${result.type} | Quality ${result.qualityScore}%`);
     }
-    
     return result;
 };
 
@@ -2471,6 +2460,20 @@ function checkOutcome(bot) {
     };
 
     if (!hit) return;
+
+    // ── JUMP75 LOSS STREAK BREAKER ──────────────────────────────────────
+    if (hit === 'SL' && bot.config.strategy === 'jump75') {
+        if (Jump75Strategy._consecutiveLosses >= 3) {
+            log(`🛑 Jump75 paused after ${Jump75Strategy._consecutiveLosses} consecutive losses`, 'warn');
+            bot.isActive = false;
+            
+            setTimeout(() => {
+                bot.isActive = true;
+                Jump75Strategy._consecutiveLosses = 0;
+                log(`▶️ Jump75 resumed after cooldown`, 'info');
+            }, 1800000); // 30 minutes
+        }
+    }
 
     // ── JUMP75 EXIT HANDLING ─────────────────────────────────────
     if (bot.openSignal.isJump75) {

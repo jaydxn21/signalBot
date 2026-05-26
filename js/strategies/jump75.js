@@ -1,4 +1,4 @@
-// js/strategies/jump75.js - v29: Optimized Hybrid for Profit Factor 2.0+
+// js/strategies/jump75.js - v30: Stronger Hybrid + Loss Protection
 const feedMonitor = {
     _lastPriceTime: {},
     _sessionStartTime: null,
@@ -17,16 +17,15 @@ const feedMonitor = {
         
         const candleAge = candleTimeMs ? (now - candleTimeMs) : (now - (lastTime || now));
         
-        if (candleAge > 15000 && lastTime) {
+        if (candleAge > 18000) {
             console.log(`⚠️ ${symbol} feed stale: ${(candleAge/1000).toFixed(1)}s`);
             return false;
         }
-        
         if (candleTimeMs) this._lastPriceTime[symbol] = candleTimeMs;
         return true;
     },
     
-    isSessionStartBufferPassed(bufferMs = 5000) {
+    isSessionStartBufferPassed(bufferMs = 8000) {
         if (!this._sessionStartTime) return true;
         return Date.now() - this._sessionStartTime >= bufferMs;
     },
@@ -41,12 +40,12 @@ const Jump75Strategy = {
     _lastTradeTime: 0,
     _consecutiveLosses: 0,
     _dailyProfit: 0,
+    _dailyLossLimit: -35,
     _tradesCount: 0,
     _symbol: null,
-    _lastDebugLog: 0,
     _recentResults: [],
 
-    QUALITY_MODE: 1, // Default to HYBRID
+    QUALITY_MODE: 1, // Default HYBRID
 
     setSymbol(symbol) {
         this._symbol = symbol;
@@ -55,46 +54,50 @@ const Jump75Strategy = {
 
     _getModeConfig() {
         const modes = {
-            0: { name: 'QUANTITY', displayName: '🚀 QUANTITY', minMomentum: 0.06, minRangeATR: 1.5, nearFibATR: 2.0, qualityThreshold: 0,   scalePosition: false },
-            1: { name: 'HYBRID',   displayName: '🔄 HYBRID (Recommended)', minMomentum: 0.06, minRangeATR: 1.5, nearFibATR: 2.0, qualityThreshold: 58, scalePosition: true },
-            2: { name: 'QUALITY',  displayName: '🎯 QUALITY', minMomentum: 0.22, minRangeATR: 2.5, nearFibATR: 0.9, qualityThreshold: 72, scalePosition: false },
-            3: { name: 'ULTRA',    displayName: '👑 ULTRA',   minMomentum: 0.30, minRangeATR: 3.0, nearFibATR: 0.7, qualityThreshold: 82, scalePosition: false }
+            0: { name: 'QUANTITY', minMomentum: 0.05, minRangeATR: 1.4, nearFibATR: 2.2, qualityThreshold: 0,   scalePosition: false },
+            1: { name: 'HYBRID',   minMomentum: 0.08, minRangeATR: 1.6, nearFibATR: 1.8, qualityThreshold: 62, scalePosition: true },
+            2: { name: 'QUALITY',  minMomentum: 0.20, minRangeATR: 2.4, nearFibATR: 1.1, qualityThreshold: 74, scalePosition: false },
+            3: { name: 'ULTRA',    minMomentum: 0.28, minRangeATR: 2.9, nearFibATR: 0.8, qualityThreshold: 84, scalePosition: false }
         };
         return modes[this.QUALITY_MODE] || modes[1];
     },
 
     _calculateQualityScore(signal, m5Candles, h4Candles, atr) {
-        let score = 50;
+        let score = 48;
         const latest = m5Candles[m5Candles.length - 1];
 
-        // Fib Level
-        if (signal.mode === '61.8%') score += 22;
-        else if (signal.mode === '50%') score += 12;
-        else if (signal.mode === '38.2%') score += 6;
+        // Fib Level Weight
+        if (signal.mode === '61.8%') score += 24;
+        else if (signal.mode === '50%') score += 14;
+        else if (signal.mode === '38.2%') score += 7;
 
-        // Momentum Strength
+        // Momentum
         const mom = parseFloat((signal.factors || []).join(' ').match(/Mom ([\d.-]+)/)?.[1] || 0);
-        if (mom > 0.18) score += 18;
-        else if (mom > 0.12) score += 10;
+        if (mom > 0.22) score += 20;
+        else if (mom > 0.14) score += 12;
+        else if (mom > 0.08) score += 6;
 
         // Candle Strength
-        if (latest && Math.abs(latest.close - latest.open) > atr * 0.6) score += 12;
+        if (latest && Math.abs(latest.close - latest.open) > atr * 0.65) score += 14;
 
-        // Trend Alignment
-        if (m5Candles.length > 15) {
+        // EMA Alignment
+        if (m5Candles.length > 18) {
             const ema8 = this._calculateEMA(m5Candles, 8);
             const ema21 = this._calculateEMA(m5Candles, 21);
             if (ema8 && ema21) {
                 const aligned = (signal.type === 'BUY' && ema8 > ema21) || (signal.type === 'SELL' && ema8 < ema21);
-                if (aligned) score += 10;
+                if (aligned) score += 12;
             }
         }
+
+        // Adaptive boost during good streak
+        if (this._consecutiveLosses === 0) score += 8;
 
         return Math.min(100, Math.max(0, score));
     },
 
     _calculateEMA(candles, period) {
-        if (!candles || candles.length < period + 5) return null;
+        if (!candles || candles.length < period + 6) return null;
         const k = 2 / (period + 1);
         let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
         for (let i = period; i < candles.length; i++) {
@@ -108,10 +111,15 @@ const Jump75Strategy = {
         const config = this._getModeConfig();
         const now = Date.now();
 
-        if (!m5Candles || m5Candles.length < 15 || !h4Candles || h4Candles.length < 8) return null;
+        if (!m5Candles || m5Candles.length < 18 || !h4Candles || h4Candles.length < 8) return null;
         if (!feedMonitor.isSymbolActive(symbol, m5Candles[m5Candles.length-1].time)) return null;
-        if (this._lastTradeTime && now - this._lastTradeTime < config.cooldownMs) return null;
-        if (!atr || atr <= 0) return null;
+        if (now - this._lastTradeTime < 12000) return null; // Cooldown
+
+        // Daily loss limit
+        if (this._dailyProfit <= this._dailyLossLimit) {
+            console.log(`🛑 [J75] Daily loss limit reached: ${this._dailyProfit.toFixed(2)}`);
+            return null;
+        }
 
         const latest = m5Candles[m5Candles.length - 1];
         const price = latest.close;
@@ -137,14 +145,16 @@ const Jump75Strategy = {
 
         const momentum = (ema8 - ema21) / atr;
         const bullish = latest.close > latest.open;
-        const strongCandle = Math.abs(latest.close - latest.open) > atr * 0.6;
 
         let signal = null;
         const type = momentum > 0 ? 'BUY' : 'SELL';
 
         if (Math.abs(momentum) > config.minMomentum && ((momentum > 0 && bullish) || (momentum < 0 && !bullish))) {
             const zone = near618 ? '61.8%' : (near50 ? '50%' : '38.2%');
-            const quality = this._calculateQualityScore({type, mode: zone}, m5Candles, h4Candles, atr);
+            let quality = this._calculateQualityScore({type, mode: zone}, m5Candles, h4Candles, atr);
+
+            // Adaptive threshold during cold streak
+            if (this._consecutiveLosses >= 2) quality -= 8;
 
             if (quality >= config.qualityThreshold) {
                 signal = {
@@ -152,12 +162,12 @@ const Jump75Strategy = {
                     entry: price,
                     score: Math.floor(quality),
                     qualityScore: quality,
-                    tpMultiplier: 2.0,
+                    tpMultiplier: 2.1,
                     slMultiplier: 1.0,
                     isJump75: true,
                     mode: zone,
                     dynamicLotMultiplier: config.scalePosition ? 
-                        (quality >= 80 ? 2.0 : quality >= 70 ? 1.5 : quality >= 60 ? 1.0 : 0.6) : 1.0,
+                        (quality >= 82 ? 2.1 : quality >= 72 ? 1.6 : quality >= 62 ? 1.1 : 0.55) : 1.0,
                     factors: [`${zone}`, `Mom ${momentum.toFixed(2)}`, `Q:${quality}%`]
                 };
             }
@@ -166,7 +176,7 @@ const Jump75Strategy = {
         if (signal) {
             this._lastTradeTime = now;
             this._tradesCount++;
-            console.log(`✅ [J75 ${config.name}] ${signal.type} | Quality ${signal.qualityScore}% | Lot×${signal.dynamicLotMultiplier}`);
+            console.log(`✅ [J75 ${config.name}] ${signal.type} | Q:${signal.qualityScore}% | Lot×${signal.dynamicLotMultiplier.toFixed(1)}`);
         }
 
         return signal;
@@ -176,33 +186,44 @@ const Jump75Strategy = {
         if (!currentCandle || !trade) return null;
         const pnl = trade.type === 'BUY' ? currentCandle.close - trade.entry : trade.entry - currentCandle.close;
         const tpDist = Math.abs(trade.tp - trade.entry);
-        const slDist = Math.abs(trade.sl - trade.entry);
 
-        if (pnl >= tpDist * 0.7) {
+        if (pnl >= tpDist * 0.65) {
             this.recordOutcome('TP', pnl);
             return { action: 'CLOSE', reason: 'TP' };
         }
-        if (pnl <= -slDist * 0.95) {
+        if (pnl <= -Math.abs(trade.sl - trade.entry) * 0.92) {
             this.recordOutcome('SL', Math.abs(pnl));
             return { action: 'CLOSE', reason: 'SL' };
         }
         return null;
     },
 
-    recordOutcome(outcome) {
+    recordOutcome(outcome, pnl = 0) {
         if (!this._recentResults) this._recentResults = [];
         this._recentResults.push(outcome);
-        if (this._recentResults.length > 50) this._recentResults.shift();
-        if (outcome === 'TP') this._consecutiveLosses = 0;
-        else this._consecutiveLosses++;
+        if (this._recentResults.length > 60) this._recentResults.shift();
+
+        if (outcome === 'TP') {
+            this._consecutiveLosses = 0;
+            this._dailyProfit += pnl;
+        } else {
+            this._consecutiveLosses++;
+            this._dailyProfit -= pnl;
+        }
     },
 
     setMode(mode) {
-        this.QUALITY_MODE = mode;
-        console.log(`[Jump75] Switched to ${this._getModeConfig().displayName}`);
+        this.QUALITY_MODE = parseInt(mode);
+        console.log(`[Jump75] → ${this._getModeConfig().name} MODE`);
     },
 
-    getCurrentConfig() { return this._getModeConfig(); }
+    getCurrentConfig() {
+        return this._getModeConfig();
+    },
+
+    getCurrentMode() {
+        return this.QUALITY_MODE;
+    }
 };
 
 export { Jump75Strategy };
