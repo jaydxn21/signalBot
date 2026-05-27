@@ -1207,6 +1207,18 @@ function handleData(data) {
         document.getElementById('conn-label').textContent = 'Online';
         log('Terminal authorized — connection established', 'info');
         api.fetchActiveSymbols();
+        
+        // TEMP DEBUG: Fetch active symbols with explicit log
+        setTimeout(() => {
+            console.log('%c=== SYMBOL MAP DEBUG ===', 'color: #ff00ff; font-weight: bold; font-size: 12px');
+            console.log('Symbol map size:', Object.keys(symbolMap).length);
+            console.log('All available symbols:', 
+                Object.entries(symbolMap)
+                    .map(([k, v]) => `${k} → ${v}`)
+                    .join('\n')
+            );
+        }, 3000); // Wait 3s for response
+        
         SessionState.set({ connected: true });
         Object.values(bots).forEach(bot => {
             window.setBotOnline(bot.id);
@@ -1217,15 +1229,8 @@ function handleData(data) {
     if (data.msg_type === 'active_symbols') {
         data.active_symbols.forEach(s => { symbolMap[s.symbol] = s.display_name; });
         
-        // TEMP: Find US/NASDAQ symbols
-        const usSymbols = data.active_symbols.filter(s => 
-            s.display_name.toLowerCase().includes('tech') ||
-            s.display_name.toLowerCase().includes('nasdaq') ||
-            s.display_name.toLowerCase().includes('us 100') ||
-            s.display_name.toLowerCase().includes('wall') ||
-            s.display_name.toLowerCase().includes('us index')
-        );
-        console.log('🔍 US Index symbols available:', usSymbols.map(s => `${s.symbol} → ${s.display_name}`));
+        console.log('%c=== ALL ACTIVE SYMBOLS ===', 'color: #00ff00; font-weight: bold; font-size: 12px');
+        console.log(data.active_symbols.map(s => `${s.symbol} | ${s.display_name}`).join('\n'));
         
         log(`${data.active_symbols.length} symbols loaded`, 'info');
     }
