@@ -328,10 +328,9 @@ const SYMBOL_MAP = {
     'CRASH_500':'Crash 500 Index','BOOM_500':'Boom 500 Index',
     'stpRNG':'Step Index','STEP':'Step Index',
     
-    // === NEW: NASDAQ / US TECH 100 ===
-    'US_TECH_100': 'US Tech 100',
-    'US_100': 'US Tech 100',
-    'US Tech 100': 'US Tech 100'
+    'OTC_NDX': 'US Tech 100',
+    'OTC_SPC': 'US 500',
+    'OTC_DJI': 'Wall Street 30',
 };
 
 const STRATEGY_GROUPS = [
@@ -466,6 +465,10 @@ function _pointValue(symbol) {
         'frxUSDCHF': 10.0,
         'frxEURGBP': 12.50,
         'frxGBPJPY': 12.50,
+        // Deriv OTC Stock Indices
+        'OTC_NDX':  1.0,
+        'OTC_SPC':  1.0,
+        'OTC_DJI':  1.0,
     };
     return MAP[symbol] || 0.41;
 };
@@ -530,6 +533,10 @@ const MT5_SYMBOL_MAP = {
     'Jump 75 Index':       'Jump 75 Index',
     'Jump 100 Index':      'Jump 100 Index',
 };
+// Add MT5-friendly mappings for Deriv OTC stock indices
+MT5_SYMBOL_MAP['OTC_NDX'] = 'US Tech 100';
+MT5_SYMBOL_MAP['OTC_SPC'] = 'US 500';
+MT5_SYMBOL_MAP['OTC_DJI'] = 'Wall Street 30';
 
 // ─────────────────────────────────────────────────────────────
 // PUSH NOTIFICATIONS
