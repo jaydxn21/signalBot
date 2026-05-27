@@ -1389,6 +1389,12 @@ function processBar(bot, bar, gran) {
         if (splitEng && splitEng !== activeEng) splitEng.update(bar);
     }
 
+    // Prevent calculations on insufficient history (fixes RSI spikes on OTC symbols)
+    if (bot.candles.length < 20) {
+        console.log(`[${bot.config.symbol}] Waiting for candle history (${bot.candles.length}/20)`);
+        return;
+    }
+
     const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
     const atr = Indicators.calculateATR(bot.candles);
 
@@ -1408,6 +1414,7 @@ function processBar(bot, bar, gran) {
 
     // Other strategy runners
     if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'momentum') { _runMomentum(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'pulse')   { _runPulse(bot, bar, atr, rsi); return; }
@@ -1423,7 +1430,8 @@ function processBar(bot, bar, gran) {
     );
 
     const now = Date.now();
-    if (signal && (now - bot.lastFiredMs) > 30000) {
+    // Fallback cooldown: 5 minutes to avoid firing every candle
+    if (signal && (now - bot.lastFiredMs) > 300000) {
         bot.lastFiredMs = now;
         fireSignal(bot, signal, bar, atr, rsi, null);
     }
@@ -1498,6 +1506,42 @@ async function _runJump75(bot, bar, atr, rsi) {
 
     fireSignal(bot, signal, bar, atr, rsi, null);
     return signal;
+}
+
+// ─────────────────────────────────────────────────────────────
+// MOMENTUM RUNNER
+// ─────────────────────────────────────────────────────────────
+function _runMomentum(bot, bar, atr, rsi) {
+    if (bot.openSignal) return;
+
+    // Block extreme RSI (bad data guard)
+    if (rsi > 95 || rsi < 5) {
+        console.warn(`[Momentum] RSI ${rsi} looks invalid — skipping`);
+        return;
+    }
+
+    const now = Date.now();
+    const cooldownMs = (bot.config.tf || 300) * 4 * 1000; // 4 candles
+    if ((now - bot.lastFiredMs) < cooldownMs) return;
+
+    if (bot.candles.length < 30) return;
+
+    const signal = bot.strategy.analyze(
+        'momentum', bot.candles, bot.h4Candles,
+        bot.rsiState, atr, bot.config.symbol, rsi
+    );
+
+    if (!signal) return;
+
+    // Extra filter for OTC indices — require stronger confluence
+    const isOTC = (bot.config.symbol || '').startsWith('OTC_');
+    if (isOTC && signal.score && signal.score < 60) return;
+
+    bot.lastFiredMs = now;
+    log(`📈 MOMENTUM ${signal.type} @ ${bar.close.toFixed(2)} | RSI: ${rsi.toFixed(1)}`,
+        signal.type === 'BUY' ? 'buy' : 'sell');
+
+    fireSignal(bot, signal, bar, atr, rsi, null);
 }
 
 // ─────────────────────────────────────────────────────────────
