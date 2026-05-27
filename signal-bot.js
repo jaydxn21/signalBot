@@ -473,6 +473,16 @@ function _pointValue(symbol) {
     return MAP[symbol] || 0.41;
 };
 
+function _getDecimalPlaces(symbol) {
+    // Symbol is typically the Deriv symbol code (e.g. 'OTC_NDX').
+    // Return decimal places expected by MT5/broker for that symbol.
+    if (/OTC_NDX|OTC_SPC|OTC_DJI|OTC_AS51|OTC_GDAXI|OTC_N225|OTC_FTSE/.test(symbol)) return 2;
+    if (/OTC_HSI/.test(symbol)) return 1;
+    if (/JD|BOOM|CRASH|R_|1HZ|stpRNG|RB/.test(symbol)) return 2;
+    if (/cryBTC/.test(symbol)) return 2;
+    return 5; // Default for forex/most symbols
+}
+
 // ─────────────────────────────────────────────────────────────
 // BOT STATE CLASS
 // ─────────────────────────────────────────────────────────────
@@ -2378,12 +2388,13 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
 
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
+        const dp = _getDecimalPlaces(bot.config.symbol);
         const signalMsg = {
             action: type.toLowerCase(),
             symbol: mt5Symbol,
-            price: parseFloat(bar.close.toFixed(5)),
-            sl: parseFloat(sl.toFixed(5)),
-            tp: parseFloat(tp.toFixed(5)),
+            price: parseFloat(bar.close.toFixed(dp)),
+            sl: parseFloat(sl.toFixed(dp)),
+            tp: parseFloat(tp.toFixed(dp)),
             lotSize: clampedLot,
             label: label || type,
             timestamp: Date.now()
@@ -2458,6 +2469,7 @@ function _applyTrailingStop(bot, atr) {
 async function _pushMT5Modify(bot, newSL, tp) {
     if (!Settings.get('mt5Enabled')) return;
     const mt5Symbol = bot.config.mt5Symbol || bot.config.symbol;
+    const dp = _getDecimalPlaces(bot.config.symbol);
     try {
         await fetch('/api/signal', {
             method:  'POST',
@@ -2465,13 +2477,13 @@ async function _pushMT5Modify(bot, newSL, tp) {
             body: JSON.stringify({
                 action:    'modify',
                 symbol:    mt5Symbol,
-                sl:        parseFloat(newSL.toFixed(5)),
-                tp:        parseFloat(tp.toFixed(5)),
+                sl:        parseFloat(newSL.toFixed(dp)),
+                tp:        parseFloat(tp.toFixed(dp)),
                 magic:     987654,
                 timestamp: Date.now(),
             })
         });
-        log(`→ MT5 modify: SL → ${newSL.toFixed(4)}`, 'neutral');
+        log(`→ MT5 modify: SL → ${newSL.toFixed(Math.max(2, dp))}`, 'neutral');
     } catch(e) {
         log('MT5 modify push failed', 'warn');
     };
