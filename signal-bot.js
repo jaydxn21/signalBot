@@ -35,6 +35,7 @@ import { CipherStrategy, isCipherSymbol } from './js/strategies/cipher.js';
 import { PositionSizing }    from './js/position-sizing.js';
 import { UltraScalper }      from './js/strategies/ultra-scalper.js';
 import { RangeBoundaryStrategy } from './js/strategies/range_boundary.js';
+import { AdaptiveVolatility } from './js/strategies/adaptive-volatility.js';
 
 window.Jump75Strategy = Jump75Strategy;
 
@@ -366,6 +367,7 @@ const STRATEGY_GROUPS = [
             { value: 'candle_speed',    label: 'Candle Speed'      },
             { value: 'range_boundary',  label: 'Range Boundary'    },
             { value: 'rsi_fade',        label: 'RSI Fade Scalper'  },
+            { value: 'adaptive_vol',    label: 'Adaptive Volatility (AI)' },
         ]
     },
     {
@@ -1414,6 +1416,7 @@ function processBar(bot, bar, gran) {
 
     // Other strategy runners
     if (bot.config.strategy === 'range_boundary') { _runRangeBoundary(bot, bar, atr, rsi); return; }
+    if (bot.config.strategy === 'adaptive_vol') { _runAdaptiveVol(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'momentum') { _runMomentum(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'phantom') { _runPhantom(bot, bar, atr, rsi); return; }
     if (bot.config.strategy === 'nova')    { _runNova(bot, bar, atr, rsi); return; }
@@ -1578,6 +1581,54 @@ async function _runRangeBoundary(bot, bar, atr, rsi) {
     
     bot.lastFiredMs = now;
     fireSignal(bot, signal, bar, atr, rsi, null);
+}
+
+function _runAdaptiveVol(bot, bar, atr, rsi) {
+    if (bot.openSignal) return;
+    if (AdaptiveVolatility.isHalted(bot.id)) {
+        log(`🧠 ADAPTIVE VOL halted — loss streak pause`, 'warn');
+        return;
+    }
+
+    const now = Date.now();
+    const cooldown = (bot.config.tf || 60) * 2 * 1000;
+    if ((now - bot.lastFiredMs) < cooldown) return;
+
+    console.debug(`[AdaptiveVol] evaluating ${bot.config.symbol} | candles=${bot.candles.length} | atr=${atr?.toFixed(4)}`);
+
+    const signal = AdaptiveVolatility.checkEntry(bot.candles, atr, bot.id);
+    if (!signal) return;
+
+    bot.lastFiredMs = now;
+    log(`🧠 ADAPTIVE VOL ${signal.type} @ ${bar.close.toFixed(4)} | ${signal.label} | Score:${signal.score} | ${signal.indicatorCount} indicators`, 
+        signal.type === 'BUY' ? 'buy' : 'sell');
+
+    fireSignal(bot, signal, bar, atr, rsi, null);
+}
+
+function _adaptiveVolCloseTrade(bot, outcome, pnlAmt, bar) {
+    const { type, entry, sl, tp } = bot.openSignal;
+    AdaptiveVolatility.recordOutcome(bot.id, outcome);
+
+    if (outcome === 'TP') {
+        log(`🧠 ADAPTIVE VOL ✓ +$${pnlAmt.toFixed(2)}`, 'buy');
+        window.registerBotWin(bot.id, pnlAmt);
+        UIManager.registerWin(pnlAmt);
+        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'adaptive_vol', type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
+        Notify.outcome(type, 'TP', bot.config.symbol, pnlAmt);
+    } else {
+        log(`🧠 ADAPTIVE VOL ✗ -$${pnlAmt.toFixed(2)}`, 'sell');
+        window.registerBotLoss(bot.id, pnlAmt);
+        UIManager.registerLoss(pnlAmt);
+        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: 'adaptive_vol', type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
+        Notify.outcome(type, 'SL', bot.config.symbol, pnlAmt);
+    }
+
+    SessionState.pushTrade({
+        time: Date.now(), symbol: bot.config.symbol, strategy: 'adaptive_vol',
+        type, entry, sl, tp, outcome, pnl: pnlAmt,
+    });
+    bot.openSignal = null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2623,6 +2674,7 @@ function checkOutcome(bot) {
         };
     };
 
+
     // ── PHANTOM SCALE-OUT ─────────────────────────────────────
     if (bot.openSignal.isPhantom && hit === 'TP' && !bot.openSignal.scaleOutDone) {
         const lotSize   = signalLotSize || bot.config.phantomLot || bot.config.lotSize || 0.01;
@@ -2665,6 +2717,7 @@ function checkOutcome(bot) {
     if (bot.openSignal.isVortex)  { _vortexCloseTrade(bot, hit, pnlAmt, closed);  return; };
     if (bot.openSignal.isCipher)  { _cipherCloseTrade(bot, hit, pnlAmt, closed);  return; };
     if (bot.openSignal.isUltraScalper) { _ultraScalperCloseTrade(bot, hit, pnlAmt, closed); return; };
+    if (bot.openSignal.isAdaptiveVol) { _adaptiveVolCloseTrade(bot, hit, pnlAmt, closed); return; };
 
     if (hit === 'TP') {
         log(`✓ TP hit  +${pnlAmt.toFixed(4)}`, 'buy');
