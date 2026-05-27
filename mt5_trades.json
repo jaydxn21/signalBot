@@ -1,5 +1,65 @@
 [
   {
+    "ticket": 1373687048,
+    "symbol": "Jump 10 Index",
+    "action": "buy",
+    "entry": 90986.04,
+    "sl": 90961.04,
+    "tp": 91084.364,
+    "pnl": -2.58,
+    "outcome": "SL",
+    "close_time": 1779797124,
+    "received_at": 1779797122919
+  },
+  {
+    "ticket": 1373694816,
+    "symbol": "Jump 10 Index",
+    "action": "buy",
+    "entry": 90995.26,
+    "sl": 90970.26,
+    "tp": 91092.544,
+    "pnl": -2.63,
+    "outcome": "SL",
+    "close_time": 1779796979,
+    "received_at": 1779796977934
+  },
+  {
+    "ticket": 1373705436,
+    "symbol": "Jump 10 Index",
+    "action": "sell",
+    "entry": 90987.56,
+    "sl": 91012.56,
+    "tp": 90888.376,
+    "pnl": -2.94,
+    "outcome": "SL",
+    "close_time": 1779796670,
+    "received_at": 1779796669037
+  },
+  {
+    "ticket": 1373695107,
+    "symbol": "Jump 10 Index",
+    "action": "buy",
+    "entry": 91000.22,
+    "sl": 90975.22,
+    "tp": 91097.664,
+    "pnl": -2.55,
+    "outcome": "SL",
+    "close_time": 1779796595,
+    "received_at": 1779796594004
+  },
+  {
+    "ticket": 1373676929,
+    "symbol": "Jump 10 Index",
+    "action": "sell",
+    "entry": 90993.56,
+    "sl": 91018.56,
+    "tp": 90894.046,
+    "pnl": -2.5,
+    "outcome": "SL",
+    "close_time": 1779795664,
+    "received_at": 1779795663087
+  },
+  {
     "ticket": 1373386863,
     "symbol": "Jump 100 Index",
     "action": "buy",

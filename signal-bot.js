@@ -327,6 +327,11 @@ const SYMBOL_MAP = {
     'CRASH500':'Crash 500 Index','BOOM500':'Boom 500 Index',
     'CRASH_500':'Crash 500 Index','BOOM_500':'Boom 500 Index',
     'stpRNG':'Step Index','STEP':'Step Index',
+    
+    // === NEW: NASDAQ / US TECH 100 ===
+    'US_TECH_100': 'US Tech 100',
+    'US_100': 'US Tech 100',
+    'US Tech 100': 'US Tech 100'
 };
 
 const STRATEGY_GROUPS = [
@@ -398,6 +403,17 @@ const STRATEGY_GROUPS = [
             { value: 'vwap_reversion',  label: 'VWAP Reversion'    },
             { value: 'trend',           label: 'Trend Follow'      },
             { value: 'swing',           label: 'Swing'             },
+        ]
+    },
+        {
+        label: '🇺🇸 Stock Indices',
+        desc:  'US Tech 100, S&P 500, Wall Street etc.',
+        strategies: [
+            { value: 'momentum',        label: 'Momentum Scalper'  },
+            { value: 'range_boundary',  label: 'Range Boundary'    },
+            { value: 'ultra_scalp',     label: 'Ultra Scalper'     },
+            { value: 'swing',           label: 'Swing'             },
+            { value: 'trend',           label: 'Trend Follow'      },
         ]
     },
     {
@@ -3067,9 +3083,14 @@ function setupQualityModeSelector(card, botId) {
     const modesConfig = {
         jump75: {
             0: { name: 'QUANTITY', emoji: '🚀', minScore: 55, color: '#ec4899' },
+            1: { name: 'HYBRID',   emoji: '⚖️', minScore: 62, color: '#2563eb' },
+            2: { name: 'QUALITY',  emoji: '🎯', minScore: 74, color: '#059669' },
+            3: { name: 'ULTRA',    emoji: '👑', minScore: 84, color: '#9333ea' }
+        },
+        range_boundary: {
+            0: { name: 'FAST',     emoji: '⚡', minScore: 50, color: '#ec4899' },
             1: { name: 'BALANCED', emoji: '⚖️', minScore: 65, color: '#2563eb' },
-            2: { name: 'QUALITY',  emoji: '🎯', minScore: 75, color: '#059669' },
-            3: { name: 'ULTRA',    emoji: '👑', minScore: 85, color: '#9333ea' }
+            2: { name: 'SAFE',     emoji: '🛡️', minScore: 78, color: '#059669' }
         }
     };
 
@@ -3084,22 +3105,19 @@ function setupQualityModeSelector(card, botId) {
 
         modeContainer.style.display = 'block';
 
-        // Populate dropdown if empty
-        if (modeSelect.options.length <= 1) {
-            modeSelect.innerHTML = '';
-            Object.entries(modes).forEach(([value, mode]) => {
-                const opt = document.createElement('option');
-                opt.value = value;
-                opt.textContent = `${mode.emoji} ${mode.name} (Score ≥${mode.minScore})`;
-                modeSelect.appendChild(opt);
-            });
-        }
+        // Populate dropdown
+        modeSelect.innerHTML = '';
+        Object.entries(modes).forEach(([value, mode]) => {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = `${mode.emoji} ${mode.name} (Score ≥${mode.minScore})`;
+            modeSelect.appendChild(opt);
+        });
 
-        // Load saved mode for this specific bot
-        const savedMode = window._botQualityModes[botId] ?? 1;
+        // Load saved mode
+        const savedMode = window._botQualityModes[botId] ?? (strategy === 'jump75' ? 1 : 1);
         modeSelect.value = savedMode;
 
-        // Update badge & info
         const currentMode = modes[savedMode];
         if (modeBadge && currentMode) {
             modeBadge.textContent = `${currentMode.emoji} ${currentMode.name}`;
@@ -3111,7 +3129,6 @@ function setupQualityModeSelector(card, botId) {
         }
     }
 
-    // Listen for changes
     stratSelect.addEventListener('change', updateUI);
     modeSelect.addEventListener('change', () => {
         window._botQualityModes[botId] = parseInt(modeSelect.value);
@@ -3119,8 +3136,7 @@ function setupQualityModeSelector(card, botId) {
         log(`🎯 Bot ${botId} quality mode updated`, 'info');
     });
 
-    // Initial update
-    setTimeout(updateUI, 100);
+    setTimeout(updateUI, 150);
 }
 
 // ============================================================
