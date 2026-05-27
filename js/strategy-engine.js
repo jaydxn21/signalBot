@@ -49,7 +49,7 @@ export class StrategyEngine {
             case 'h4_kiss':         signal = KissStrategy.checkEntry(lowerTFCandles, higherTFCandles);                       break;
             case 'swing':           signal = SwingStrategy.checkEntry(lowerTFCandles);                                       break;
             case 'scalp':           signal = ScalpStrategy.checkEntry(lowerTFCandles, rsiState);                             break;
-            case 'trend':           signal = TrendStrategy.checkEntry(lowerTFCandles);                                       break;
+            case 'trend':           signal = TrendStrategy.checkEntry(lowerTFCandles, rsiState);                                       break;
             case 'orb':             signal = ORBStrategy.checkEntry(lowerTFCandles);                                         break;
             case 'momentum':        signal = MomentumStrategy.checkEntry(lowerTFCandles, atr, symbol, higherTFCandles, rsi); break;
             case 'synthetic_scalp': signal = SyntheticScalper.checkEntry(lowerTFCandles, atr);                               break;

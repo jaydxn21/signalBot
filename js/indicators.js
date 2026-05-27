@@ -15,6 +15,9 @@ export const Indicators = {
         if (candles.length < period + 1) return null;
         const closes = candles.map(c => c.close);
 
+        // Safety: ensure state exists (some callers forget to pass it)
+        if (!state) state = { prevAvgGain: 0, prevAvgLoss: 0, initialized: false };
+
         let { prevAvgGain, prevAvgLoss, initialized } = state;
 
         if (!initialized) {
