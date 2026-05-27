@@ -1216,6 +1216,17 @@ function handleData(data) {
 
     if (data.msg_type === 'active_symbols') {
         data.active_symbols.forEach(s => { symbolMap[s.symbol] = s.display_name; });
+        
+        // TEMP: Find US/NASDAQ symbols
+        const usSymbols = data.active_symbols.filter(s => 
+            s.display_name.toLowerCase().includes('tech') ||
+            s.display_name.toLowerCase().includes('nasdaq') ||
+            s.display_name.toLowerCase().includes('us 100') ||
+            s.display_name.toLowerCase().includes('wall') ||
+            s.display_name.toLowerCase().includes('us index')
+        );
+        console.log('🔍 US Index symbols available:', usSymbols.map(s => `${s.symbol} → ${s.display_name}`));
+        
         log(`${data.active_symbols.length} symbols loaded`, 'info');
     }
 
