@@ -1596,7 +1596,7 @@ function _runAdaptiveVol(bot, bar, atr, rsi) {
 
     console.debug(`[AdaptiveVol] evaluating ${bot.config.symbol} | candles=${bot.candles.length} | atr=${atr?.toFixed(4)}`);
 
-    const signal = AdaptiveVolatility.checkEntry(bot.candles, atr, bot.id);
+    const signal = AdaptiveVolatility.checkEntry(bot.candles, atr, bot.id, bot.config.symbol);
     if (!signal) return;
 
     bot.lastFiredMs = now;
@@ -2437,7 +2437,7 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
     }
     
     // Final safety clamp
-    lotSize = Math.min(0.1, Math.max(0.01, lotSize));
+    lotSize = Math.min(0.05, Math.max(0.01, lotSize));
 
     bot.openSignal = { type, sl, tp, entry: bar.close, lotSize: lotSize, strategy: bot.config.strategy };
     if (signal.isJump75) {
