@@ -2484,16 +2484,14 @@ async function fireSignal(bot, signal, bar, atr, rsi, isTrending) {
         const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
         const dp = _getDecimalPlaces(bot.config.symbol);
-        const signalMsg = {
-            action: type.toLowerCase(),
-            symbol: mt5Symbol,
-            price: parseFloat(bar.close.toFixed(dp)),
-            sl: parseFloat(sl.toFixed(dp)),
-            tp: parseFloat(tp.toFixed(dp)),
-            lotSize: clampedLot,
-            label: label || type,
-            timestamp: Date.now()
-        };
+        // In fireSignal() function, change signalMsg to:
+const signalMsg = {
+    action: type.toLowerCase(),
+    symbol: mt5Symbol,
+    lotSize: clampedLot,
+    // NO sl, NO tp - EA handles it
+    timestamp: Date.now()
+};
 
         if (!renderWS || renderWS.readyState !== WebSocket.OPEN) {
             console.warn(`[MT5] Local bridge not ready (state: ${renderWS ? renderWS.readyState : 'undefined'})`);

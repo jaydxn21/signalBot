@@ -1,5 +1,53 @@
 [
   {
+    "ticket": 1380749502,
+    "symbol": "Volatility 50 Index",
+    "action": "buy",
+    "entry": 92.2303,
+    "sl": 91.9803,
+    "tp": 92.54,
+    "pnl": 0.02,
+    "outcome": "TP",
+    "close_time": 1780476604,
+    "received_at": 1780476604958
+  },
+  {
+    "ticket": 1380525441,
+    "symbol": "Volatility 50 Index",
+    "action": "buy",
+    "entry": 93.3702,
+    "sl": 93.1202,
+    "tp": 93.7,
+    "pnl": 0.05,
+    "outcome": "TP",
+    "close_time": 1780453209,
+    "received_at": 1780453208962
+  },
+  {
+    "ticket": 1380481774,
+    "symbol": "Volatility 50 Index",
+    "action": "buy",
+    "entry": 94.1894,
+    "sl": 93.9394,
+    "tp": 94.49,
+    "pnl": 0.04,
+    "outcome": "TP",
+    "close_time": 1780447512,
+    "received_at": 1780447512848
+  },
+  {
+    "ticket": 1380366187,
+    "symbol": "Volatility 50 Index",
+    "action": "buy",
+    "entry": 94.333,
+    "sl": 94.083,
+    "tp": 94.65,
+    "pnl": 0.02,
+    "outcome": "TP",
+    "close_time": 1780432814,
+    "received_at": 1780432814825
+  },
+  {
     "ticket": 1373687048,
     "symbol": "Jump 10 Index",
     "action": "buy",

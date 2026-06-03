@@ -1,15 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// NEXUS Signal Queue Bridge v2.1 - COMPLETE WITH HEARTBEAT & FLOATING PnL
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Features:
-//   - Queues signals for MT5 to poll
-//   - Receives trade results from MT5
-//   - Stores trade history for analytics
-//   - Heartbeat endpoint for EA connection monitoring
-//   - Floating PnL tracking from MT5
-//   - Provides API endpoints for frontend
-//
+// NEXUS Signal Queue Bridge v2.3 - FIXED JSON PARSING
 // ═══════════════════════════════════════════════════════════════════════════
 
 const WebSocket = require('ws');
@@ -22,6 +12,55 @@ const WS_PORT = 3000;
 const HTTP_PORT = 8080;
 const RENDER_URL = 'wss://nexus-api-khvt.onrender.com/mt5';
 const TRADE_HISTORY_FILE = path.join(__dirname, 'mt5_trades.json');
+
+// ═════════════════════════════════════════════════════════════════════════
+// SYMBOL MINIMUM LOT MAPPING (Matches EA v9.6)
+// ═════════════════════════════════════════════════════════════════════════
+
+const SYMBOL_MIN_LOTS = {
+    'Volatility 50 Index': 4.0,
+    'Volatility 25 Index': 2.0,
+    'Volatility 10 Index': 1.0,
+    'Volatility 75 Index': 0.01,
+    'Volatility 100 Index': 4.0,
+    'Jump 50 Index': 4.0,
+    'Jump 25 Index': 2.0,
+    'Jump 10 Index': 1.0,
+    'Jump 75 Index': 0.01,
+    'Jump 100 Index': 4.0,
+    'Crash 500 Index': 0.01,
+    'Crash 1000 Index': 0.01,
+    'Boom 500 Index': 0.01,
+    'Boom 1000 Index': 0.01,
+    'Step Index 100': 0.01,
+    'EURUSD': 0.01,
+    'GBPUSD': 0.01,
+    'USDJPY': 0.01,
+    'AUDUSD': 0.01,
+    'USDCAD': 0.01,
+    'USDCHF': 0.01,
+    'BTCUSD': 0.01,
+    'ETHUSD': 0.01,
+    'XAUUSD': 0.01,
+    'XAGUSD': 0.01
+};
+
+function getAdjustedLotSize(symbol, requestedLot) {
+    const minLot = SYMBOL_MIN_LOTS[symbol] || 0.01;
+    const adjustedLot = Math.max(requestedLot, minLot);
+    
+    if (adjustedLot !== requestedLot) {
+        console.log(`[VOLUME] Adjusted lot for ${symbol}: ${requestedLot} → ${adjustedLot} (min: ${minLot})`);
+    }
+    
+    const maxLot = 10.0;
+    if (adjustedLot > maxLot) {
+        console.log(`[VOLUME] Capping lot for ${symbol}: ${adjustedLot} → ${maxLot}`);
+        return maxLot;
+    }
+    
+    return adjustedLot;
+}
 
 // ═════════════════════════════════════════════════════════════════════════
 // PERSISTENT TRADE STORAGE
@@ -48,8 +87,8 @@ class TradeHistory {
     
     save() {
         try {
-            if (this.trades.length > 1000) {
-                this.trades = this.trades.slice(-1000);
+            if (this.trades.length > 2000) {
+                this.trades = this.trades.slice(-2000);
             }
             fs.writeFileSync(TRADE_HISTORY_FILE, JSON.stringify(this.trades, null, 2));
         } catch (e) {
@@ -88,7 +127,7 @@ class TradeHistory {
             net_pnl: netPnL,
             avg_win: wins.length ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0,
             avg_loss: losses.length ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0) / losses.length) : 0,
-            profit_factor: losses.length ? (wins.reduce((s, t) => s + t.pnl, 0) / Math.abs(losses.reduce((s, t) => s + t.pnl, 0))) : 0,
+            profit_factor: losses.length && wins.length ? (wins.reduce((s, t) => s + t.pnl, 0) / Math.abs(losses.reduce((s, t) => s + t.pnl, 0))) : wins.length ? 999 : 0,
             best_trade: wins.length ? Math.max(...wins.map(t => t.pnl)) : 0,
             worst_trade: losses.length ? Math.min(...losses.map(t => t.pnl)) : 0,
             last_update: Date.now()
@@ -106,22 +145,41 @@ class SignalQueue {
     constructor(maxSize = 100) {
         this.queue = [];
         this.maxSize = maxSize;
+        this.processedCount = 0;
     }
     
     push(signal) {
+        if (!signal.action || !signal.symbol) {
+            console.log('[QUEUE] Invalid signal rejected:', signal);
+            return false;
+        }
+        
+        const normalizedSignal = {
+            action: signal.action.toLowerCase(),
+            symbol: signal.symbol,
+            price: signal.price || 0,
+            sl: signal.sl || 0,
+            tp: signal.tp || 0,
+            volume: signal.volume || signal.lotSize || 0.01,
+            timestamp: signal.timestamp || Date.now(),
+            source: signal.source || 'unknown'
+        };
+        
+        normalizedSignal.volume = getAdjustedLotSize(normalizedSignal.symbol, normalizedSignal.volume);
+        
         if (this.queue.length >= this.maxSize) {
             this.queue.shift();
         }
-        this.queue.push({
-            ...signal,
-            queued_at: Date.now()
-        });
-        console.log(`[QUEUE] Signal added. Queue size: ${this.queue.length}`);
+        
+        this.queue.push(normalizedSignal);
+        console.log(`[QUEUE] Signal queued: ${normalizedSignal.action} ${normalizedSignal.symbol} @ ${normalizedSignal.volume} lots`);
+        return true;
     }
     
     pop() {
         if (this.queue.length > 0) {
             const signal = this.queue.shift();
+            this.processedCount++;
             console.log(`[QUEUE] Signal retrieved. Remaining: ${this.queue.length}`);
             return signal;
         }
@@ -130,6 +188,11 @@ class SignalQueue {
     
     size() {
         return this.queue.length;
+    }
+    
+    clear() {
+        this.queue = [];
+        console.log(`[QUEUE] Queue cleared`);
     }
 }
 
@@ -165,23 +228,51 @@ function log(msg, type = 'info') {
         'trade': '💰',
         'storage': '💾',
         'heartbeat': '💓',
-        'floating': '📊'
+        'floating': '📊',
+        'volume': '🔧'
     }[type] || '•';
     
     console.log(`[${time}] ${emoji} ${msg}`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// EXPRESS HTTP SERVER
+// EXPRESS HTTP SERVER WITH IMPROVED JSON PARSING
 // ═════════════════════════════════════════════════════════════════════════
 
 const app = express();
-app.use(express.json());
+
+// Custom raw body parser to handle malformed JSON
+app.use((req, res, next) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+        req.rawBody = data;
+        if (data && data.trim()) {
+            try {
+                // Try to clean the JSON string
+                let cleaned = data.trim();
+                // Remove any non-JSON characters at the end
+                const lastBrace = cleaned.lastIndexOf('}');
+                if (lastBrace !== -1 && lastBrace < cleaned.length - 1) {
+                    cleaned = cleaned.substring(0, lastBrace + 1);
+                }
+                req.body = JSON.parse(cleaned);
+            } catch (e) {
+                console.log(`[PARSE ERROR] Raw data received: "${data.substring(0, 200)}"`);
+                req.body = {};
+            }
+        } else {
+            req.body = {};
+        }
+        next();
+    });
+});
 
 // CORS
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
     if (req.method === 'OPTIONS') {
@@ -194,16 +285,19 @@ app.use((req, res, next) => {
 
 // ✅ MT5 POLLS FOR SIGNALS
 app.get('/api/signals', (req, res) => {
-    log(`MT5 polling for signals (${signalQueue.size()} in queue)`, 'poll');
-    
     const signal = signalQueue.pop();
     
     if (signal) {
-        log(`Sending signal to MT5: ${signal.action} ${signal.symbol}`, 'signal');
+        log(`${signal.action.toUpperCase()} ${signal.symbol} ${signal.volume} lots`, 'signal');
         res.json({
             status: 'signal',
-            data: signal,
-            timestamp: Date.now()
+            action: signal.action,
+            symbol: signal.symbol,
+            price: signal.price,
+            sl: signal.sl,
+            tp: signal.tp,
+            volume: signal.volume,
+            timestamp: signal.timestamp
         });
     } else {
         res.json({
@@ -213,46 +307,59 @@ app.get('/api/signals', (req, res) => {
     }
 });
 
-// ✅ MT5 SENDS TRADE RESULTS BACK
+// ✅ MT5 SENDS TRADE RESULTS BACK - FIXED PARSING
 app.post('/api/trade-result', (req, res) => {
     const trade = req.body;
     
-    if (trade && trade.ticket) {
-        log(`Trade result received: ${trade.symbol} ${trade.action} | PnL: ${trade.pnl}`, 'trade');
+    // Log raw data for debugging
+    if (req.rawBody) {
+        console.log(`[RAW] Trade result raw: ${req.rawBody.substring(0, 200)}`);
+    }
+    
+    if (trade && (trade.ticket || trade.ticket === 0)) {
+        log(`${trade.symbol} ${trade.action} | PnL: $${trade.pnl} | Outcome: ${trade.outcome}`, 'trade');
         tradeHistory.addTrade(trade);
         res.json({ status: 'ok', message: 'Trade recorded' });
     } else {
-        log(`Invalid trade result received`, 'warn');
-        res.json({ status: 'error', message: 'Invalid trade data' });
+        log(`Invalid trade result received: ${JSON.stringify(trade)}`, 'warn');
+        res.json({ status: 'error', message: 'Invalid trade data', received: trade });
     }
 });
 
-// ✅ HEARTBEAT FROM MT5 (EA sends this every 30 seconds)
+// ✅ HEARTBEAT FROM MT5
 app.get('/api/heartbeat', (req, res) => {
-    latestFloatingPnL.last_heartbeat = Date.now();
-    log(`Heartbeat received from MT5 EA`, 'heartbeat');
+    const now = Date.now();
+    latestFloatingPnL.last_heartbeat = now;
+    log(`Heartbeat received`, 'heartbeat');
     res.json({ 
         status: 'alive', 
-        timestamp: Date.now(),
-        trades_recorded: tradeHistory.getAllTrades().length
+        timestamp: now,
+        trades_recorded: tradeHistory.getAllTrades().length,
+        queue_size: signalQueue.size()
     });
 });
 
-// ✅ FLOATING PnL FROM MT5
+// ✅ FLOATING PnL FROM MT5 - FIXED PARSING
 app.post('/api/floating-pnl', (req, res) => {
     const { equity, balance, floating_pnl, timestamp } = req.body;
-    latestFloatingPnL = {
-        equity: equity || 0,
-        balance: balance || 0,
-        floating_pnl: floating_pnl || 0,
-        timestamp: timestamp || Date.now(),
-        last_heartbeat: latestFloatingPnL.last_heartbeat
-    };
-    log(`Floating PnL: Equity=$${equity}, Balance=$${balance}, Floating=$${floating_pnl}`, 'floating');
-    res.json({ status: 'ok' });
+    
+    if (equity !== undefined && balance !== undefined) {
+        latestFloatingPnL = {
+            equity: equity || 0,
+            balance: balance || 0,
+            floating_pnl: floating_pnl || 0,
+            timestamp: timestamp || Date.now(),
+            last_heartbeat: latestFloatingPnL.last_heartbeat
+        };
+        log(`Equity: $${equity} | Balance: $${balance} | Floating: $${floating_pnl || 0}`, 'floating');
+        res.json({ status: 'ok' });
+    } else {
+        log(`Invalid floating PnL data: ${JSON.stringify(req.body)}`, 'warn');
+        res.json({ status: 'error', message: 'Invalid data' });
+    }
 });
 
-// ✅ GET FLOATING PnL (for frontend)
+// ✅ GET FLOATING PnL
 app.get('/api/floating-pnl', (req, res) => {
     res.json(latestFloatingPnL);
 });
@@ -269,10 +376,10 @@ app.get('/api/trade-stats', (req, res) => {
     res.json(tradeHistory.getStats());
 });
 
-// ✅ EA CONNECTION STATUS (for frontend)
+// ✅ EA CONNECTION STATUS
 app.get('/api/ea-status', (req, res) => {
     const now = Date.now();
-    const isConnected = (now - latestFloatingPnL.last_heartbeat) < 60000; // Connected if heartbeat within last 60 seconds
+    const isConnected = (now - latestFloatingPnL.last_heartbeat) < 60000;
     
     res.json({
         connected: isConnected,
@@ -280,74 +387,57 @@ app.get('/api/ea-status', (req, res) => {
         seconds_ago: isConnected ? Math.floor((now - latestFloatingPnL.last_heartbeat) / 1000) : null,
         floating_pnl: latestFloatingPnL.floating_pnl,
         equity: latestFloatingPnL.equity,
-        balance: latestFloatingPnL.balance
+        balance: latestFloatingPnL.balance,
+        queue_size: signalQueue.size(),
+        trades_recorded: tradeHistory.getAllTrades().length
     });
 });
 
-// Health check
+// ✅ Health check
 app.get('/api/health', (req, res) => {
+    const now = Date.now();
     res.json({
         status: 'ok',
+        version: '2.3',
         signals_queued: signalQueue.size(),
+        signals_processed: signalQueue.processedCount,
         trades_recorded: tradeHistory.getAllTrades().length,
-        ea_connected: (Date.now() - latestFloatingPnL.last_heartbeat) < 60000,
-        timestamp: Date.now(),
-        render_connected: renderWS && renderWS.readyState === WebSocket.OPEN
+        ea_connected: (now - latestFloatingPnL.last_heartbeat) < 60000,
+        render_connected: renderWS && renderWS.readyState === WebSocket.OPEN,
+        timestamp: now
     });
 });
 
-// Test endpoint (for debugging)
-app.post('/api/test-signal', (req, res) => {
-    const testSignal = {
-        action: 'buy',
-        symbol: 'Jump 75 Index',
-        price: 16565.00,
-        sl: 16555.00,
-        tp: 16575.00,
-        volume: 0.1,
-        timestamp: Date.now()
-    };
+// ✅ Endpoint to queue a signal manually
+app.post('/api/queue-signal', (req, res) => {
+    const signal = req.body;
     
-    log(`Test signal received, queuing for MT5`, 'signal');
-    signalQueue.push(testSignal);
+    if (!signal.action || !signal.symbol) {
+        res.status(400).json({ error: 'Missing action or symbol' });
+        return;
+    }
     
-    res.json({
-        status: 'ok',
-        message: 'Test signal queued',
+    signalQueue.push(signal);
+    res.json({ 
+        status: 'ok', 
+        message: 'Signal queued',
         queue_size: signalQueue.size()
     });
 });
 
-// Test trade result (for simulating MT5 responses)
-app.post('/api/test-trade', (req, res) => {
-    const testTrade = {
-        ticket: Date.now(),
-        symbol: 'Jump 75 Index',
-        action: 'buy',
-        entry: 13182.71,
-        sl: 13182.71 - 80,
-        tp: 13182.71 + 120,
-        pnl: 2.50,
-        close_time: Math.floor(Date.now() / 1000),
-        outcome: 'TP'
-    };
-    
-    tradeHistory.addTrade(testTrade);
-    res.json({ status: 'ok', message: 'Test trade recorded' });
-});
-
-// Clear all trades (for testing)
-app.delete('/api/trades', (req, res) => {
-    tradeHistory.trades = [];
-    tradeHistory.save();
-    log('All trades cleared', 'warn');
-    res.json({ status: 'ok', message: 'All trades cleared' });
+// ✅ Debug endpoint to see last received data
+app.get('/api/debug/last-request', (req, res) => {
+    res.json({
+        last_heartbeat: latestFloatingPnL.last_heartbeat,
+        queue_size: signalQueue.size(),
+        trades_count: tradeHistory.getAllTrades().length
+    });
 });
 
 const server = http.createServer(app);
 
 // ═════════════════════════════════════════════════════════════════════════
-// WEBSOCKET SERVER (For incoming signals from Render)
+// WEBSOCKET SERVER
 // ═════════════════════════════════════════════════════════════════════════
 
 const wss = new WebSocket.Server({ port: WS_PORT });
@@ -357,27 +447,37 @@ wss.on('listening', () => {
 });
 
 wss.on('connection', (ws, req) => {
-    log(`WebSocket client connected from ${req.socket.remoteAddress}`, 'ws');
+    log(`WebSocket client connected`, 'ws');
     
     ws.send(JSON.stringify({
         type: 'handshake',
         status: 'connected',
-        message: 'Connected to signal bridge',
+        message: 'Connected to NEXUS Signal Bridge v2.3',
         timestamp: Date.now()
     }));
     
     ws.on('message', (data) => {
         try {
             const msg = data.toString();
-            const parsed = JSON.parse(msg);
-            log(`WebSocket message received: ${msg.substring(0, 80)}...`, 'ws');
+            let parsed;
             
-            // If it's a signal, queue it for MT5
+            try {
+                parsed = JSON.parse(msg);
+            } catch (e) {
+                parsed = { raw: msg };
+            }
+            
             if (parsed.action && parsed.symbol) {
                 signalQueue.push(parsed);
+                ws.send(JSON.stringify({
+                    type: 'ack',
+                    status: 'queued',
+                    queue_size: signalQueue.size(),
+                    timestamp: Date.now()
+                }));
             }
         } catch (e) {
-            log(`WebSocket parse error: ${e.message}`, 'error');
+            log(`WebSocket error: ${e.message}`, 'error');
         }
     });
     
@@ -387,7 +487,7 @@ wss.on('connection', (ws, req) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════
-// CONNECT TO RENDER (BOT SIGNALS SOURCE)
+// CONNECT TO RENDER
 // ═════════════════════════════════════════════════════════════════════════
 
 let renderWS = null;
@@ -408,11 +508,10 @@ function connectToRender() {
         log(`✅ Connected to Render!`, 'bot');
         reconnectAttempts = 0;
         
-        // Send identification
         renderWS.send(JSON.stringify({
             type: 'bridge',
-            client: 'signal-bridge-v2',
-            version: '2.1',
+            client: 'nexus-signal-bridge',
+            version: '2.3',
             timestamp: Date.now()
         }));
     });
@@ -420,20 +519,20 @@ function connectToRender() {
     renderWS.on('message', (data) => {
         try {
             const msg = data.toString();
-            log(`Signal from bot (via Render): ${msg.substring(0, 100)}...`, 'signal');
-            
             let signal;
+            
             try {
                 signal = JSON.parse(msg);
-            } catch {
-                signal = { raw: msg };
+            } catch (e) {
+                return;
             }
             
-            signalQueue.push(signal);
-            log(`Signal queued for MT5 polling (queue size: ${signalQueue.size()})`, 'queue');
-            
+            if (signal.type === 'signal' || signal.action) {
+                signalQueue.push(signal);
+                log(`Signal from bot queued (queue: ${signalQueue.size()})`, 'queue');
+            }
         } catch (e) {
-            log(`Error processing signal: ${e.message}`, 'error');
+            // Ignore parse errors
         }
     });
     
@@ -443,8 +542,6 @@ function connectToRender() {
         
         reconnectAttempts++;
         const delay = Math.min(5000 * Math.pow(1.5, reconnectAttempts), 60000);
-        log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`, 'warn');
-        
         setTimeout(connectToRender, delay);
     });
     
@@ -457,68 +554,46 @@ function connectToRender() {
 // STARTUP
 // ═════════════════════════════════════════════════════════════════════════
 
-console.log('\n╔═══════════════════════════════════════════════════════════╗');
-console.log('║     NEXUS Signal Queue Bridge v2.1 - COMPLETE            ║');
-console.log('║     WITH HEARTBEAT & FLOATING PnL                        ║');
-console.log('╚═══════════════════════════════════════════════════════════╝\n');
+console.log('\n╔═══════════════════════════════════════════════════════════════╗');
+console.log('║     NEXUS Signal Queue Bridge v2.3 - FIXED JSON PARSING       ║');
+console.log('╚═══════════════════════════════════════════════════════════════╝\n');
 
-// Start HTTP server
 server.listen(HTTP_PORT, () => {
     log(`HTTP server on http://localhost:${HTTP_PORT}`, 'info');
-    log(`MT5 polls: http://127.0.0.1:${HTTP_PORT}/api/signals`, 'info');
-    log(`MT5 sends results: POST http://127.0.0.1:${HTTP_PORT}/api/trade-result`, 'info');
-    log(`MT5 heartbeat: GET http://127.0.0.1:${HTTP_PORT}/api/heartbeat`, 'info');
-    log(`MT5 floating PnL: POST http://127.0.0.1:${HTTP_PORT}/api/floating-pnl`, 'info');
-    log(`Health:    http://127.0.0.1:${HTTP_PORT}/api/health`, 'info');
+    console.log(`\n   📡 ENDPOINTS:`);
+    console.log(`      GET  /api/signals        - MT5 polls for signals`);
+    console.log(`      POST /api/trade-result   - MT5 sends trade results`);
+    console.log(`      GET  /api/heartbeat      - MT5 heartbeat`);
+    console.log(`      POST /api/floating-pnl   - MT5 floating PnL`);
+    console.log(`      GET  /api/trade-results  - Frontend trade history`);
+    console.log(`      GET  /api/trade-stats    - Frontend trade stats`);
+    console.log(`      GET  /api/ea-status      - EA connection status`);
+    console.log(`      GET  /api/health         - Bridge health check\n`);
 });
 
-// Connect to Render
 setTimeout(() => {
     connectToRender();
 }, 1000);
 
-log(`\n📋 System ready:\n`, 'info');
-log(`   1. Bot sends signal → Render WebSocket`, 'info');
-log(`   2. Render → This bridge (localhost:${WS_PORT})`, 'info');
-log(`   3. Signal queued in memory`, 'info');
-log(`   4. MT5 polls http://127.0.0.1:${HTTP_PORT}/api/signals`, 'info');
-log(`   5. MT5 receives signal ✅`, 'info');
-log(`   6. MT5 sends heartbeat every 30s → /api/heartbeat`, 'info');
-log(`   7. MT5 sends floating PnL every 30s → /api/floating-pnl`, 'info');
-log(`   8. When trade closes, MT5 POSTS result → /api/trade-result`, 'info');
-log(`   9. Frontend displays real MT5 P&L in Analytics`, 'info');
+log(`System ready - Waiting for signals...\n`, 'info');
 
-// ═════════════════════════════════════════════════════════════════════════
-// MONITORING
-// ═════════════════════════════════════════════════════════════════════════
-
+// Monitoring
 setInterval(() => {
     const stats = tradeHistory.getStats();
-    const status = {
-        queue_size: signalQueue.size(),
-        render_connected: renderWS && renderWS.readyState === WebSocket.OPEN ? 'ON' : 'OFF',
-        ea_connected: (Date.now() - latestFloatingPnL.last_heartbeat) < 60000,
-        total_trades: stats.total_trades,
-        net_pnl: stats.net_pnl,
-        win_rate: stats.win_rate,
-        floating_pnl: latestFloatingPnL.floating_pnl
-    };
+    const now = Date.now();
+    const eaConnected = (now - latestFloatingPnL.last_heartbeat) < 60000;
+    const renderConnected = renderWS && renderWS.readyState === WebSocket.OPEN;
     
-    log(`Status: Queue=${status.queue_size} | Trades=${status.total_trades} | PnL=$${status.net_pnl.toFixed(2)} | WR=${status.win_rate}% | EA=${status.ea_connected ? 'ON' : 'OFF'} | Render=${status.render_connected}`, 'info');
+    log(`Queue:${signalQueue.size()} | Trades:${stats.total_trades} | PnL:$${stats.net_pnl.toFixed(2)} | WR:${stats.win_rate}% | EA:${eaConnected ? 'ON' : 'OFF'} | Render:${renderConnected ? 'ON' : 'OFF'}`, 'info');
 }, 15000);
 
-// ═════════════════════════════════════════════════════════════════════════
-// GRACEFUL SHUTDOWN
-// ═════════════════════════════════════════════════════════════════════════
-
+// Graceful shutdown
 process.on('SIGINT', () => {
     console.log('\n');
     log('Shutting down...', 'warn');
-    
     if (renderWS) renderWS.close();
     wss.close();
     server.close();
-    
     log('Bridge stopped', 'info');
     process.exit(0);
 });
