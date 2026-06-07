@@ -1,6 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// NEXUS Signal Queue Bridge v2.3 - FIXED JSON PARSING
+// NEXUS Signal Queue Bridge v2.4 - WITH QUALITY SCORE & AI SCORE SUPPORT
 // ═══════════════════════════════════════════════════════════════════════════
+// FIXES:
+//   - Passes qualityScore and aiScore from signal-bot to MT5 EA
+//   - Preserves all signal fields (no data loss)
+//   - Better logging for debugging
 
 const WebSocket = require('ws');
 const http = require('http');
@@ -154,6 +158,7 @@ class SignalQueue {
             return false;
         }
         
+        // PRESERVE ALL FIELDS - especially qualityScore and aiScore
         const normalizedSignal = {
             action: signal.action.toLowerCase(),
             symbol: signal.symbol,
@@ -161,9 +166,16 @@ class SignalQueue {
             sl: signal.sl || 0,
             tp: signal.tp || 0,
             volume: signal.volume || signal.lotSize || 0.01,
+            lotSize: signal.lotSize || signal.volume || 0.01,
+            // CRITICAL: Pass through quality scores
+            qualityScore: signal.qualityScore || signal.score || 50,
+            aiScore: signal.aiScore || 50,
             timestamp: signal.timestamp || Date.now(),
             source: signal.source || 'unknown'
         };
+        
+        // Log what we received for debugging
+        console.log(`[QUEUE] Received signal from ${normalizedSignal.source}: ${normalizedSignal.action} ${normalizedSignal.symbol} | Quality: ${normalizedSignal.qualityScore}% | AI: ${normalizedSignal.aiScore}%`);
         
         normalizedSignal.volume = getAdjustedLotSize(normalizedSignal.symbol, normalizedSignal.volume);
         
@@ -172,7 +184,7 @@ class SignalQueue {
         }
         
         this.queue.push(normalizedSignal);
-        console.log(`[QUEUE] Signal queued: ${normalizedSignal.action} ${normalizedSignal.symbol} @ ${normalizedSignal.volume} lots`);
+        console.log(`[QUEUE] Signal queued: ${normalizedSignal.action} ${normalizedSignal.symbol} @ ${normalizedSignal.volume} lots | Q:${normalizedSignal.qualityScore}%`);
         return true;
     }
     
@@ -180,7 +192,7 @@ class SignalQueue {
         if (this.queue.length > 0) {
             const signal = this.queue.shift();
             this.processedCount++;
-            console.log(`[QUEUE] Signal retrieved. Remaining: ${this.queue.length}`);
+            console.log(`[QUEUE] Signal retrieved. Remaining: ${this.queue.length} | Quality: ${signal.qualityScore}%`);
             return signal;
         }
         return null;
@@ -229,7 +241,8 @@ function log(msg, type = 'info') {
         'storage': '💾',
         'heartbeat': '💓',
         'floating': '📊',
-        'volume': '🔧'
+        'volume': '🔧',
+        'quality': '⭐'
     }[type] || '•';
     
     console.log(`[${time}] ${emoji} ${msg}`);
@@ -250,9 +263,7 @@ app.use((req, res, next) => {
         req.rawBody = data;
         if (data && data.trim()) {
             try {
-                // Try to clean the JSON string
                 let cleaned = data.trim();
-                // Remove any non-JSON characters at the end
                 const lastBrace = cleaned.lastIndexOf('}');
                 if (lastBrace !== -1 && lastBrace < cleaned.length - 1) {
                     cleaned = cleaned.substring(0, lastBrace + 1);
@@ -283,20 +294,25 @@ app.use((req, res, next) => {
     next();
 });
 
-// ✅ MT5 POLLS FOR SIGNALS
+// ✅ MT5 POLLS FOR SIGNALS - NOW INCLUDES qualityScore AND aiScore
 app.get('/api/signals', (req, res) => {
     const signal = signalQueue.pop();
     
     if (signal) {
-        log(`${signal.action.toUpperCase()} ${signal.symbol} ${signal.volume} lots`, 'signal');
+        log(`${signal.action.toUpperCase()} ${signal.symbol} | Vol:${signal.volume} | Q:${signal.qualityScore}% | AI:${signal.aiScore}%`, 'signal');
+        
+        // Send ALL fields to MT5 EA
         res.json({
             status: 'signal',
             action: signal.action,
             symbol: signal.symbol,
-            price: signal.price,
-            sl: signal.sl,
-            tp: signal.tp,
+            price: signal.price || 0,
+            sl: signal.sl || 0,
+            tp: signal.tp || 0,
             volume: signal.volume,
+            lotSize: signal.lotSize || signal.volume,
+            qualityScore: signal.qualityScore,  // CRITICAL: Pass quality score
+            aiScore: signal.aiScore,            // CRITICAL: Pass AI score
             timestamp: signal.timestamp
         });
     } else {
@@ -311,7 +327,6 @@ app.get('/api/signals', (req, res) => {
 app.post('/api/trade-result', (req, res) => {
     const trade = req.body;
     
-    // Log raw data for debugging
     if (req.rawBody) {
         console.log(`[RAW] Trade result raw: ${req.rawBody.substring(0, 200)}`);
     }
@@ -398,7 +413,7 @@ app.get('/api/health', (req, res) => {
     const now = Date.now();
     res.json({
         status: 'ok',
-        version: '2.3',
+        version: '2.4',
         signals_queued: signalQueue.size(),
         signals_processed: signalQueue.processedCount,
         trades_recorded: tradeHistory.getAllTrades().length,
@@ -408,7 +423,7 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// ✅ Endpoint to queue a signal manually
+// ✅ Endpoint to queue a signal manually (with quality score support)
 app.post('/api/queue-signal', (req, res) => {
     const signal = req.body;
     
@@ -417,11 +432,20 @@ app.post('/api/queue-signal', (req, res) => {
         return;
     }
     
+    // Ensure qualityScore is set
+    if (!signal.qualityScore) {
+        signal.qualityScore = signal.score || 50;
+    }
+    if (!signal.aiScore) {
+        signal.aiScore = 50;
+    }
+    
     signalQueue.push(signal);
     res.json({ 
         status: 'ok', 
         message: 'Signal queued',
-        queue_size: signalQueue.size()
+        queue_size: signalQueue.size(),
+        qualityScore: signal.qualityScore
     });
 });
 
@@ -452,7 +476,8 @@ wss.on('connection', (ws, req) => {
     ws.send(JSON.stringify({
         type: 'handshake',
         status: 'connected',
-        message: 'Connected to NEXUS Signal Bridge v2.3',
+        message: 'Connected to NEXUS Signal Bridge v2.4',
+        version: '2.4',
         timestamp: Date.now()
     }));
     
@@ -468,11 +493,21 @@ wss.on('connection', (ws, req) => {
             }
             
             if (parsed.action && parsed.symbol) {
+                // Ensure qualityScore is present
+                if (!parsed.qualityScore) {
+                    parsed.qualityScore = parsed.score || 50;
+                }
+                if (!parsed.aiScore) {
+                    parsed.aiScore = 50;
+                }
+                parsed.source = 'websocket';
+                
                 signalQueue.push(parsed);
                 ws.send(JSON.stringify({
                     type: 'ack',
                     status: 'queued',
                     queue_size: signalQueue.size(),
+                    qualityScore: parsed.qualityScore,
                     timestamp: Date.now()
                 }));
             }
@@ -511,7 +546,7 @@ function connectToRender() {
         renderWS.send(JSON.stringify({
             type: 'bridge',
             client: 'nexus-signal-bridge',
-            version: '2.3',
+            version: '2.4',
             timestamp: Date.now()
         }));
     });
@@ -528,8 +563,17 @@ function connectToRender() {
             }
             
             if (signal.type === 'signal' || signal.action) {
+                // Ensure qualityScore is passed through
+                if (!signal.qualityScore && signal.score) {
+                    signal.qualityScore = signal.score;
+                }
+                if (!signal.qualityScore) {
+                    signal.qualityScore = 50;
+                }
+                signal.source = 'render';
+                
                 signalQueue.push(signal);
-                log(`Signal from bot queued (queue: ${signalQueue.size()})`, 'queue');
+                log(`Signal from bot queued | Q:${signal.qualityScore}% (queue: ${signalQueue.size()})`, 'queue');
             }
         } catch (e) {
             // Ignore parse errors
@@ -555,13 +599,14 @@ function connectToRender() {
 // ═════════════════════════════════════════════════════════════════════════
 
 console.log('\n╔═══════════════════════════════════════════════════════════════╗');
-console.log('║     NEXUS Signal Queue Bridge v2.3 - FIXED JSON PARSING       ║');
+console.log('║     NEXUS Signal Queue Bridge v2.4 - WITH QUALITY SCORES      ║');
+console.log('║     Passes qualityScore & aiScore to MT5 EA                    ║');
 console.log('╚═══════════════════════════════════════════════════════════════╝\n');
 
 server.listen(HTTP_PORT, () => {
     log(`HTTP server on http://localhost:${HTTP_PORT}`, 'info');
     console.log(`\n   📡 ENDPOINTS:`);
-    console.log(`      GET  /api/signals        - MT5 polls for signals`);
+    console.log(`      GET  /api/signals        - MT5 polls for signals (includes qualityScore)`);
     console.log(`      POST /api/trade-result   - MT5 sends trade results`);
     console.log(`      GET  /api/heartbeat      - MT5 heartbeat`);
     console.log(`      POST /api/floating-pnl   - MT5 floating PnL`);
@@ -569,6 +614,7 @@ server.listen(HTTP_PORT, () => {
     console.log(`      GET  /api/trade-stats    - Frontend trade stats`);
     console.log(`      GET  /api/ea-status      - EA connection status`);
     console.log(`      GET  /api/health         - Bridge health check\n`);
+    console.log(`   ⭐ NEW: Signals now include qualityScore and aiScore fields\n`);
 });
 
 setTimeout(() => {

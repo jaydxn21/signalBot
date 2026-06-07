@@ -1,31 +1,38 @@
 // cipher.js — CIPHER BTC Strategy with Structure Integration
-//
-// ENTRY RULES:
-//   - H4 trend bias (EMA10 slope)
-//   - MUST be at demand zone for BUY, or supply zone for SELL
-//   - Pullback to EMA zone
-//   - Trigger candle confirmation
-//
-// EXIT RULES:
-//   - TP at nearest supply/demand zone
-//   - Dynamic R:R based on distance to next level
+// v2.1 INTRADAY FIXES:
+//   - H4 bias slope threshold loosened: 0.0006 → 0.0003 (BTC intraday moves fast)
+//   - H4 distance filter loosened: 0.001 → 0.0005
+//   - dailyCandles/weeklyCandles now OPTIONAL — strategy fires on M5+H4 alone
+//   - Structure score gating relaxed when daily/weekly unavailable (falls back to
+//     EMA zone + price position scoring from M5 data only)
+//   - RSI confirmation relaxed for intraday: BUY < 52 (was 45), SELL > 48 (was 55)
+//   - MIN_PULLBACK_DEPTH lowered to 0.3 (was 0.4) — BTC intraday pullbacks are shallower
+//   - MAX_TRADES_PER_HOUR raised to 3 (was 2) to capture intraday momentum sequences
+//   - COOLDOWN_CANDLES lowered to 1 (was 2) — M5 moves fast
+//   - Added _buildInternalStructure() to derive S/R levels from M5 candles alone
+//     when daily/weekly are absent — uses swing highs/lows over 50-candle lookback
+//   - isCipherSymbol() updated to include common BTC variants
 
 import { StructureEngine } from '../structure-engine.js';
 
-const CIPHER_SYMBOLS = ['cryBTCUSD', 'BTCUSD'];
-
-// ─────────────────────────────────────────────────────────────
-// SINGLE EXPORT at the bottom — remove duplicate
-// ─────────────────────────────────────────────────────────────
+const CIPHER_SYMBOLS = [
+    'cryBTCUSD',
+    'BTCUSD',
+    'BTC/USD',
+    'BTCUSDT',
+    'Bitcoin',
+];
 
 const CONFIG = {
-    MIN_ATR_VALUE: 5.0,           // Was 8.0 — lower
-    MAX_TRADES_PER_HOUR: 2,        // Was 1
-    COOLDOWN_CANDLES: 2,           // Was 5
-    MAX_CONSECUTIVE_LOSSES: 6,     // Was 4
-    MIN_PULLBACK_DEPTH: 0.4,       // Was 0.8 — much lower
-    MIN_STRUCTURE_SCORE: 50,       // Was 70 — much lower
-    MIN_RR: 1.2,                   // Was 1.5
+    MIN_ATR_VALUE:          50.0,  // BTC: was 5.0 (appropriate for BTC price scale)
+    MAX_TRADES_PER_HOUR:    3,     // was 2
+    COOLDOWN_CANDLES:       1,     // was 2 — M5 intraday needs faster cadence
+    MAX_CONSECUTIVE_LOSSES: 6,
+    MIN_PULLBACK_DEPTH:     0.3,   // was 0.4 — BTC intraday pullbacks shallower
+    MIN_STRUCTURE_SCORE:    45,    // was 50 — relaxed for intraday-only mode
+    MIN_RR:                 1.2,
+    // When no daily/weekly data available, use internal M5 structure only
+    INTERNAL_SWING_LOOKBACK: 50,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -63,24 +70,107 @@ function _rsi(candles, period = 14) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// H4 BIAS (using EMA10 for faster response)
+// INTERNAL STRUCTURE (M5 swing highs/lows — used when no daily/weekly data)
+// ─────────────────────────────────────────────────────────────
+function _buildInternalStructure(candles, atr) {
+    const lookback = Math.min(CONFIG.INTERNAL_SWING_LOOKBACK, candles.length - 1);
+    const slice = candles.slice(-lookback);
+
+    let swingHighs = [];
+    let swingLows  = [];
+
+    // Detect pivot highs/lows (simple 3-bar pivot)
+    for (let i = 1; i < slice.length - 1; i++) {
+        if (slice[i].high > slice[i-1].high && slice[i].high > slice[i+1].high) {
+            swingHighs.push(slice[i].high);
+        }
+        if (slice[i].low < slice[i-1].low && slice[i].low < slice[i+1].low) {
+            swingLows.push(slice[i].low);
+        }
+    }
+
+    // Sort descending for highs, ascending for lows
+    swingHighs.sort((a, b) => b - a);
+    swingLows.sort((a, b) => a - b);
+
+    const price = candles[candles.length - 1].close;
+
+    // Nearest resistance above and support below
+    const nearestResistance = swingHighs.find(h => h > price) || price + atr * 3;
+    const nearestSupport    = swingLows.find(l => l < price)  || price - atr * 3;
+
+    // Cluster swing highs/lows into supply/demand zones (within 0.5 ATR of each other)
+    const supplyZones  = _clusterLevels(swingHighs.filter(h => h > price), atr);
+    const demandZones  = _clusterLevels(swingLows.filter(l => l < price), atr);
+
+    return {
+        nearestResistance,
+        nearestSupport,
+        supplyZones:  supplyZones.map(z => ({ low: z - atr * 0.3, high: z + atr * 0.3 })),
+        demandZones:  demandZones.map(z => ({ low: z - atr * 0.3, high: z + atr * 0.3 })),
+        priceRange:   nearestResistance - nearestSupport,
+    };
+}
+
+function _clusterLevels(levels, atr) {
+    if (!levels.length) return [];
+    const clusters = [];
+    let current = [levels[0]];
+
+    for (let i = 1; i < levels.length; i++) {
+        if (Math.abs(levels[i] - current[current.length - 1]) < atr * 0.5) {
+            current.push(levels[i]);
+        } else {
+            clusters.push(current.reduce((a, b) => a + b, 0) / current.length);
+            current = [levels[i]];
+        }
+    }
+    if (current.length) clusters.push(current.reduce((a, b) => a + b, 0) / current.length);
+    return clusters;
+}
+
+// Score how well price position matches bias, using internal structure
+function _internalStructureScore(internalStruct, price, bias, atr) {
+    const { nearestResistance, nearestSupport, priceRange } = internalStruct;
+    const distToSupport    = price - nearestSupport;
+    const distToResistance = nearestResistance - price;
+
+    if (bias === 'BUY') {
+        // Good score when close to support and far from resistance
+        const proxScore = Math.max(0, 1 - distToSupport / (atr * 3)) * 60;
+        const roomScore = Math.min(40, (distToResistance / (atr * 2)) * 40);
+        return Math.round(proxScore + roomScore);
+    } else {
+        const proxScore = Math.max(0, 1 - distToResistance / (atr * 3)) * 60;
+        const roomScore = Math.min(40, (distToSupport / (atr * 2)) * 40);
+        return Math.round(proxScore + roomScore);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// H4 BIAS
+// FIX v2.1: Loosened slope threshold for intraday BTC trading.
+// Old 0.0006 slope threshold was too strict — BTC H4 EMAs move fast
+// and a tight threshold caused zero signals during active sessions.
 // ─────────────────────────────────────────────────────────────
 function _h4Bias(h4Candles) {
-    if (!h4Candles || h4Candles.length < 25) return null;
+    if (!h4Candles || h4Candles.length < 20) return null; // was 25
 
-    const ema10now = _ema(h4Candles, 10);
+    const ema10now  = _ema(h4Candles, 10);
     const ema10prev = _ema(h4Candles.slice(0, -3), 10);
     if (!ema10now || !ema10prev) return null;
 
     const price = h4Candles[h4Candles.length - 1].close;
     const slope = ema10now - ema10prev;
     const slopePct = slope / price;
-    
-    if (Math.abs(slopePct) < 0.0006) return null;
-    
+
+    // FIX: 0.0003 (was 0.0006) — catches intraday momentum earlier
+    if (Math.abs(slopePct) < 0.0003) return null;
+
+    // FIX: 0.0005 (was 0.001) — BTC intraday price hugs EMA more than daily
     const distPct = Math.abs(price - ema10now) / price;
-    if (distPct < 0.001) return null;
-    
+    if (distPct < 0.0005) return null;
+
     if (price > ema10now && slope > 0) return 'BUY';
     if (price < ema10now && slope < 0) return 'SELL';
     return null;
@@ -92,12 +182,12 @@ function _h4Bias(h4Candles) {
 function _pullbackDepth(candles, atr, bias) {
     const cl = candles.slice(0, -1);
     const c0 = cl[cl.length - 1];
-    const e8 = _ema(cl, 8);
+    const e8  = _ema(cl, 8);
     const e21 = _ema(cl, 21);
     if (!e8 || !e21) return 0;
-    
+
     const zoneMid = (e8 + e21) / 2;
-    
+
     if (bias === 'BUY') {
         return (zoneMid - c0.low) / atr;
     }
@@ -130,13 +220,13 @@ export const CipherStrategy = {
 
     _getStats(botId) {
         if (!this._stats[botId]) {
-            this._stats[botId] = { 
-                consLosses: 0, 
-                lastFiredMs: 0, 
-                tradeCount: 0, 
+            this._stats[botId] = {
+                consLosses:  0,
+                lastFiredMs: 0,
+                tradeCount:  0,
                 windowStart: Date.now(),
                 totalTrades: 0,
-                totalWins: 0,
+                totalWins:   0,
             };
         }
         return this._stats[botId];
@@ -173,121 +263,161 @@ export const CipherStrategy = {
         s.lastFiredMs = Date.now();
     },
 
+    // ─────────────────────────────────────────────────────────
+    // MAIN ENTRY
+    // FIX v2.1: dailyCandles and weeklyCandles are now truly optional.
+    // When absent, the strategy derives structure from M5 swing highs/lows.
+    // This allows intraday-only deployments to fire signals without needing
+    // a separate daily/weekly data feed connected to the signal bot.
+    // ─────────────────────────────────────────────────────────
     checkEntry(m5Candles, h4Candles, atr, botId, dailyCandles = [], weeklyCandles = []) {
         if (!m5Candles || m5Candles.length < 50 || !atr) return null;
         if (this.isHalted(botId)) return null;
         if (this.isTooFrequent(botId)) return null;
         if (atr < CONFIG.MIN_ATR_VALUE) return null;
-        
+
         // Cooldown
         const s = this._getStats(botId);
-        const cooldownMs = CONFIG.COOLDOWN_CANDLES * 300 * 1000;
+        const cooldownMs = CONFIG.COOLDOWN_CANDLES * 300 * 1000; // COOLDOWN_CANDLES M5 bars
         if (Date.now() - s.lastFiredMs < cooldownMs) return null;
-        
+
         // ── H4 BIAS ────────────────────────────────────────────
         const bias = _h4Bias(h4Candles);
         if (!bias) return null;
-        
-        // ── STRUCTURE MAP ──────────────────────────────────────
-        const structureMap = StructureEngine.getStructureMap(m5Candles, dailyCandles, weeklyCandles);
-        if (!structureMap.dailyLevels) return null;
-        
+
         const price = m5Candles[m5Candles.length - 1].close;
-        const structureScore = structureMap.getStructureScore(price, bias);
-        const position = structureMap.getPricePosition(price);
-        
-        // STRUCTURE FILTER: Must be at support for BUY, resistance for SELL
-        if (bias === 'BUY' && position !== 'SUPPORT' && position !== 'BREAKOUT_UP') {
-            console.log(`[CIPHER] BUY signal but price at ${position} — skipping`);
-            return null;
+        let structureScore, position, sl, tp, risk, reward;
+
+        // ── STRUCTURE — DAILY/WEEKLY MODE (preferred) ─────────
+        const hasDailyData = dailyCandles && dailyCandles.length >= 5;
+
+        if (hasDailyData) {
+            // Full structure engine path (original behaviour)
+            const structureMap = StructureEngine.getStructureMap(m5Candles, dailyCandles, weeklyCandles);
+            if (!structureMap.dailyLevels) return null;
+
+            structureScore = structureMap.getStructureScore(price, bias);
+            position       = structureMap.getPricePosition(price);
+
+            if (bias === 'BUY'  && position !== 'SUPPORT'    && position !== 'BREAKOUT_UP')   return null;
+            if (bias === 'SELL' && position !== 'RESISTANCE' && position !== 'BREAKOUT_DOWN') return null;
+
+            if (structureScore < CONFIG.MIN_STRUCTURE_SCORE) return null;
+
+            // SL/TP from daily structure
+            if (bias === 'BUY') {
+                let supportLevel = structureMap.dailyLevels.dailyLow;
+                if (structureMap.demandZones.length > 0)
+                    supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+                sl = supportLevel * 0.998;
+
+                let resistanceLevel = structureMap.dailyLevels.dailyMid;
+                if (structureMap.supplyZones.length > 0)
+                    resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+                tp = resistanceLevel;
+            } else {
+                let resistanceLevel = structureMap.dailyLevels.dailyHigh;
+                if (structureMap.supplyZones.length > 0)
+                    resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
+                sl = resistanceLevel * 1.002;
+
+                let supportLevel = structureMap.dailyLevels.dailyMid;
+                if (structureMap.demandZones.length > 0)
+                    supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
+                tp = supportLevel;
+            }
+
+        } else {
+            // ── INTRADAY-ONLY MODE — derive structure from M5 swings ──
+            const internal = _buildInternalStructure(m5Candles, atr);
+
+            structureScore = _internalStructureScore(internal, price, bias, atr);
+            position       = bias === 'BUY' ? 'NEAR_SUPPORT' : 'NEAR_RESISTANCE';
+
+            if (structureScore < CONFIG.MIN_STRUCTURE_SCORE) {
+                console.log(`[CIPHER] Intraday structure score too low: ${structureScore} — skipping`);
+                return null;
+            }
+
+            // SL/TP from internal swing structure
+            if (bias === 'BUY') {
+                sl = internal.nearestSupport * 0.998;
+                // TP: nearest internal resistance, or atr-based minimum
+                const tpCandidate = internal.supplyZones.length > 0
+                    ? internal.supplyZones[0].low
+                    : price + atr * 3;
+                tp = Math.max(tpCandidate, price + atr * 2);
+            } else {
+                sl = internal.nearestResistance * 1.002;
+                const tpCandidate = internal.demandZones.length > 0
+                    ? internal.demandZones[0].high
+                    : price - atr * 3;
+                tp = Math.min(tpCandidate, price - atr * 2);
+            }
         }
-        if (bias === 'SELL' && position !== 'RESISTANCE' && position !== 'BREAKOUT_DOWN') {
-            console.log(`[CIPHER] SELL signal but price at ${position} — skipping`);
-            return null;
-        }
-        
-        if (structureScore < CONFIG.MIN_STRUCTURE_SCORE) return null;
-        
+
+        risk   = Math.abs(price - sl);
+        reward = Math.abs(tp - price);
+
+        // Guard: risk or reward of zero means structure is broken
+        if (!risk || !reward || risk === 0) return null;
+
+        const rr = reward / risk;
+        if (rr < CONFIG.MIN_RR) return null;
+
         // ── PULLBACK TO EMA ZONE ───────────────────────────────
         const pullbackDepth = _pullbackDepth(m5Candles, atr, bias);
         if (pullbackDepth < CONFIG.MIN_PULLBACK_DEPTH) return null;
-        
+
         // ── TRIGGER CANDLE ─────────────────────────────────────
         if (!_triggerCandle(m5Candles, bias)) return null;
-        
+
         // ── RSI CONFIRMATION ───────────────────────────────────
+        // FIX v2.1: Relaxed for intraday — BTC M5 RSI mid-range is 45–55, not <45/<55
         const rsiVal = _rsi(m5Candles.slice(0, -1));
-        if (bias === 'BUY' && rsiVal && rsiVal > 45) return null;
-        if (bias === 'SELL' && rsiVal && rsiVal < 55) return null;
-        
-        // ── SET TP/SL BASED ON STRUCTURE ───────────────────────
-        let sl, tp, risk, reward, rr;
-        
-        if (bias === 'BUY') {
-            // Find nearest support for SL
-            let supportLevel = structureMap.dailyLevels.dailyLow;
-            if (structureMap.demandZones.length > 0) {
-                supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
-            }
-            sl = supportLevel * 0.998;
-            
-            // Find nearest resistance for TP
-            let resistanceLevel = structureMap.dailyLevels.dailyMid;
-            if (structureMap.supplyZones.length > 0) {
-                resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
-            }
-            tp = resistanceLevel;
-        } else {
-            // Find nearest resistance for SL
-            let resistanceLevel = structureMap.dailyLevels.dailyHigh;
-            if (structureMap.supplyZones.length > 0) {
-                resistanceLevel = Math.min(resistanceLevel, structureMap.supplyZones[0].low);
-            }
-            sl = resistanceLevel * 1.002;
-            
-            // Find nearest support for TP
-            let supportLevel = structureMap.dailyLevels.dailyMid;
-            if (structureMap.demandZones.length > 0) {
-                supportLevel = Math.max(supportLevel, structureMap.demandZones[0].high);
-            }
-            tp = supportLevel;
-        }
-        
-        risk = Math.abs(price - sl);
-        reward = Math.abs(tp - price);
-        rr = reward / risk;
-        
-        if (rr < CONFIG.MIN_RR) return null;
-        
+        if (bias === 'BUY'  && rsiVal && rsiVal > 52) return null; // was > 45
+        if (bias === 'SELL' && rsiVal && rsiVal < 48) return null; // was < 55
+
         // ── RECORD AND RETURN ──────────────────────────────────
         this.recordTrade(botId);
-        
+
+        const mode    = hasDailyData ? 'FULL' : 'INTRADAY';
         const factors = [
             `H4 bias ${bias}`,
-            `${position} (score ${structureScore})`,
+            `${position} (score ${structureScore}) [${mode}]`,
             `Pullback ${pullbackDepth.toFixed(1)}x ATR`,
-            `RSI ${rsiVal?.toFixed(0)}`,
-            `R:R ${rr.toFixed(1)}:1`
+            rsiVal ? `RSI ${rsiVal.toFixed(0)}` : 'RSI n/a',
+            `R:R ${rr.toFixed(1)}:1`,
         ];
-        
+
         console.log(`[CIPHER] ✅ ${bias} on BTC | ${factors.join(' · ')}`);
-        
+
         return {
-            type: bias,
-            label: `CIPHER ${bias} [${position}]`,
-            score: structureScore,
-            factors: factors,
-            tpMultiplier: reward / atr,
-            slMultiplier: risk / atr,
-            isCipher: true,
-            _meta: { position, structureScore, pullbackDepth, rr, sl, tp, price, rsi: rsiVal }
+            type:           bias,
+            label:          `CIPHER ${bias} [${position}] [${mode}]`,
+            score:          structureScore,
+            factors:        factors,
+            tpMultiplier:   reward / atr,
+            slMultiplier:   risk / atr,
+            isCipher:       true,
+            _meta: {
+                position,
+                structureScore,
+                pullbackDepth,
+                rr,
+                sl,
+                tp,
+                price,
+                rsi:  rsiVal,
+                mode,
+            },
         };
     },
 };
 
 // ─────────────────────────────────────────────────────────────
-// SINGLE EXPORT — no duplicates
+// EXPORTS
 // ─────────────────────────────────────────────────────────────
 export function isCipherSymbol(symbol) {
-    return CIPHER_SYMBOLS.includes(symbol);
+    return CIPHER_SYMBOLS.some(s => s.toLowerCase() === (symbol || '').toLowerCase());
 }

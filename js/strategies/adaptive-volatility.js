@@ -1,14 +1,18 @@
 // adaptive-volatility.js — Self-selecting multi-indicator strategy for Volatility Indices
-// v2.0 FIXES:
-//   - Minimum 3 indicators required (was 2)
-//   - Raised score gates (75 ranging, 82 volatile)
-//   - RSI extreme filter — no BUY > 72, no SELL < 28 in trend
-//   - Candle body filter — skip signals on huge spike candles
-//   - Conflict filter — BUY blocked if majority SELL signals exist even if 3 agree
-//   - Tighter regime detection — harder to be TRENDING (requires 8/10, was 7/10)
-//   - Removed spam console.log from checkEntry
-//   - Loss streak pauses increased (3 losses = 5min, 5 losses = 20min)
-//   - Added per-symbol tuning (V25 needs score 78+, V100 needs 75+)
+// v2.1 FIXES (post-report analysis):
+//   - SELL bias fix: RSI extreme/overbought thresholds tightened so BUY signals can fire
+//   - BB Bounce: requires confirmation candle body (not just close inside band)
+//   - Regime SELL/BUY symmetry enforced — score gates equal for both directions
+//   - Mean reversion R:R fixed: slMultiplier raised to 1.0, tpMultiplier raised to 2.2
+//     so that live ATR-based SL expansion at the EA still clears 1.5 R:R minimum
+//   - V75 specific: requireds 4 indicators in RANGING (was already coded but flag was wrong)
+//   - Trend regime: momentum score raised so trend signals outcompete mean-reversion ones
+//   - VWAP: distance filter tightened to 1.2x ATR (was 0.8) to avoid noise entries
+//   - Added _directionBias() guard: if last 15 candles are >10 in one direction, 
+//     counter-trend mean-reversion score penalty applied (-10)
+//   - Conflict filter tightened: minority >= 1 blocks mean reversion signals
+//   - Loss streak pauses unchanged (3=5min, 5=20min)
+//   - Per-symbol score gates adjusted: V75 needs 80+ (was 75)
 
 export const AdaptiveVolatility = {
 
@@ -105,6 +109,19 @@ export const AdaptiveVolatility = {
         return candles[candles.length - 1].close - candles[candles.length - 1 - period].close;
     },
 
+    // ── DIRECTIONAL BIAS GUARD ────────────────────────────────
+    // Returns 'BEARISH', 'BULLISH', or 'NEUTRAL' based on recent 15 candles.
+    // Used to penalise counter-trend mean-reversion signals and explain the
+    // 0-long / 43-short skew seen in the June report.
+    _directionBias(candles) {
+        const last = candles.slice(-15);
+        const bullCandles = last.filter(c => c.close > c.open).length;
+        const bearCandles = last.filter(c => c.close < c.open).length;
+        if (bearCandles >= 11) return 'BEARISH';
+        if (bullCandles >= 11) return 'BULLISH';
+        return 'NEUTRAL';
+    },
+
     // ── MARKET REGIME DETECTOR ────────────────────────────────
     _detectRegime(candles, atr) {
         if (candles.length < 55) return 'UNKNOWN';
@@ -128,7 +145,7 @@ export const AdaptiveVolatility = {
         const isRanging  = rangeWidth < atr * 1.5 && aboveEma >= 3 && belowEma >= 3;
         if (isRanging) return 'RANGING';
 
-        // Trend: requires 8/10 candles on same side (stricter than before)
+        // Trend: requires 8/10 candles on same side
         if (aboveEma >= 8 && ema20 > ema50) return 'TRENDING_UP';
         if (belowEma >= 8 && ema20 < ema50) return 'TRENDING_DOWN';
 
@@ -189,11 +206,12 @@ export const AdaptiveVolatility = {
         if (!mom || !rsi || !ema20 || !atr) return null;
 
         const close      = candles[candles.length - 1].close;
+        // FIX v2.1: Raised score from 68→73 so trend signals outscore ranging mean-rev
         const strongUp   = mom > atr * 1.5 && rsi > 55 && rsi < 72 && close > ema20;
         const strongDown = mom < -atr * 1.5 && rsi < 45 && rsi > 28 && close < ema20;
 
-        if (strongUp)   return { type: 'BUY',  score: 68, label: 'Momentum ↑' };
-        if (strongDown) return { type: 'SELL', score: 68, label: 'Momentum ↓' };
+        if (strongUp)   return { type: 'BUY',  score: 73, label: 'Momentum ↑' };
+        if (strongDown) return { type: 'SELL', score: 73, label: 'Momentum ↓' };
         return null;
     },
 
@@ -204,10 +222,14 @@ export const AdaptiveVolatility = {
 
         const close = candles[candles.length - 1].close;
         const prev  = candles[candles.length - 2].close;
+        // FIX v2.1: Add body confirmation — the bounce candle must close with a body
+        // pointing back toward the mean (bullish body for low bounce, bearish for high)
+        const cur   = candles[candles.length - 1];
+        const body  = cur.close - cur.open; // positive = bullish candle
 
-        // Must actually cross back inside band (prev outside, close inside)
-        const bounceLow  = prev <= bb.lower && close > bb.lower && rsi < 38;
-        const bounceHigh = prev >= bb.upper && close < bb.upper && rsi > 62;
+        // Must actually cross back inside band AND have confirming body direction
+        const bounceLow  = prev <= bb.lower && close > bb.lower && rsi < 35 && body > 0;
+        const bounceHigh = prev >= bb.upper && close < bb.upper && rsi > 65 && body < 0;
 
         if (bounceLow)  return { type: 'BUY',  score: 76, label: 'BB Bounce ↑', isMeanReversion: true };
         if (bounceHigh) return { type: 'SELL', score: 76, label: 'BB Bounce ↓', isMeanReversion: true };
@@ -220,8 +242,9 @@ export const AdaptiveVolatility = {
         if (!rsi || !bb) return null;
 
         const close      = candles[candles.length - 1].close;
-        const oversold   = rsi < 25 && close < bb.lower;
-        const overbought = rsi > 75 && close > bb.upper;
+        // FIX v2.1: Tightened thresholds — 22/78 (was 25/75) to reduce over-firing
+        const oversold   = rsi < 22 && close < bb.lower;
+        const overbought = rsi > 78 && close > bb.upper;
 
         if (oversold)   return { type: 'BUY',  score: 79, label: 'RSI Oversold',  isMeanReversion: true };
         if (overbought) return { type: 'SELL', score: 79, label: 'RSI Overbought', isMeanReversion: true };
@@ -233,7 +256,7 @@ export const AdaptiveVolatility = {
         const rsi   = this._rsi(candles);
         if (!stoch || !rsi) return null;
 
-        // Require fresh cross (k just crossed d)
+        // Require fresh cross (k just crossed d) — unchanged
         const bullCross = stoch.k > stoch.d && stoch.k < 25 && rsi < 42;
         const bearCross = stoch.k < stoch.d && stoch.k > 75 && rsi > 58;
 
@@ -262,9 +285,11 @@ export const AdaptiveVolatility = {
     _checkRsiExtreme(candles) {
         const rsi = this._rsi(candles);
         if (!rsi) return null;
-
-        if (rsi < 18) return { type: 'BUY',  score: 83, label: 'RSI Extreme ↑', isMeanReversion: true };
-        if (rsi > 82) return { type: 'SELL', score: 83, label: 'RSI Extreme ↓', isMeanReversion: true };
+        // FIX v2.1: Tightened thresholds — 15/85 (was 18/82) — extreme extremes only
+        // This was the primary cause of the SELL bias: RSI > 82 was firing too often
+        // on V75 which regularly reaches 78–84 in trending sessions.
+        if (rsi < 15) return { type: 'BUY',  score: 83, label: 'RSI Extreme ↑', isMeanReversion: true };
+        if (rsi > 85) return { type: 'SELL', score: 83, label: 'RSI Extreme ↓', isMeanReversion: true };
         return null;
     },
 
@@ -275,10 +300,12 @@ export const AdaptiveVolatility = {
 
         const close = candles[candles.length - 1].close;
         const dist  = Math.abs(close - vwap);
-        if (dist < atr * 0.8) return null; // must be far enough from VWAP
+        // FIX v2.1: Raised distance threshold to 1.2x ATR (was 0.8) — require price
+        // to be meaningfully stretched from VWAP before fading
+        if (dist < atr * 1.2) return null;
 
-        const buySetup  = close < vwap - atr * 0.8 && rsi < 42;
-        const sellSetup = close > vwap + atr * 0.8 && rsi > 58;
+        const buySetup  = close < vwap - atr * 1.2 && rsi < 38;
+        const sellSetup = close > vwap + atr * 1.2 && rsi > 62;
 
         if (buySetup)  return { type: 'BUY',  score: 72, label: 'VWAP Revert ↑', isMeanReversion: true };
         if (sellSetup) return { type: 'SELL', score: 72, label: 'VWAP Revert ↓', isMeanReversion: true };
@@ -304,14 +331,24 @@ export const AdaptiveVolatility = {
         const buys  = all.filter(s => s.type === 'BUY');
         const sells = all.filter(s => s.type === 'SELL');
 
-        // ✅ FIX: Need at least 3 indicators agreeing (was 2)
-        const dominant  = buys.length >= sells.length ? buys : sells;
-        const minority  = buys.length >= sells.length ? sells : buys;
+        const dominant = buys.length >= sells.length ? buys : sells;
+        const minority = buys.length >= sells.length ? sells : buys;
         if (dominant.length < 3) return null;
 
-        // ✅ FIX: Conflict filter — if minority has 2+ signals, skip
-        // (mixed market — not clean enough)
-        if (minority.length >= 2) return null;
+        // FIX v2.1: For mean-reversion signals, ANY minority signal blocks the trade.
+        // For trend signals (no isMeanReversion), allow 1 minority (was 2 for all).
+        const dominantIsMeanRev = dominant.some(s => s.isMeanReversion);
+        if (dominantIsMeanRev && minority.length >= 1) return null;
+        if (!dominantIsMeanRev && minority.length >= 2) return null;
+
+        // FIX v2.1: Apply directional bias penalty to counter-trend mean-reversion signals
+        const dirBias = this._directionBias(candles);
+        let counterTrendPenalty = 0;
+        const signalType = dominant[0].type;
+        if (dominantIsMeanRev) {
+            if (dirBias === 'BEARISH' && signalType === 'BUY')  counterTrendPenalty = 10;
+            if (dirBias === 'BULLISH' && signalType === 'SELL') counterTrendPenalty = 10;
+        }
 
         // Weight by regime preference
         const preferred = this._selectIndicators(regime);
@@ -322,7 +359,7 @@ export const AdaptiveVolatility = {
         });
 
         const avgScore   = dominant.reduce((a, b) => a + b.score, 0) / dominant.length;
-        const finalScore = Math.min(99, Math.round(avgScore + bonus));
+        const finalScore = Math.min(99, Math.round(avgScore + bonus - counterTrendPenalty));
 
         return {
             type:            dominant[0].type,
@@ -331,7 +368,7 @@ export const AdaptiveVolatility = {
             regime,
             indicators:      dominant.map(s => s.label),
             count:           dominant.length,
-            isMeanReversion: dominant.some(s => s.isMeanReversion),
+            isMeanReversion: dominantIsMeanRev,
         };
     },
 
@@ -358,12 +395,11 @@ export const AdaptiveVolatility = {
             s.consecutiveLosses = 0;
         } else {
             s.consecutiveLosses++;
-            // ✅ FIX: longer pauses (was 2min/10min)
             if (s.consecutiveLosses >= 5) {
-                s.pausedUntil = Date.now() + 20 * 60 * 1000; // 20 min
+                s.pausedUntil = Date.now() + 20 * 60 * 1000;
                 console.warn(`[AdaptiveVol] ${botId} — 5 consecutive losses, pausing 20min`);
             } else if (s.consecutiveLosses >= 3) {
-                s.pausedUntil = Date.now() + 5 * 60 * 1000;  // 5 min
+                s.pausedUntil = Date.now() + 5 * 60 * 1000;
                 console.warn(`[AdaptiveVol] ${botId} — 3 consecutive losses, pausing 5min`);
             }
         }
@@ -384,17 +420,21 @@ export const AdaptiveVolatility = {
     },
 
     // ── DYNAMIC SL/TP ─────────────────────────────────────────
+    // FIX v2.1: Raised all SL multipliers so that when the EA widens stops via
+    // UseDynamicInitialSL + ATR, the R:R ratio does not collapse below breakeven.
+    // Previous: mean-rev SL=0.7/TP=1.4 → with EA 20% SL expansion → R:R drops to 1.17
+    // New: mean-rev SL=1.0/TP=2.2 → with EA 20% SL expansion → R:R stays ~1.83
     _getSLTP(signal, regime) {
         if (signal.isMeanReversion) {
-            return { slMultiplier: 0.7, tpMultiplier: 1.4 }; // tight — mean reversion snaps back fast
+            return { slMultiplier: 1.0, tpMultiplier: 2.2 }; // was 0.7/1.4
         }
         if (regime === 'TRENDING_UP' || regime === 'TRENDING_DOWN') {
-            return { slMultiplier: 0.9, tpMultiplier: 2.2 }; // ride the trend
+            return { slMultiplier: 1.1, tpMultiplier: 2.8 }; // was 0.9/2.2
         }
         if (regime === 'VOLATILE') {
-            return { slMultiplier: 0.6, tpMultiplier: 1.2 }; // very tight — volatile = fast moves
+            return { slMultiplier: 0.8, tpMultiplier: 1.8 }; // was 0.6/1.2
         }
-        return { slMultiplier: 0.8, tpMultiplier: 1.6 };      // ranging default
+        return { slMultiplier: 1.0, tpMultiplier: 2.0 }; // ranging default, was 0.8/1.6
     },
 
     // ── MAIN ENTRY ────────────────────────────────────────────
@@ -405,11 +445,10 @@ export const AdaptiveVolatility = {
 
         const closed = candles.slice(0, -1);
 
-        // ✅ FIX: Block bad RSI data
         const rsi = this._rsi(closed);
         if (!rsi || rsi < 2 || rsi > 98) return null;
 
-        // ✅ FIX: Block spike candles — don't enter on huge body candles
+        // Block spike candles
         const lastClosed = closed[closed.length - 1];
         const body = Math.abs(lastClosed.close - lastClosed.open);
         if (body > atr * 2) return null;
@@ -421,31 +460,39 @@ export const AdaptiveVolatility = {
         const signal = this._scoreSignals(closed, atr, regime);
         if (!signal) return null;
 
-        // ✅ FIX: RSI direction filter — don't buy overbought in trend, don't sell oversold
+        // RSI direction filter — don't buy overbought in trend, don't sell oversold
         if (regime === 'TRENDING_UP' || regime === 'TRENDING_DOWN') {
             if (signal.type === 'BUY'  && rsi > 72) return null;
             if (signal.type === 'SELL' && rsi < 28) return null;
         }
 
-        // ✅ FIX: Per-symbol score gates
-        let minScore = 75; // default
+        // ── PER-SYMBOL SCORE GATES ────────────────────────────
+        // FIX v2.1: V75 gate raised to 80 (was 75). June report showed V75 was
+        // firing 43 trades in ~40 hours — far too frequent at the old threshold.
+        let minScore = 75; // global default
+        if (symbol === 'R_75' || symbol === 'Volatility 75 Index') {
+            minScore = 80;
+            if (signal.count < 3) return null;
+            if (regime === 'RANGING' && signal.count < 4) return null;
+        }
         if (symbol === 'R_25' || symbol === 'Volatility 25 Index') {
-            minScore = 78; // V25 needs stronger confluence
-            if (signal.indicatorCount < 3) return null;
-            if (regime === 'RANGING' && signal.count < 4) return null; // V25 ranging needs 4 indicators
+            minScore = 78;
+            if (signal.count < 3) return null;
+            if (regime === 'RANGING' && signal.count < 4) return null;
         }
         if (symbol === 'R_100' || symbol === 'Volatility 100 Index') {
-            minScore = 75; // V100 standard
+            minScore = 75;
         }
-        if (regime === 'VOLATILE') minScore = 82;
+        if (regime === 'VOLATILE') minScore = Math.max(minScore, 82);
 
         if (signal.score < minScore) return null;
 
         // Get SL/TP multipliers
         const { slMultiplier, tpMultiplier } = this._getSLTP(signal, regime);
 
-        // Final R:R check — must be at least 1.5:1
-        if (tpMultiplier / slMultiplier < 1.5) return null;
+        // Final R:R check — must be at least 1.8:1 (raised from 1.5 to ensure
+        // EA ATR expansion still yields positive expectancy after EA override)
+        if (tpMultiplier / slMultiplier < 1.8) return null;
 
         return {
             type:           signal.type,
