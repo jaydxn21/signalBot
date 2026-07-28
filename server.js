@@ -374,6 +374,85 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // ── /api/strategy-manifest ──────────────────────────────────────────────────
+if (pathname === '/api/strategy-manifest' && req.method === 'GET') {
+    try {
+        const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
+        const files = fs.existsSync(strategiesDir)
+            ? fs.readdirSync(strategiesDir)
+                .filter(f => f.endsWith('.js') && !f.includes('_backup_') && f !== 'index.js')
+                .map(f => {
+                    const name = f.replace('.js', '');
+                    const filePath = path.join(strategiesDir, f);
+                    const stats = fs.statSync(filePath);
+                    
+                    // Try to read the file to extract metadata
+                    let meta = { 
+                        name, 
+                        label: name,
+                        type: 'unknown',
+                        exports: 'unknown',
+                        modified: stats.mtime
+                    };
+                    
+                    try {
+                        const content = fs.readFileSync(filePath, 'utf8');
+                        
+                        // Look for @label comment
+                        const labelMatch = content.match(/\/\/\s*@label\s+(.+)/);
+                        if (labelMatch) meta.label = labelMatch[1].trim();
+                        
+                        // Look for @type comment
+                        const typeMatch = content.match(/\/\/\s*@type\s+(.+)/);
+                        if (typeMatch) meta.type = typeMatch[1].trim();
+                        
+                        // Check exports
+                        if (content.includes('export default')) {
+                            meta.exports = 'default';
+                        } else if (content.includes('export {')) {
+                            meta.exports = 'named';
+                        } else if (content.includes('export const') || content.includes('export function')) {
+                            meta.exports = 'named';
+                        }
+                        
+                        // Check for class name
+                        const classMatch = content.match(/export\s+(?:default\s+)?class\s+(\w+)/);
+                        if (classMatch) meta.className = classMatch[1];
+                        
+                    } catch (err) {
+                        // If we can't read the file, use defaults
+                        console.warn(`Could not read metadata from ${f}:`, err.message);
+                    }
+                    
+                    return meta;
+                })
+                .sort((a, b) => a.name.localeCompare(b.name))
+            : [];
+        
+        const manifest = {
+            strategies: files,
+            count: files.length,
+            timestamp: Date.now(),
+            lastUpdated: new Date().toISOString()
+        };
+        
+        console.log(`[StrategyManifest] Generated manifest with ${files.length} strategies`);
+        
+        res.writeHead(200, { 
+            'Content-Type': 'application/json', 
+            ..._corsHeaders(req),
+            'Cache-Control': 'no-cache'
+        });
+        res.end(JSON.stringify(manifest));
+        
+    } catch(err) {
+        console.error('[StrategyManifest] Error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+        res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+}
+
     // ── /api/ai ───────────────────────────────────────────────────────────────
     if (pathname === '/api/ai' && req.method === 'POST') {
         const apiKey = process.env.ANTHROPIC_API_KEY;

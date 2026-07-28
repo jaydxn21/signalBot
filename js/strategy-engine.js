@@ -1,82 +1,139 @@
-import { KissStrategy }       from './strategies/kiss.js';
-import { SwingStrategy }      from './strategies/swing.js';
-import { ScalpStrategy }      from './strategies/scalp.js';
-import { TrendStrategy }      from './strategies/trend.js';
-import { ORBStrategy }        from './strategies/orb.js';
-import { MomentumStrategy }   from './strategies/momentum.js';
-import { SyntheticScalper }   from './strategies/synthetic-scalper.js';
-import { CryptoScalper }      from './strategies/crypto-scalper.js';
-import { RSIFadeScalper }     from './strategies/rsi-fade.js';
-import { RangeBoundaryStrategy } from './strategies/range_boundary.js';
-import { VWAPReversionScalper } from './strategies/vwap-reversion.js';
-import { CandleSpeedScalper } from './strategies/candle-speed.js';
-import { LondonBreakout }     from './strategies/london-breakout.js';
-import { NewsFadeScalper }    from './strategies/news-fade.js';
-import { UltraScalper }       from './strategies/ultra-scalper.js';
-import { CipherStrategy } from './strategies/cipher.js';
+// strategy-engine.js — Simplified for auto-discovery
 
+// ─── DYNAMIC STRATEGY LOADER ─────────────────────────────────────────────
 
-// --- ADD THIS MAP ABOVE THE CLASS ---
-const STRATEGY_MODULES = {
-    h4_kiss: KissStrategy,
-    swing: SwingStrategy,
-    scalp: ScalpStrategy,
-    trend: TrendStrategy,
-    orb: ORBStrategy,
-    momentum: MomentumStrategy,
-    synthetic_scalp: SyntheticScalper,
-    crypto_scalp: CryptoScalper,
-    rsi_fade: RSIFadeScalper,
-    range_boundary: RangeBoundaryStrategy,
-    vwap_reversion: VWAPReversionScalper,
-    candle_speed: CandleSpeedScalper,
-    london_breakout: LondonBreakout,
-    news_fade: NewsFadeScalper,
-    ultra_scalp: UltraScalper,
-    cipher: CipherStrategy,
+let strategyModules = {};
 
-};
+async function loadStrategy(strategyName) {
+    try {
+        const module = await import(`./strategies/${strategyName}.js`);
+        const Strategy = module.default || Object.values(module).find(v => typeof v === 'function');
+        if (Strategy) {
+            strategyModules[strategyName] = Strategy;
+            console.log(`✅ StrategyEngine loaded: ${strategyName}`);
+            return Strategy;
+        }
+    } catch (e) {
+        // Strategy doesn't exist
+    }
+    return null;
+}
+
+async function getStrategy(strategyName) {
+    if (!strategyModules[strategyName]) {
+        await loadStrategy(strategyName);
+    }
+    return strategyModules[strategyName] || null;
+}
+
+// ─── STRATEGY ENGINE ─────────────────────────────────────────────────────
 
 export class StrategyEngine {
     constructor() {
         this.lastSignalTime = 0;
+        this.strategyCache = {};
     }
 
-    analyze(strategyType, lowerTFCandles, higherTFCandles, rsiState, atr, symbol = '', rsi = null) {
-        let signal = null;
-
-        switch (strategyType) {
-            case 'h4_kiss':         signal = KissStrategy.checkEntry(lowerTFCandles, higherTFCandles);                       break;
-            case 'swing':           signal = SwingStrategy.checkEntry(lowerTFCandles);                                       break;
-            case 'scalp':           signal = ScalpStrategy.checkEntry(lowerTFCandles, rsiState);                             break;
-            case 'trend':           signal = TrendStrategy.checkEntry(lowerTFCandles, rsiState);                                       break;
-            case 'orb':             signal = ORBStrategy.checkEntry(lowerTFCandles);                                         break;
-            case 'momentum':        signal = MomentumStrategy.checkEntry(lowerTFCandles, atr, symbol, higherTFCandles, rsi); break;
-            case 'synthetic_scalp': signal = SyntheticScalper.checkEntry(lowerTFCandles, atr);                               break;
-            case 'crypto_scalp':    signal = CryptoScalper.checkEntry(lowerTFCandles, atr);                                  break;
-            case 'rsi_fade':        signal = RSIFadeScalper.checkEntry(lowerTFCandles, atr);                                 break;
-            case 'range_boundary':  signal = RangeBoundaryStrategy.checkEntry(lowerTFCandles, atr);                           break;
-            case 'vwap_reversion':  signal = VWAPReversionScalper.checkEntry(lowerTFCandles, atr);                           break;
-            case 'candle_speed':    signal = CandleSpeedScalper.checkEntry(lowerTFCandles, atr);                             break;
-            case 'london_breakout': signal = LondonBreakout.checkEntry(lowerTFCandles, atr);                                 break;
-            case 'news_fade':       signal = NewsFadeScalper.checkEntry(lowerTFCandles, atr);                                break;
-            case 'cipher':          signal = CipherStrategy.checkEntry(lowerTFCandles, higherTFCandles, atr, 'engine');      break;
-            case 'ultra_scalp':     signal = UltraScalper.checkEntry(lowerTFCandles, atr);                                   break;
+    async analyze(strategyType, lowerTFCandles, higherTFCandles, rsiState, atr, symbol = '', rsi = null) {
+        // First, try to get the strategy
+        let Strategy = strategyModules[strategyType];
+        
+        // If not loaded, try to load it
+        if (!Strategy) {
+            Strategy = await loadStrategy(strategyType);
+            if (!Strategy) {
+                console.warn(`Strategy "${strategyType}" not found`);
+                return null;
+            }
         }
 
-        if (signal && lowerTFCandles[lowerTFCandles.length - 1].time > this.lastSignalTime) {
-            this.lastSignalTime = lowerTFCandles[lowerTFCandles.length - 1].time;
+        // Check if the strategy has a checkEntry method
+        if (typeof Strategy.checkEntry !== 'function') {
+            console.warn(`Strategy "${strategyType}" missing checkEntry method`);
+            return null;
+        }
+
+        // Prevent duplicate signals on same candle
+        const lastCandle = lowerTFCandles[lowerTFCandles.length - 1];
+        if (!lastCandle || lastCandle.time === this.lastSignalTime) {
+            return null;
+        }
+
+        let signal = null;
+
+        try {
+            // Call the strategy's checkEntry with appropriate parameters
+            // Most strategies expect (candles, atr, symbol, ...)
+            // Some need higher timeframe candles
+            if (strategyType === 'h4_kiss' || strategyType === 'cipher') {
+                signal = Strategy.checkEntry(lowerTFCandles, higherTFCandles, atr, symbol);
+            } else if (strategyType === 'momentum') {
+                signal = Strategy.checkEntry(lowerTFCandles, atr, symbol, higherTFCandles, rsi);
+            } else {
+                signal = Strategy.checkEntry(lowerTFCandles, atr, symbol);
+            }
+        } catch (error) {
+            console.error(`Strategy "${strategyType}" error:`, error);
+            return null;
+        }
+
+        if (signal) {
+            this.lastSignalTime = lastCandle.time;
             return signal;
         }
 
         return null;
     }
 
-    // --- ADD THIS METHOD AFTER analyze() ---
-    registerLoss(strategyType) {
-        const module = STRATEGY_MODULES[strategyType];
-        if (module && typeof module.registerLoss === 'function') {
-            module.registerLoss();
+    async registerLoss(strategyType) {
+        try {
+            const Strategy = await getStrategy(strategyType);
+            if (Strategy && typeof Strategy.registerLoss === 'function') {
+                Strategy.registerLoss();
+            }
+        } catch (e) {
+            // Ignore
         }
     }
+
+    // Helper to get available strategies
+    static async getAvailableStrategies() {
+        try {
+            const response = await fetch('/api/strategy-manifest');
+            if (response.ok) {
+                const manifest = await response.json();
+                return manifest.strategies.map(s => s.name);
+            }
+        } catch (e) {
+            // Fallback
+        }
+        return ['breakout_trend'];
+    }
+
+    // Helper to check if a strategy exists
+    static async strategyExists(strategyName) {
+        const available = await StrategyEngine.getAvailableStrategies();
+        return available.includes(strategyName);
+    }
 }
+
+// ─── EXPOSE TO WINDOW ────────────────────────────────────────────────────
+
+window.StrategyEngine = StrategyEngine;
+window._strategyModules = strategyModules;
+
+// ─── PRELOAD DEFAULT STRATEGY ────────────────────────────────────────────
+
+// Try to load the default strategy on init
+(async function preloadDefaultStrategy() {
+    try {
+        const module = await import('./strategies/breakout_trend.js');
+        const Strategy = module.default || Object.values(module).find(v => typeof v === 'function');
+        if (Strategy) {
+            strategyModules['breakout_trend'] = Strategy;
+            console.log('✅ Preloaded breakout_trend strategy');
+        }
+    } catch (e) {
+        console.log('ℹ️ breakout_trend not found, will load on demand');
+    }
+})();
