@@ -1,53 +1,140 @@
+// js/deriv-api.js - Updated for new Deriv API with OTP flow
+
 import { UIManager } from './ui-manager.js';
 
 export class DerivAPI {
     constructor(appId, onMessage) {
-        this.appId          = appId;
-        this.onMessage      = onMessage;
-        this.socket         = null;
-        this._pingInterval  = null;
+        this.appId = appId;  // Your OAuth App ID (e.g., '33XjCwFHSt1ck2f0Z3IND')
+        this.onMessage = onMessage;
+        this.socket = null;
+        this._pingInterval = null;
         this._reconnectTimer = null;
         this._reconnectDelay = 2000;
-        this._maxDelay       = 30000;
-        this._token          = null;
-        this._manualClose    = false;
-        this.symbolMap       = {};
-        this._subscriptions  = {}; // key: `${symbol}_${granularity}` → subscription_id
-    }
-
-    connect(token) {
-        this._token       = token;
+        this._maxDelay = 30000;
+        this._token = null;
+        this._accountId = null;
         this._manualClose = false;
-        this._clearReconnectTimer();
-        this._openSocket();
+        this.symbolMap = {};
+        this._subscriptions = {};
+        this.isConnected = false;
     }
 
-    _openSocket() {
+    // ─── MAIN CONNECT METHOD ──────────────────────────────────────────
+    
+ // In deriv-api.js - update the connect method
+
+async connect(token, accountId) {
+    this._token = token;
+    this._accountId = accountId;
+    this._manualClose = false;
+    this._clearReconnectTimer();
+
+    if (!this._accountId) {
+        console.error('❌ Account ID required for OTP flow');
+        UIManager.log('Account ID required. Please enter it.', 'error');
+        return;
+    }
+
+    try {
+        console.log('🔑 Getting OTP from Deriv...');
+        console.log(`📱 App ID: ${this.appId}`);
+        console.log(`👤 Account: ${this._accountId}`);
+        
+        const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${this._accountId}/otp`, {
+            method: 'POST',
+            headers: {
+                'Deriv-App-ID': this.appId,
+                'Authorization': `Bearer ${this._token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+        console.log('📡 OTP Response:', data);
+
+        if (data.error) {
+            throw new Error(`OTP Error: ${data.error.message} (${data.error.code})`);
+        }
+
+        // ✅ FIX: Check for url in data.data
+        const wsUrl = data.data?.url || data.websocket_url;
+        
+        if (!wsUrl) {
+            console.warn('⚠️ No WebSocket URL in OTP response, using legacy fallback');
+            this._connectLegacy();
+            return;
+        }
+
+        console.log('✅ OTP received, connecting...');
+        console.log('🔗', wsUrl);
+        this._openSocket(wsUrl);
+
+    } catch (error) {
+        console.error('❌ Connection failed:', error.message);
+        UIManager.log(`Connection failed: ${error.message}`, 'error');
+        
+        // Try legacy fallback
+        console.log('🔄 Trying legacy connection as fallback...');
+        this._connectLegacy();
+    }
+}
+
+    // ─── LEGACY CONNECTION (FALLBACK) ────────────────────────────────
+
+    _connectLegacy() {
+        console.log('🔌 Connecting via legacy endpoint...');
+        const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=96293`;
+        this._openSocket(wsUrl, true);
+    }
+
+    // ─── OPEN WEBSOCKET ───────────────────────────────────────────────
+
+    _openSocket(url, legacy = false) {
         if (this.socket) {
             try { this.socket.close(); } catch(e) {}
         }
 
-        this.socket = new WebSocket(
-            `wss://ws.derivws.com/websockets/v3?app_id=${this.appId}`
-        );
+        console.log(`🔌 Opening WebSocket: ${url}`);
+        this.socket = new WebSocket(url);
 
         this.socket.onopen = () => {
+            console.log('✅ WebSocket opened');
+            this.isConnected = true;
             this._reconnectDelay = 2000;
-            this._subscriptions  = {}; // clear stale sub IDs — new socket = clean slate
-            this.socket.send(JSON.stringify({ authorize: this._token }));
+            this._subscriptions = {};
+            
+            if (legacy) {
+                // Legacy: Send authorize with PAT
+                this.socket.send(JSON.stringify({ authorize: this._token }));
+            }
+            // OTP flow: Already authenticated via URL
+            
             this.startKeepAlive();
-            UIManager.log('WebSocket opened — authorizing...', 'info');
+            UIManager.setConnectionStatus(true);
+            UIManager.log('Connected to Deriv API', 'info');
         };
 
         this.socket.onmessage = (msg) => {
             try {
                 const data = JSON.parse(msg.data);
-                // Track subscription IDs so we can forget them before re-subscribing
+                
+                // Handle authorization response
+                if (data.msg_type === 'authorize') {
+                    console.log('✅ AUTH SUCCESS!');
+                    console.log(`👤 Account: ${data.authorize.loginid}`);
+                    console.log(`💰 Balance: ${data.authorize.balance}`);
+                    console.log(`📊 Type: ${data.authorize.account_type}`);
+                    UIManager.log(`Connected as ${data.authorize.loginid}`, 'success');
+                }
+                
+                // Track subscription IDs
                 if (data.subscription?.id && data.echo_req?.ticks_history) {
                     const key = `${data.echo_req.ticks_history}_${data.echo_req.granularity || 0}`;
                     this._subscriptions[key] = data.subscription.id;
                 }
+                
                 this.onMessage(data);
+                
             } catch(e) {
                 console.error('Failed to parse message:', e);
             }
@@ -55,6 +142,7 @@ export class DerivAPI {
 
         this.socket.onclose = (event) => {
             clearInterval(this._pingInterval);
+            this.isConnected = false;
             UIManager.setConnectionStatus(false);
 
             if (this._manualClose) {
@@ -62,25 +150,29 @@ export class DerivAPI {
                 return;
             }
 
-            UIManager.log(
-                `Connection lost — reconnecting in ${this._reconnectDelay / 1000}s...`,
-                'warn'
-            );
+            console.log(`🔌 Disconnected: ${event.code} - ${event.reason || 'No reason'}`);
+            UIManager.log(`Connection lost — reconnecting in ${this._reconnectDelay / 1000}s...`, 'warn');
             this._scheduleReconnect();
         };
 
-        this.socket.onerror = () => {
-            // onclose will fire after onerror, so just log here
-            UIManager.log('WebSocket error — retrying...', 'warn');
+        this.socket.onerror = (error) => {
+            console.error('❌ WebSocket error:', error);
+            // onclose will fire after onerror
         };
     }
+
+    // ─── RECONNECT LOGIC ──────────────────────────────────────────────
 
     _scheduleReconnect() {
         this._clearReconnectTimer();
         this._reconnectTimer = setTimeout(() => {
             UIManager.log('Attempting reconnect...', 'info');
             this._reconnectDelay = Math.min(this._reconnectDelay * 2, this._maxDelay);
-            this._openSocket();
+            if (this._accountId) {
+                this.connect(this._token, this._accountId);
+            } else {
+                this._connectLegacy();
+            }
         }, this._reconnectDelay);
     }
 
@@ -91,34 +183,33 @@ export class DerivAPI {
         }
     }
 
+    // ─── API METHODS ──────────────────────────────────────────────────
+
     fetchActiveSymbols() {
         this._send({ active_symbols: 'brief' });
     }
 
     subscribe(symbol, granularity) {
-        // Forget any existing subscription for this symbol+TF before re-subscribing.
-        // Prevents "already subscribed" errors on bot restart.
-        const key    = `${symbol}_${granularity}`;
-        const subId  = this._subscriptions[key];
+        const key = `${symbol}_${granularity}`;
+        const subId = this._subscriptions[key];
         if (subId) {
             this._send({ forget: subId });
             delete this._subscriptions[key];
         }
 
         this._send({
-            ticks_history:     symbol,
-            subscribe:         1,
-            granularity:       parseInt(granularity),
-            count:             500,
-            style:             'candles',
-            end:               'latest',
+            ticks_history: symbol,
+            subscribe: 1,
+            granularity: parseInt(granularity),
+            count: 500,
+            style: 'candles',
+            end: 'latest',
             adjust_start_time: 1
         });
     }
 
-    // Forget a specific symbol+granularity subscription (call when stopping a bot)
     forgetSymbol(symbol, granularity) {
-        const key   = `${symbol}_${granularity}`;
+        const key = `${symbol}_${granularity}`;
         const subId = this._subscriptions[key];
         if (subId) {
             this._send({ forget: subId });
@@ -126,13 +217,11 @@ export class DerivAPI {
         }
     }
 
-    // Forget all active subscriptions (call on full disconnect/logout)
     forgetAll() {
         this._send({ forget_all: 'candles' });
         this._subscriptions = {};
     }
 
-    // Safe send — queues if socket not ready
     _send(payload) {
         if (this.socket?.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify(payload));
@@ -156,5 +245,12 @@ export class DerivAPI {
             this.socket.close();
             this.socket = null;
         }
+        this.isConnected = false;
+    }
+
+    // ─── GET ACCOUNT ID FROM UI ───────────────────────────────────────
+
+    setAccountId(accountId) {
+        this._accountId = accountId;
     }
 }

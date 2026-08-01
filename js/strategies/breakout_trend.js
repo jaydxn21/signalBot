@@ -1,39 +1,48 @@
 // js/strategies/breakout_trend.js
 // ═══════════════════════════════════════════════════════════════════════
 // Breakout-with-trend strategy.
-// Reads ONLY from the structure object produced by MarketAnalysis —
-// never touches raw candles, per the analysis.js contract.
 // ═══════════════════════════════════════════════════════════════════════
 
 export class BreakoutTrendStrategy {
     constructor(options = {}) {
-        this.riskRewardRatio = options.riskRewardRatio || 2;   // target = 2x the stop distance
-        this.allowRangingTrend = options.allowRangingTrend ?? true; // trade breaks even if trend === 'ranging'
-        this.minTouchesForLevel = options.minTouchesForLevel || 2;  // ignore 'weak' 1-touch levels
+        this.riskRewardRatio = options.riskRewardRatio || 2;
+        this.allowRangingTrend = options.allowRangingTrend ?? true;
+        this.minTouchesForLevel = options.minTouchesForLevel || 2;
     }
 
     // Static method for compatibility with signal-bot.js
     static checkEntry(candles, atr, symbol) {
-        // Create a simple structure from candles for evaluation
-        const currentPrice = candles[candles.length - 1]?.close || 0;
-        
-        // Simple breakout detection based on recent highs/lows
-        if (candles.length < 20) return null;
-        
-        const recentCandles = candles.slice(-20);
+        if (candles.length < 21) {
+            console.log(`[${symbol}] Waiting for more candles (${candles.length}/21)`);
+            return null;
+        }
+
+        // FIX (reapplied): the window used to compute resistance/support
+        // must exclude the CURRENT candle. Using slice(-20) here includes
+        // it, which means `resistance` is always >= the current candle's
+        // own high — so `close > resistance` can almost never be true,
+        // since a candle's close can't exceed its own high. That's why
+        // this fired zero times across 8 hours of a clearly trending
+        // chart: the check was structurally unreachable, not just
+        // "waiting for a big enough move." slice(-21, -1) takes the 20
+        // candles BEFORE the current one instead, so the level being
+        // tested is independent of the candle testing it.
+        const recentCandles = candles.slice(-21, -1);
         const highs = recentCandles.map(c => c.high);
         const lows = recentCandles.map(c => c.low);
         const high = Math.max(...highs);
         const low = Math.min(...lows);
         const close = candles[candles.length - 1].close;
-        const prevClose = candles[candles.length - 2]?.close || close;
-        
-        // Detect breakout above resistance
+        const prevClose = candles[candles.length - 2]?.close ?? close;
+
+        console.log(`[${symbol}] Monitoring range: ${low.toFixed(2)} - ${high.toFixed(2)} | Current: ${close.toFixed(2)}`);
+
         const resistance = high;
         const support = low;
-        
-        // Check for breakout up
+
+        // Check breakout up
         if (close > resistance && prevClose <= resistance) {
+            console.log(`[${symbol}] 🔥 BREAKOUT UP detected! Resistance: ${resistance.toFixed(2)} → Current: ${close.toFixed(2)}`);
             const slDistance = (resistance - support) * 0.5 || (atr || 0.1);
             return {
                 type: 'BUY',
@@ -42,14 +51,16 @@ export class BreakoutTrendStrategy {
                 tp: close + slDistance * 2,
                 score: 75,
                 label: 'Breakout Up',
-                factors: ['Resistance breakout', 'Bullish momentum'],
+                factors: [`Resistance breakout at ${resistance.toFixed(2)}`, 'Bullish momentum'],
                 tpMultiplier: 2,
-                slMultiplier: 1
+                slMultiplier: 1,
+                reason: `Resistance breakout above ${resistance.toFixed(2)}`
             };
         }
-        
-        // Check for breakout down
+
+        // Check breakout down
         if (close < support && prevClose >= support) {
+            console.log(`[${symbol}] 🔥 BREAKOUT DOWN detected! Support: ${support.toFixed(2)} → Current: ${close.toFixed(2)}`);
             const slDistance = (resistance - support) * 0.5 || (atr || 0.1);
             return {
                 type: 'SELL',
@@ -58,12 +69,18 @@ export class BreakoutTrendStrategy {
                 tp: close - slDistance * 2,
                 score: 75,
                 label: 'Breakout Down',
-                factors: ['Support breakdown', 'Bearish momentum'],
+                factors: [`Support breakdown at ${support.toFixed(2)}`, 'Bearish momentum'],
                 tpMultiplier: 2,
-                slMultiplier: 1
+                slMultiplier: 1,
+                reason: `Support breakdown below ${support.toFixed(2)}`
             };
         }
-        
+
+        // Log current status
+        const breakoutUpDistance = ((resistance - close) / (resistance - support) * 100).toFixed(1);
+        const breakoutDownDistance = ((close - support) / (resistance - support) * 100).toFixed(1);
+        console.log(`[${symbol}] 📊 Range: ${support.toFixed(2)} - ${resistance.toFixed(2)} | Price: ${close.toFixed(2)} | % to breakout: ↑${breakoutUpDistance}% ↓${breakoutDownDistance}%`);
+
         return null;
     }
 
@@ -121,11 +138,3 @@ export class BreakoutTrendStrategy {
 
 // Default export for compatibility
 export default BreakoutTrendStrategy;
-
-// ═══════════════════════════════════════════════════════════════════════
-// USAGE:
-//
-//   import { BreakoutTrendStrategy } from './breakout_trend.js';
-//   const strategy = new BreakoutTrendStrategy();
-//   const signal = BreakoutTrendStrategy.checkEntry(candles, atr, symbol);
-// ═══════════════════════════════════════════════════════════════════════

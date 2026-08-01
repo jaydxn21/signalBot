@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deriv OTP Test - Fixed</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+        .log { padding: 8px; margin: 4px 0; border-left: 3px solid #4a5568; background: #2d3748; border-radius: 4px; }
+        .error { border-left-color: #fc8181; }
+        .success { border-left-color: #68d391; }
+        .info { border-left-color: #63b3ed; }
+        #output { max-height: 500px; overflow-y: auto; }
+        input { background: #2d3748; color: white; border: 1px solid #4a5568; padding: 8px; border-radius: 4px; width: 300px; margin: 5px; }
+        button { background: #4a5568; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #5a6578; }
+    </style>
+</head>
+<body>
+    <h1>🔌 Deriv OTP Test</h1>
+    
+    <div>
+        <input type="text" id="tokenInput" placeholder="Enter PAT Token" value="pat_d9b905f66576ec531b817777f3634c7ccd5fa68f78e5da99d3bcaa962a04b05" style="width: 400px;">
+    </div>
+    <div>
+        <input type="text" id="accountInput" placeholder="Enter Account ID (e.g., DOT93854070)" value="DOT93854070">
+        <button onclick="runTest()">Test Connection</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <h3>📋 Logs</h3>
+    <div id="output"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            const time = new Date().toLocaleTimeString();
+            div.textContent = `[${time}] ${message}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLogs() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        window.runTest = async function() {
+            const APP_ID = '33XjCwFHSt1ck2f0Z3IND';
+            const TOKEN = document.getElementById('tokenInput').value.trim();
+            const ACCOUNT_ID = document.getElementById('accountInput').value.trim();
+            
+            if (!TOKEN) {
+                log('❌ Please enter a token', 'error');
+                return;
+            }
+            if (!ACCOUNT_ID) {
+                log('❌ Please enter your Account ID', 'error');
+                return;
+            }
+
+            log('🔑 Testing OTP flow...', 'info');
+            log(`📱 App ID: ${APP_ID}`, 'info');
+            log(`👤 Account: ${ACCOUNT_ID}`, 'info');
+            log(`🔐 Token: ${TOKEN.substring(0, 20)}...`, 'info');
+
+            try {
+                // Step 1: Validate token first
+                log('📡 Validating token...', 'info');
+                const validateResponse = await fetch('https://api.derivws.com/trading/v1/options/accounts', {
+                    headers: {
+                        'Deriv-App-ID': APP_ID,
+                        'Authorization': `Bearer ${TOKEN}`
+                    }
+                });
+
+                log(`📡 Validate Status: ${validateResponse.status}`, 'info');
+                
+                const validateText = await validateResponse.text();
+                log(`📡 Validate Response: ${validateText.substring(0, 200)}`, 'info');
+
+                let validateData;
+                try {
+                    validateData = JSON.parse(validateText);
+                } catch(e) {
+                    log('❌ Token validation failed - not valid JSON', 'error');
+                    log('💡 This usually means your token is invalid or expired', 'error');
+                    log('💡 Generate a new token from Deriv settings', 'error');
+                    return;
+                }
+
+                if (validateData.error) {
+                    log(`❌ Token Error: ${validateData.error.message} (${validateData.error.code})`, 'error');
+                    log('💡 Generate a new token from Deriv settings', 'error');
+                    return;
+                }
+
+                if (validateData.accounts) {
+                    log(`✅ Token valid! Found ${validateData.accounts.length} accounts`, 'success');
+                    validateData.accounts.forEach(acc => {
+                        log(`   - ${acc.account_id} (${acc.account_type})`, 'info');
+                    });
+                }
+
+                // Step 2: Get OTP
+                log('📡 Getting OTP...', 'info');
+                const otpResponse = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${ACCOUNT_ID}/otp`, {
+                    method: 'POST',
+                    headers: {
+                        'Deriv-App-ID': APP_ID,
+                        'Authorization': `Bearer ${TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                log(`📡 OTP Status: ${otpResponse.status}`, 'info');
+                
+                const otpText = await otpResponse.text();
+                log(`📡 OTP Response: ${otpText.substring(0, 200)}`, 'info');
+
+                let otpData;
+                try {
+                    otpData = JSON.parse(otpText);
+                } catch(e) {
+                    log('❌ OTP request failed - not valid JSON', 'error');
+                    log('💡 This usually means the account ID is wrong or the token doesn\'t have access', 'error');
+                    return;
+                }
+
+                if (otpData.error) {
+                    log(`❌ OTP Error: ${otpData.error.message} (${otpData.error.code})`, 'error');
+                    return;
+                }
+
+                if (otpData.websocket_url) {
+                    log('✅ OTP URL received!', 'success');
+                    log(`🔗 ${otpData.websocket_url}`, 'info');
+                    
+                    // Step 3: Connect WebSocket
+                    log('🔌 Connecting WebSocket...', 'info');
+                    const ws = new WebSocket(otpData.websocket_url);
+                    
+                    ws.onopen = () => {
+                        log('✅ WebSocket connected!', 'success');
+                        ws.send(JSON.stringify({ ping: 1 }));
+                    };
+                    
+                    ws.onmessage = (e) => {
+                        try {
+                            const msg = JSON.parse(e.data);
+                            log(`📩 Received: ${JSON.stringify(msg).substring(0, 100)}`, 'info');
+                            
+                            if (msg.msg_type === 'pong') {
+                                log('✅ Connection confirmed! Ready to trade.', 'success');
+                            }
+                            if (msg.msg_type === 'authorize') {
+                                log(`✅ Authorized! Account: ${msg.authorize.loginid}`, 'success');
+                                log(`💰 Balance: $${msg.authorize.balance}`, 'success');
+                            }
+                        } catch(e) {
+                            log(`📩 Raw: ${e.data.substring(0, 100)}`, 'info');
+                        }
+                    };
+                    
+                    ws.onerror = (e) => {
+                        log('❌ WebSocket error', 'error');
+                        console.error(e);
+                    };
+                    
+                    ws.onclose = () => {
+                        log('🔌 WebSocket closed', 'info');
+                    };
+                    
+                    // Keep connection open for 30 seconds
+                    setTimeout(() => {
+                        log('⏱️ Test complete, closing connection', 'info');
+                        ws.close();
+                    }, 30000);
+                }
+
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        };
+
+        // Auto-run on load
+        log('💡 Enter your Account ID and click "Test Connection"', 'info');
+        log(`📋 Your Account ID from the screenshot: DOT93854070`, 'info');
+    </script>
+</body>
+</html>

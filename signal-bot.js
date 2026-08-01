@@ -164,18 +164,37 @@ import { ConfidenceEngine } from './js/confidence.js';
 import { Auth } from './js/auth.js';
 import { PositionSizing } from './js/position-sizing.js';
 
+
+
+// Simple EMA calculation for trend detection
+function calculateEMA(data, period) {
+    if (data.length < period) return null;
+    const multiplier = 2 / (period + 1);
+    let ema = data[0];
+    for (let i = 1; i < data.length; i++) {
+        ema = (data[i] - ema) * multiplier + ema;
+    }
+    return ema;
+}
+
 // ─── ONLY IMPORT STRATEGIES THAT ACTUALLY EXIST ─────────────────────────
 
-// Import Jump75 if it exists
+// Import Jump75 if it exists — wrapped in an IIFE so this doesn't block
+// module evaluation with a top-level await (which was the actual cause
+// of the "Add Bot" button doing nothing: DOMContentLoaded fired and
+// completed before this script ever reached its own listener registration
+// at the bottom of the file).
 let Jump75Strategy = null;
-try {
-    const module = await import('./js/strategies/jump75.js');
-    Jump75Strategy = module.default || module;
-    window.Jump75Strategy = Jump75Strategy;
-    console.log('✅ Loaded Jump75Strategy');
-} catch (e) {
-    console.log('ℹ️ Jump75Strategy not found (optional)');
-}
+(async () => {
+    try {
+        const module = await import('./js/strategies/jump75.js');
+        Jump75Strategy = module.default || module;
+        window.Jump75Strategy = Jump75Strategy;
+        console.log('✅ Loaded Jump75Strategy');
+    } catch (e) {
+        console.log('ℹ️ Jump75Strategy not found (optional)');
+    }
+})();
 
 // ─── STRATEGY GROUPS ──────────────────────────────────────────────────────
 
@@ -778,6 +797,8 @@ function subscribeBot(bot) {
 
 // ─── PROCESS BAR ─────────────────────────────────────────────────────────
 
+// ─── PROCESS BAR ─────────────────────────────────────────────────────────
+
 function processBar(bot, bar, gran) {
     if (bot.config.strategy === 'jump75') {
         if (gran === 300) {
@@ -821,7 +842,8 @@ function processBar(bot, bar, gran) {
     if (gran !== bot.config.tf) return;
 
     const last = bot.candles[bot.candles.length - 1];
-    if (last && last.time === bar.time) {
+    const isNewCandle = !(last && last.time === bar.time);
+    if (!isNewCandle) {
         bot.candles[bot.candles.length - 1] = bar;
     } else {
         bot.candles.push(bar);
@@ -844,11 +866,26 @@ function processBar(bot, bar, gran) {
     const rsi = Indicators.calculateRSI(bot.candles, bot.rsiState);
     const atr = Indicators.calculateATR(bot.candles);
 
-    const isTrending = bot.candles.length >= 20 ? MomentumStrategy?._isTrending?.(bot.candles, atr) : null;
+    // ─── SAFE TREND DETECTION ──────────────────────────────────────────
+    let isTrending = null;
+    if (bot.candles.length >= 20) {
+        try {
+            // Simple trend check using price vs 20-period SMA
+            const closes = bot.candles.map(c => c.close);
+            const lastPrice = closes[closes.length - 1];
+            const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+            isTrending = lastPrice > sma20;
+        } catch(e) {
+            isTrending = null;
+        }
+    }
     const marketCond = isTrending === null ? '—' : isTrending ? 'TRENDING' : 'RANGING';
 
     ChartManager.updatePanelHUD(bot.id, rsi, atr, marketCond);
     if (bot.id === focusedBotId) UIManager.updateHUD(rsi, atr, marketCond);
+
+    // Redraw overlays only when a genuinely new candle closed
+    if (isNewCandle && bot.id === focusedBotId) redrawOverlays();
 
     const livePrices = SessionState.get().livePrices || {};
     const displaySym = SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
@@ -861,15 +898,80 @@ function processBar(bot, bar, gran) {
     _runStrategy(bot, bar, atr, rsi);
 }
 
-// ─── RUN STRATEGY ─────────────────────────────────────────────────────────
+// ─── BOT STATUS UPDATES ──────────────────────────────────────────────────
+
+function startStatusUpdates() {
+    setInterval(() => {
+        const activeBots = Object.values(bots).filter(b => b.isActive);
+        
+        if (activeBots.length === 0) {
+            // Only log every 60 seconds if no bots
+            if (!window._lastNoBotLog || Date.now() - window._lastNoBotLog > 60000) {
+                log('💤 No active bots. Add a bot and start it.', 'neutral');
+                window._lastNoBotLog = Date.now();
+            }
+            return;
+        }
+        
+        activeBots.forEach(bot => {
+            const status = [];
+            const candles = bot.candles || [];
+            const lastCandle = candles[candles.length - 1];
+            
+            status.push(`📊 ${bot.config.symbol} (${TF_LABEL[bot.config.tf] || 'M5'})`);
+            status.push(`Candles: ${candles.length}`);
+            
+            if (lastCandle && candles.length > 1) {
+                const prevClose = candles[candles.length - 2]?.close || lastCandle.close;
+                const change = lastCandle.close - prevClose;
+                const changePercent = prevClose !== 0 ? (change / prevClose * 100) : 0;
+                status.push(`Price: ${lastCandle.close.toFixed(2)}`);
+                status.push(`Change: ${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
+            } else if (lastCandle) {
+                status.push(`Price: ${lastCandle.close.toFixed(2)}`);
+            }
+            
+            if (bot.openSignal) {
+                const pnl = bot.openSignal.type === 'BUY' 
+                    ? lastCandle?.close - bot.openSignal.entry 
+                    : bot.openSignal.entry - lastCandle?.close;
+                status.push(`💰 IN TRADE: ${bot.openSignal.type} @ ${bot.openSignal.entry.toFixed(2)}`);
+                status.push(`PnL: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`);
+                status.push(`SL: ${bot.openSignal.sl.toFixed(2)} | TP: ${bot.openSignal.tp.toFixed(2)}`);
+            } else {
+                // Check if waiting for cooldown
+                const cooldownMs = (bot.config.tf || 300) * 2 * 1000;
+                const timeSinceLast = Date.now() - bot.lastFiredMs;
+                if (timeSinceLast < cooldownMs && bot.lastFiredMs > 0) {
+                    const waitSeconds = Math.round((cooldownMs - timeSinceLast) / 1000);
+                    status.push(`⏳ Cooldown: ${waitSeconds}s remaining`);
+                } else {
+                    status.push(`🔍 Scanning for signals...`);
+                }
+            }
+            
+            // Show recent highs/lows being monitored
+            if (candles.length > 20) {
+                const recentHigh = Math.max(...candles.slice(-20).map(c => c.high));
+                const recentLow = Math.min(...candles.slice(-20).map(c => c.low));
+                const range = recentHigh - recentLow;
+                status.push(`📈 Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} (${range.toFixed(2)})`);
+            }
+            
+            log(`🤖 ${status.join(' | ')}`, 'info');
+        });
+    }, 30000); // Every 30 seconds
+}
+
+// ─── RUN STRATEGY WITH STATUS LOGGING ──────────────────────────────────
 
 async function _runStrategy(bot, bar, atr, rsi) {
     const strategyName = bot.config.strategy;
+    const now = Date.now();
     
     // Get the strategy class
     let StrategyClass = STRATEGY_MODULES[strategyName];
     
-    // If not found, try to load it
     if (!StrategyClass) {
         StrategyClass = await strategyLoader.getStrategy(strategyName);
         if (StrategyClass) {
@@ -878,20 +980,33 @@ async function _runStrategy(bot, bar, atr, rsi) {
     }
     
     if (!StrategyClass) {
-        log(`Strategy "${strategyName}" not found`, 'warn');
+        log(`❌ Strategy "${strategyName}" not found`, 'error');
         return;
     }
     
-    // Check if the strategy has a checkEntry method
     if (typeof StrategyClass.checkEntry !== 'function') {
-        log(`Strategy "${strategyName}" missing checkEntry method`, 'warn');
+        log(`❌ Strategy "${strategyName}" missing checkEntry method`, 'error');
         return;
     }
     
     // Check cooldown
-    const now = Date.now();
     const cooldownMs = (bot.config.tf || 300) * 2 * 1000;
-    if ((now - bot.lastFiredMs) < cooldownMs) return;
+    const timeSinceLast = now - bot.lastFiredMs;
+    
+    // Only log every 5 candles to avoid spam
+    if (!bot._lastStatusLog || now - bot._lastStatusLog > (bot.config.tf || 300) * 5 * 1000) {
+        if (bot.candles.length > 20) {
+            const lastCandle = bot.candles[bot.candles.length - 1];
+            const recentHigh = Math.max(...bot.candles.slice(-20).map(c => c.high));
+            const recentLow = Math.min(...bot.candles.slice(-20).map(c => c.low));
+            log(`🔍 ${strategyName.toUpperCase()} monitoring ${bot.config.symbol} | Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} | Price: ${lastCandle.close.toFixed(2)}`, 'info');
+            bot._lastStatusLog = now;
+        }
+    }
+    
+    if (timeSinceLast < cooldownMs && bot.lastFiredMs > 0) {
+        return;
+    }
     
     // Get signal from strategy
     let signal = null;
@@ -899,17 +1014,37 @@ async function _runStrategy(bot, bar, atr, rsi) {
         signal = await StrategyClass.checkEntry(bot.candles, atr, bot.config.symbol);
     } catch (error) {
         console.error(`Strategy ${strategyName} error:`, error);
+        log(`❌ Strategy error: ${error.message}`, 'error');
         return;
     }
     
-    if (!signal) return;
+    if (!signal) {
+        // Log no signal occasionally
+        if (!bot._lastNoSignalLog || now - bot._lastNoSignalLog > (bot.config.tf || 300) * 10 * 1000) {
+            const lastCandle = bot.candles[bot.candles.length - 1];
+            if (lastCandle && bot.candles.length > 20) {
+                const recentHigh = Math.max(...bot.candles.slice(-20).map(c => c.high));
+                const recentLow = Math.min(...bot.candles.slice(-20).map(c => c.low));
+                log(`📉 No signal | ${bot.config.symbol} | Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} | Price: ${lastCandle.close.toFixed(2)}`, 'neutral');
+                bot._lastNoSignalLog = now;
+            }
+        }
+        return;
+    }
     
     // Fire the signal
     bot.lastFiredMs = now;
-    log(`📊 ${strategyName.toUpperCase()} ${signal.type} @ ${bar.close.toFixed(4)}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    log(`🎯 ${signal.type} SIGNAL DETECTED on ${bot.config.symbol}! @ ${bar.close.toFixed(4)}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    if (signal.reason) {
+        log(`📋 Reason: ${signal.reason}`, 'info');
+    }
+    if (signal.factors && signal.factors.length) {
+        log(`📋 Factors: ${signal.factors.join(' | ')}`, 'info');
+    }
     
     fireSignal(bot, signal, bar, atr, rsi);
 }
+
 
 // ─── FIRE SIGNAL ──────────────────────────────────────────────────────────
 
@@ -1095,6 +1230,43 @@ function redrawOverlays() {
     if (!engine) return;
     _drawOverlaysOnEngine(engine, bot);
 }
+
+// ─── CHART CLEANUP ───────────────────────────────────────────────────────
+
+function cleanChart(botId) {
+    const engine = _engineFor(botId);
+    if (!engine) return;
+    
+    const series = engine.getCandleSeries();
+    OverlayManager.clearAll(series, engine);
+    
+    // Only draw H4 levels if we have data
+    const bot = bots[botId];
+    if (bot && bot.h4Candles && bot.h4Candles.length > 0) {
+        try {
+            engine.drawH4Levels(bot.h4Candles);
+            log('🧹 Chart cleaned - only H4 levels shown', 'info');
+        } catch(e) {
+            log('⚠️ Could not draw H4 levels: ' + e.message, 'warn');
+        }
+    } else {
+        log('🧹 Chart cleaned - all overlays removed', 'info');
+    }
+}
+
+// Clean all charts
+function cleanAllCharts() {
+    Object.keys(bots).forEach(id => {
+        if (bots[id].isActive) {
+            cleanChart(id);
+        }
+    });
+    log('🧹 All charts cleaned', 'info');
+}
+
+// Expose to window
+window.cleanChart = cleanChart;
+window.cleanAllCharts = cleanAllCharts;
 
 function _drawOverlaysOnEngine(engine, bot) {
     const series = engine.getCandleSeries();
@@ -1445,7 +1617,7 @@ function logout() {
 async function init() {
     console.log("%c🚀 Signal Bot initializing...", "color: violet; font-weight: bold");
 
-    // Load strategies first
+    // Load strategies
     try {
         await buildStrategyGroups();
         console.log(`✅ Loaded ${Object.keys(STRATEGY_MODULES).length} strategies`);
@@ -1453,47 +1625,50 @@ async function init() {
         console.error('Failed to load strategies:', error);
     }
 
-    // Connect WebSocket
-    connectRenderWebSocket();
-    api = new DerivAPI(96293, handleData);
+    // ─── DERIV API CONNECTION ──────────────────────────────
+    const APP_ID = '33XjcwFHStlck2fOZ3IND';
+    const TOKEN = 'pat_729ccc1775f08d1223a443206a0772b933072c3d5d01da589112908ab22e0805';
+    const ACCOUNT_ID = 'DOT93854070';
+    
+    api = new DerivAPI(APP_ID, handleData);
+    
+    try {
+        await api.connect(TOKEN, ACCOUNT_ID);
+        console.log('✅ Deriv API connected successfully!');
+        log('✅ Connected to Deriv API', 'success');
+        
+        document.documentElement.setAttribute('data-authed', '1');
+        document.getElementById('auth-overlay').style.display = 'none';
+        document.getElementById('connection-indicator').className = 'status-dot status-online';
+        document.getElementById('conn-label').textContent = 'Online';
+        
+        setTimeout(() => api.fetchActiveSymbols(), 1000);
+    } catch (error) {
+        console.error('❌ Failed to connect:', error);
+        log('❌ Connection failed: ' + error.message, 'error');
+    }
+    
+    window.api = api;
+
+    // ─── WEBSOCKET FOR MT5 BRIDGE ──────────────────────────
+    // connectRenderWebSocket(); // Comment out if not using MT5
+
+    // ─── CHART MANAGER ─────────────────────────────────────
     initChartManager();
 
-    // AI connection test
+    // ─── AI CONNECTION ─────────────────────────────────────
     setTimeout(checkAIServer, 800);
     
-    // Initialize Position Sizing
+    // ─── POSITION SIZING ──────────────────────────────────
     PositionSizing.init(10000);
     PositionSizing.resetSession(10000);
 
-    // Auth check
-    if (!Auth.isGuest()) {
-        const localTrades = SessionState.get().trades || [];
-        if (localTrades.length === 0) {
-            Auth.fetchTrades().then(serverTrades => {
-                if (serverTrades?.length) {
-                    SessionState.set({ trades: serverTrades });
-                    log(`Restored ${serverTrades.length} trades from cloud`, 'info');
-                }
-            }).catch(() => {});
-        }
-    }
-
-    // UI Setup
-    const token = Storage.getToken();
-    if (token) {
-        api.connect(token);
-    } else {
-        document.documentElement.removeAttribute('data-authed');
-        document.getElementById('auth-overlay').style.display = 'flex';
-    }
-
+    // ─── UI SETUP ──────────────────────────────────────────
     document.getElementById('btn-login').onclick = () => {
         const t = document.getElementById('api-token').value.trim();
         if (!t) return alert('Token required');
         Storage.saveToken(t);
-        document.documentElement.setAttribute('data-authed', '1');
-        document.getElementById('auth-overlay').style.display = 'none';
-        api.connect(t);
+        api.connect(t, ACCOUNT_ID);
     };
 
     document.getElementById('btn-logout').onclick = logout;
@@ -1502,9 +1677,13 @@ async function init() {
     _initOverlayPanel();
     _restoreBotCards();
 
+    // ─── START STATUS UPDATES ─────────────────────────────
+    startStatusUpdates();
+
+    // ─── LOG STARTUP COMPLETE ─────────────────────────────
+    log('🚀 Signal Bot ready! Add a bot and start trading.', 'success');
     console.log(`✅ Signal Bot initialized with ${Object.keys(bots).length} bots`);
 }
-
 // ─── EXPOSE TO WINDOW ─────────────────────────────────────────────────────
 
 window.bots = bots;
@@ -1527,4 +1706,11 @@ function log(msg, type = 'neutral') { UIManager.log(msg, type); }
 
 // ─── START ─────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', init);
+// Check readyState directly rather than assuming DOMContentLoaded hasn't
+// fired yet — with top-level awaits removed above this should no longer
+// race, but this is a safe belt-and-suspenders guard regardless.
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
