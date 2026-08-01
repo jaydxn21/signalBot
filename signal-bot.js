@@ -861,6 +861,24 @@ function processBar(bot, bar, gran) {
     _runStrategy(bot, bar, atr, rsi);
 }
 
+// ─── STATUS UPDATES ───────────────────────────────────────────────────────
+
+function startStatusUpdates(bot) {
+    bot._statusInterval = setInterval(() => {
+        const candles = bot.candles;
+        if (candles.length > 21) {
+            // Matches the exact window breakout_trend.js uses to decide
+            // (current candle excluded) so the terminal shows the real
+            // range being evaluated, not a slightly different one.
+            const recentHigh = Math.max(...candles.slice(-21, -1).map(c => c.high));
+            const recentLow = Math.min(...candles.slice(-21, -1).map(c => c.low));
+            const price = candles[candles.length - 1]?.close;
+            const sym = SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
+            console.log(`[${sym}] ⏱ Range: ${recentLow.toFixed(4)} – ${recentHigh.toFixed(4)} | Price: ${price?.toFixed(4)}`);
+        }
+    }, 60_000);
+}
+
 // ─── RUN STRATEGY ─────────────────────────────────────────────────────────
 
 async function _runStrategy(bot, bar, atr, rsi) {
@@ -892,7 +910,16 @@ async function _runStrategy(bot, bar, atr, rsi) {
     const now = Date.now();
     const cooldownMs = (bot.config.tf || 300) * 2 * 1000;
     if ((now - bot.lastFiredMs) < cooldownMs) return;
-    
+
+    // Periodic range status every 10 candles
+    bot._statusCount = (bot._statusCount || 0) + 1;
+    if (bot.candles.length > 21 && bot._statusCount % 10 === 0) {
+        const lastCandle = bot.candles[bot.candles.length - 1];
+        const recentHigh = Math.max(...bot.candles.slice(-21, -1).map(c => c.high));
+        const recentLow = Math.min(...bot.candles.slice(-21, -1).map(c => c.low));
+        console.log(`[${bot.config.symbol}] Range: ${recentLow.toFixed(4)} – ${recentHigh.toFixed(4)} | Close: ${lastCandle.close.toFixed(4)}`);
+    }
+
     // Get signal from strategy
     let signal = null;
     try {
@@ -902,7 +929,14 @@ async function _runStrategy(bot, bar, atr, rsi) {
         return;
     }
     
-    if (!signal) return;
+    if (!signal) {
+        if (bot.candles.length > 21) {
+            const recentHigh = Math.max(...bot.candles.slice(-21, -1).map(c => c.high));
+            const recentLow = Math.min(...bot.candles.slice(-21, -1).map(c => c.low));
+            console.log(`[${bot.config.symbol}] No signal | Range: ${recentLow.toFixed(4)} – ${recentHigh.toFixed(4)} | Close: ${bar.close.toFixed(4)}`);
+        }
+        return;
+    }
     
     // Fire the signal
     bot.lastFiredMs = now;
@@ -1146,6 +1180,7 @@ window.startBot = function(id) {
 
     if (api?.socket?.readyState === 1) {
         subscribeBot(bot);
+        startStatusUpdates(bot);
     } else {
         log(`Bot #${id} queued — waiting for API connection`, 'warn');
     }
@@ -1163,6 +1198,7 @@ window.stopBot = function(id) {
     if (!bot) return;
     bot.isActive = false;
     window.setBotRunning(id, false);
+    clearInterval(bot._statusInterval);
     log(`Bot #${id} stopped`, 'neutral');
 
     if (bot.config?.symbol) {
