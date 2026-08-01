@@ -675,7 +675,10 @@ function handleData(data) {
         SessionState.set({ connected: true });
         Object.values(bots).forEach(bot => {
             window.setBotOnline(bot.id);
-            if (bot.isActive) subscribeBot(bot);
+            if (bot.isActive) {
+                subscribeBot(bot);
+                startStatusUpdates(bot);
+            }
         });
     }
 
@@ -906,12 +909,8 @@ async function _runStrategy(bot, bar, atr, rsi) {
         return;
     }
     
-    // Check cooldown
-    const now = Date.now();
-    const cooldownMs = (bot.config.tf || 300) * 2 * 1000;
-    if ((now - bot.lastFiredMs) < cooldownMs) return;
-
-    // Periodic range status every 10 candles
+    // Periodic range status every 10 candles (counted before cooldown so it
+    // always ticks on every candle evaluation, not only post-cooldown ones)
     bot._statusCount = (bot._statusCount || 0) + 1;
     if (bot.candles.length > 21 && bot._statusCount % 10 === 0) {
         const lastCandle = bot.candles[bot.candles.length - 1];
@@ -919,6 +918,11 @@ async function _runStrategy(bot, bar, atr, rsi) {
         const recentLow = Math.min(...bot.candles.slice(-21, -1).map(c => c.low));
         console.log(`[${bot.config.symbol}] Range: ${recentLow.toFixed(4)} – ${recentHigh.toFixed(4)} | Close: ${lastCandle.close.toFixed(4)}`);
     }
+
+    // Check cooldown
+    const now = Date.now();
+    const cooldownMs = (bot.config.tf || 300) * 2 * 1000;
+    if ((now - bot.lastFiredMs) < cooldownMs) return;
 
     // Get signal from strategy
     let signal = null;
