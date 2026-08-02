@@ -101,7 +101,12 @@ export const UIManager = {
         if (cls) div.classList.add(cls);
 
         const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
-        div.innerHTML = `<span style="opacity:0.4;margin-right:8px;">[${time}]</span>${msg}`;
+        const timeSpan = document.createElement('span');
+        timeSpan.style.opacity = '0.4';
+        timeSpan.style.marginRight = '8px';
+        timeSpan.textContent = `[${time}]`;
+        div.appendChild(timeSpan);
+        div.appendChild(document.createTextNode(msg));
         container.prepend(div);
 
         // Cap log at 80 entries
