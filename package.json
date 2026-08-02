@@ -6,7 +6,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "engine": "node engine/ws-server.js",
+    "cli": "node engine/cli.js"
   },
   "engines": {
     "node": ">=18.0.0"
