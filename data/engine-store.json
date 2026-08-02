@@ -24,26 +24,6 @@
     {
       "text": "Deriv connection lost (1006)",
       "type": "warn",
-      "time": 1785702979302
-    },
-    {
-      "text": "Requesting Deriv OTP session...",
-      "type": "info",
-      "time": 1785703009312
-    },
-    {
-      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
-      "type": "warn",
-      "time": 1785703009546
-    },
-    {
-      "text": "Deriv socket error: Unexpected server response: 401",
-      "type": "warn",
-      "time": 1785703009741
-    },
-    {
-      "text": "Deriv connection lost (1006)",
-      "type": "warn",
       "time": 1785703009752
     },
     {
@@ -1020,6 +1000,26 @@
       "text": "MT5 bridge disconnected",
       "type": "warn",
       "time": 1785703812548
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703817555
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703817565
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703822576
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703822587
     }
   ],
   "trades": []
