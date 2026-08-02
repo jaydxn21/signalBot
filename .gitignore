@@ -4,3 +4,5 @@ __pycache__/
 .DS_Store
 ._*
 *.backup
+.env
+data/engine-store.json
