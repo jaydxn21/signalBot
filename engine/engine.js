@@ -1,4 +1,13 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Explicitly load .env from root directory (one folder up from engine/)
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
 import { loadConfig } from './config.js';
 import { Store } from './store.js';
 import { DerivClient } from './deriv-client.js';
@@ -9,7 +18,7 @@ import { DashboardWSServer } from './ws-server.js';
 
 const config = loadConfig({
   appId: process.env.APP_ID,
-  token: process.env.DERIV_TOKEN,
+  token: process.env.TOKEN,
   accountId: process.env.ACCOUNT_ID,
   enginePort: process.env.WS_ENGINE_PORT,
 });
