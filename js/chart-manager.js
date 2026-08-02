@@ -151,29 +151,83 @@ function _createPanel(botId, symbolLabel, tfLabel) {
     panel.id        = `chart-panel-${botId}`;
     panel.className = 'chart-panel';
 
-    panel.innerHTML = `
-        <div class="chart-panel-header">
-            <div style="display:flex;align-items:center;gap:8px;">
-                <span id="chart-label-${botId}" class="mono chart-panel-symbol">${symbolLabel}</span>
-                <span id="chart-tf-${botId}" class="chart-panel-tf">${tfLabel}</span>
-            </div>
-            <div class="chart-panel-hud">
-                <span class="chart-hud-item">RSI <span id="panel-rsi-${botId}" class="chart-hud-val">—</span></span>
-                <span class="chart-hud-item">ATR <span id="panel-atr-${botId}" class="chart-hud-val atr">—</span></span>
-                <span class="chart-hud-item"><span id="panel-bias-${botId}" class="chart-hud-val">—</span></span>
-            </div>
-            <button class="chart-expand-btn" title="Expand to full screen">⤢</button>
-        </div>
-        <div id="chart-canvas-${botId}" class="chart-canvas"></div>
-    `;
+    const header = document.createElement('div');
+    header.className = 'chart-panel-header';
 
-    panel.querySelector('.chart-expand-btn').addEventListener('click', (e) => {
+    const titleWrap = document.createElement('div');
+    titleWrap.style.display = 'flex';
+    titleWrap.style.alignItems = 'center';
+    titleWrap.style.gap = '8px';
+
+    const labelEl = document.createElement('span');
+    labelEl.id = `chart-label-${botId}`;
+    labelEl.className = 'mono chart-panel-symbol';
+    labelEl.textContent = symbolLabel;
+
+    const tfEl = document.createElement('span');
+    tfEl.id = `chart-tf-${botId}`;
+    tfEl.className = 'chart-panel-tf';
+    tfEl.textContent = tfLabel;
+
+    titleWrap.appendChild(labelEl);
+    titleWrap.appendChild(tfEl);
+
+    const hud = document.createElement('div');
+    hud.className = 'chart-panel-hud';
+
+    const rsiItem = document.createElement('span');
+    rsiItem.className = 'chart-hud-item';
+    rsiItem.append('RSI ');
+    const rsiVal = document.createElement('span');
+    rsiVal.id = `panel-rsi-${botId}`;
+    rsiVal.className = 'chart-hud-val';
+    rsiVal.textContent = '—';
+    rsiItem.appendChild(rsiVal);
+
+    const atrItem = document.createElement('span');
+    atrItem.className = 'chart-hud-item';
+    atrItem.append('ATR ');
+    const atrVal = document.createElement('span');
+    atrVal.id = `panel-atr-${botId}`;
+    atrVal.className = 'chart-hud-val atr';
+    atrVal.textContent = '—';
+    atrItem.appendChild(atrVal);
+
+    const biasItem = document.createElement('span');
+    biasItem.className = 'chart-hud-item';
+    const biasVal = document.createElement('span');
+    biasVal.id = `panel-bias-${botId}`;
+    biasVal.className = 'chart-hud-val';
+    biasVal.textContent = '—';
+    biasItem.appendChild(biasVal);
+
+    hud.appendChild(rsiItem);
+    hud.appendChild(atrItem);
+    hud.appendChild(biasItem);
+
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'chart-expand-btn';
+    expandBtn.title = 'Expand to full screen';
+    expandBtn.textContent = '⤢';
+
+    header.appendChild(titleWrap);
+    header.appendChild(hud);
+    header.appendChild(expandBtn);
+
+    const canvas = document.createElement('div');
+    canvas.id = `chart-canvas-${botId}`;
+    canvas.className = 'chart-canvas';
+
+    panel.appendChild(header);
+    panel.appendChild(canvas);
+
+    expandBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         // Tell signal-bot to focus this bot (which calls ChartManager.focus + loadMain)
         if (window.focusBot) window.focusBot(botId);
     });
 
-    panel.querySelector('.chart-panel-header').addEventListener('click', () => {
+    header.addEventListener('click', () => {
         if (Object.keys(splitEngines).length > 1 && window.focusBot) {
             window.focusBot(botId);
         }
