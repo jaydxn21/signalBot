@@ -1,0 +1,71 @@
+{
+  "startedAt": 1785688645147,
+  "autoMt5": true,
+  "bots": [
+    {
+      "id": "1785690099614",
+      "config": {
+        "strategy": "breakout_trend",
+        "symbol": "R_100",
+        "tf": 300,
+        "lotSize": 0.01
+      },
+      "isActive": true,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0,
+      "openSignal": null,
+      "accountEquity": 10000,
+      "sessionStart": 1785690157617,
+      "lastFiredMs": 0
+    }
+  ],
+  "logs": [
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1785688645153
+    },
+    {
+      "text": "Initial Deriv connection failed: APP_ID, TOKEN, and ACCOUNT_ID must be configured",
+      "type": "error",
+      "time": 1785688645159
+    },
+    {
+      "text": "Connected to MT5 bridge",
+      "type": "info",
+      "time": 1785688645168
+    },
+    {
+      "text": "Created bot #1785690099614 — breakout_trend on R_100",
+      "type": "info",
+      "time": 1785690099626
+    },
+    {
+      "text": "Started bot #1785690099614 — breakout_trend on R_100",
+      "type": "info",
+      "time": 1785690102232
+    },
+    {
+      "text": "Bot #1785690099614 queued until Deriv reconnects",
+      "type": "warn",
+      "time": 1785690102233
+    },
+    {
+      "text": "Stopped bot #1785690099614",
+      "type": "info",
+      "time": 1785690156422
+    },
+    {
+      "text": "Started bot #1785690099614 — breakout_trend on R_100",
+      "type": "info",
+      "time": 1785690157619
+    },
+    {
+      "text": "Bot #1785690099614 queued until Deriv reconnects",
+      "type": "warn",
+      "time": 1785690157620
+    }
+  ],
+  "trades": []
+}
