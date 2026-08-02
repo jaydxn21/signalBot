@@ -16,7 +16,24 @@
       "pnl": 0,
       "openSignal": null,
       "accountEquity": 10000,
-      "sessionStart": 1785690157617,
+      "sessionStart": 1785694683956,
+      "lastFiredMs": 0
+    },
+    {
+      "id": "1785694810344",
+      "config": {
+        "symbol": "R_100",
+        "strategy": "breakout_trend",
+        "tf": 300,
+        "lotSize": 0.01
+      },
+      "isActive": true,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0,
+      "openSignal": null,
+      "accountEquity": 10000,
+      "sessionStart": 1785694858071,
       "lastFiredMs": 0
     }
   ],
@@ -65,6 +82,36 @@
       "text": "Bot #1785690099614 queued until Deriv reconnects",
       "type": "warn",
       "time": 1785690157620
+    },
+    {
+      "text": "Stopped bot #1785690099614",
+      "type": "info",
+      "time": 1785694683161
+    },
+    {
+      "text": "Started bot #1785690099614 — breakout_trend on R_100",
+      "type": "info",
+      "time": 1785694683965
+    },
+    {
+      "text": "Bot #1785690099614 queued until Deriv reconnects",
+      "type": "warn",
+      "time": 1785694683966
+    },
+    {
+      "text": "Created bot #1785694810344 — breakout_trend on R_100",
+      "type": "info",
+      "time": 1785694810355
+    },
+    {
+      "text": "Started bot #1785694810344 — breakout_trend on R_100",
+      "type": "info",
+      "time": 1785694858080
+    },
+    {
+      "text": "Bot #1785694810344 queued until Deriv reconnects",
+      "type": "warn",
+      "time": 1785694858081
     }
   ],
   "trades": []
