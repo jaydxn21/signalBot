@@ -18,100 +18,1008 @@
       "accountEquity": 10000,
       "sessionStart": 1785694683956,
       "lastFiredMs": 0
-    },
-    {
-      "id": "1785694810344",
-      "config": {
-        "symbol": "R_100",
-        "strategy": "breakout_trend",
-        "tf": 300,
-        "lotSize": 0.01
-      },
-      "isActive": true,
-      "wins": 0,
-      "losses": 0,
-      "pnl": 0,
-      "openSignal": null,
-      "accountEquity": 10000,
-      "sessionStart": 1785694858071,
-      "lastFiredMs": 0
     }
   ],
   "logs": [
     {
-      "text": "Engine listening on ws://0.0.0.0:4000",
-      "type": "info",
-      "time": 1785688645153
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785702979302
     },
     {
-      "text": "Initial Deriv connection failed: APP_ID, TOKEN, and ACCOUNT_ID must be configured",
-      "type": "error",
-      "time": 1785688645159
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703009312
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703009546
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703009741
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703009752
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703039759
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703039891
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703040113
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703040124
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703070136
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703070313
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703070579
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703070588
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703100590
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703100723
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703100971
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703100983
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703130990
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703131162
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703131380
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703131391
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703161404
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703161538
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703161764
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703161776
+    },
+    {
+      "text": "Engine shutting down",
+      "type": "warn",
+      "time": 1785703191572
+    },
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1785703191937
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703191942
     },
     {
       "text": "Connected to MT5 bridge",
       "type": "info",
-      "time": 1785688645168
+      "time": 1785703192042
     },
     {
-      "text": "Created bot #1785690099614 — breakout_trend on R_100",
-      "type": "info",
-      "time": 1785690099626
-    },
-    {
-      "text": "Started bot #1785690099614 — breakout_trend on R_100",
-      "type": "info",
-      "time": 1785690102232
-    },
-    {
-      "text": "Bot #1785690099614 queued until Deriv reconnects",
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
       "type": "warn",
-      "time": 1785690102233
+      "time": 1785703192247
     },
     {
-      "text": "Stopped bot #1785690099614",
-      "type": "info",
-      "time": 1785690156422
-    },
-    {
-      "text": "Started bot #1785690099614 — breakout_trend on R_100",
-      "type": "info",
-      "time": 1785690157619
-    },
-    {
-      "text": "Bot #1785690099614 queued until Deriv reconnects",
+      "text": "Deriv socket error: Unexpected server response: 401",
       "type": "warn",
-      "time": 1785690157620
+      "time": 1785703192454
     },
     {
-      "text": "Stopped bot #1785690099614",
-      "type": "info",
-      "time": 1785694683161
-    },
-    {
-      "text": "Started bot #1785690099614 — breakout_trend on R_100",
-      "type": "info",
-      "time": 1785694683965
-    },
-    {
-      "text": "Bot #1785690099614 queued until Deriv reconnects",
+      "text": "Deriv connection lost (1006)",
       "type": "warn",
-      "time": 1785694683966
+      "time": 1785703192465
     },
     {
-      "text": "Created bot #1785694810344 — breakout_trend on R_100",
+      "text": "Requesting Deriv OTP session...",
       "type": "info",
-      "time": 1785694810355
+      "time": 1785703194476
     },
     {
-      "text": "Started bot #1785694810344 — breakout_trend on R_100",
-      "type": "info",
-      "time": 1785694858080
-    },
-    {
-      "text": "Bot #1785694810344 queued until Deriv reconnects",
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
       "type": "warn",
-      "time": 1785694858081
+      "time": 1785703194594
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703194787
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703194800
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703198807
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703198925
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703199151
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703199162
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703207168
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703207311
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703207513
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703207523
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703223534
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703223685
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703223901
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703223914
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703253919
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703254133
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703254347
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703254357
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703284362
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703284499
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703284687
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703284696
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703314709
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703314905
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703315135
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703315147
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703345158
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703345316
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703345555
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703345567
+    },
+    {
+      "text": "Engine shutting down",
+      "type": "warn",
+      "time": 1785703355964
+    },
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1785703381058
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703381065
+    },
+    {
+      "text": "Connected to MT5 bridge",
+      "type": "info",
+      "time": 1785703381224
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703381432
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703381640
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703381652
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703383655
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703383779
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703383964
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703383977
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703387984
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703388097
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703388330
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703388342
+    },
+    {
+      "text": "Requesting Deriv OTP session...",
+      "type": "info",
+      "time": 1785703396349
+    },
+    {
+      "text": "Deriv OTP failed, falling back to legacy auth: Unexpected token I in JSON at position 0",
+      "type": "warn",
+      "time": 1785703396511
+    },
+    {
+      "text": "Deriv socket error: Unexpected server response: 401",
+      "type": "warn",
+      "time": 1785703396733
+    },
+    {
+      "text": "Deriv connection lost (1006)",
+      "type": "warn",
+      "time": 1785703396744
+    },
+    {
+      "text": "Engine shutting down",
+      "type": "warn",
+      "time": 1785703412463
+    },
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1785703417654
+    },
+    {
+      "text": "Initial Deriv connection failed: APP_ID, TOKEN, and ACCOUNT_ID must be configured",
+      "type": "error",
+      "time": 1785703417670
+    },
+    {
+      "text": "Connected to MT5 bridge",
+      "type": "info",
+      "time": 1785703417679
+    },
+    {
+      "text": "Engine shutting down",
+      "type": "warn",
+      "time": 1785703510111
+    },
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1785703541672
+    },
+    {
+      "text": "Initial Deriv connection failed: APP_ID, TOKEN, and ACCOUNT_ID must be configured",
+      "type": "error",
+      "time": 1785703541688
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703541693
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703541695
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703546705
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703546718
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703551723
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703551732
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703556737
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703556747
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703561751
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703561762
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703566765
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703566774
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703571784
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703571793
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703576806
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703576816
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703581820
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703581831
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703586834
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703586844
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703591855
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703591866
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703596879
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703596890
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703601900
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703601908
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703606918
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703606927
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703611932
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703611942
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703616944
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703616955
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703621964
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703621975
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703626985
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703626996
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703632007
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703632018
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703637031
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703637041
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703642048
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703642060
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703647065
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703647076
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703652081
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703652092
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703657094
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703657103
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703662114
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703662125
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703667132
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703667143
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703672146
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703672156
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703677160
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703677172
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703682183
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703682194
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703687197
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703687208
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703692219
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703692230
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703697234
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703697246
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703702256
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703702259
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703707265
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703707275
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703712283
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703712294
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703717306
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703717308
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703722311
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703722313
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703727318
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703727327
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703732332
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703732333
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703737337
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703737346
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703742350
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703742364
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703747367
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703747377
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703752380
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703752390
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703757394
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703757395
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703762397
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703762407
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703767411
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703767421
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703772434
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703772452
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703777463
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703777475
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703782483
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703782486
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703787489
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703787499
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703792504
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703792514
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703797523
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703797525
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703802527
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703802529
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703807538
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703807540
+    },
+    {
+      "text": "MT5 bridge error: connect ECONNREFUSED 127.0.0.1:3000",
+      "type": "warn",
+      "time": 1785703812546
+    },
+    {
+      "text": "MT5 bridge disconnected",
+      "type": "warn",
+      "time": 1785703812548
     }
   ],
   "trades": []
