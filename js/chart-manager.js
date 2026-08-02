@@ -154,8 +154,8 @@ function _createPanel(botId, symbolLabel, tfLabel) {
     panel.innerHTML = `
         <div class="chart-panel-header">
             <div style="display:flex;align-items:center;gap:8px;">
-                <span id="chart-label-${botId}" class="mono chart-panel-symbol">${symbolLabel}</span>
-                <span id="chart-tf-${botId}" class="chart-panel-tf">${tfLabel}</span>
+                <span id="chart-label-${botId}" class="mono chart-panel-symbol"></span>
+                <span id="chart-tf-${botId}" class="chart-panel-tf"></span>
             </div>
             <div class="chart-panel-hud">
                 <span class="chart-hud-item">RSI <span id="panel-rsi-${botId}" class="chart-hud-val">—</span></span>
@@ -166,6 +166,11 @@ function _createPanel(botId, symbolLabel, tfLabel) {
         </div>
         <div id="chart-canvas-${botId}" class="chart-canvas"></div>
     `;
+
+    const labelEl = panel.querySelector(`#chart-label-${botId}`);
+    const tfEl = panel.querySelector(`#chart-tf-${botId}`);
+    if (labelEl) labelEl.textContent = symbolLabel;
+    if (tfEl) tfEl.textContent = tfLabel;
 
     panel.querySelector('.chart-expand-btn').addEventListener('click', (e) => {
         e.stopPropagation();
