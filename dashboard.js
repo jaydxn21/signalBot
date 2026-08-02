@@ -14,6 +14,7 @@ const SYMBOL_MAP = {
 };
 
 const TF_LABEL = { 60: 'M1', 120: 'M2', 300: 'M5', 600: 'M10', 900: 'M15', 1800: 'M30', 3600: 'H1', 14400: 'H4', 86400: 'D1' };
+const HTF_GRAN_MAP = { 60: 1800, 120: 3600, 180: 3600, 300: 3600, 600: 7200, 900: 14400, 1800: 14400, 3600: 86400, 14400: 604800 };
 const DEFAULT_CONFIG = { strategy: 'breakout_trend', symbol: 'R_100', tf: 300, lotSize: 0.01 };
 const OVERLAY_IDS = ['show-asian', 'show-pdhpdl', 'show-fvg', 'show-h4', 'show-major', 'show-orb', 'show-ob', 'show-bos'];
 
@@ -41,6 +42,9 @@ function send(type, payload = {}) {
 
 function connectSocket() {
   clearTimeout(reconnectTimer);
+  try {
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+  } catch {}
   socket = new WebSocket(wsUrl());
 
   socket.onopen = () => {
@@ -121,6 +125,9 @@ function syncTrades(trades) {
 }
 
 function handleTradeEvent(event) {
+  if (event.type === 'signal' && event.signal) {
+    registerBotSignal(event.botId, event.signal.type, event.signal.entry, event.signal.label, event.signal.confidence);
+  }
   if (event.trade) {
     const trades = [event.trade, ...(SessionState.get().trades || [])].slice(0, 200);
     SessionState.set({ trades });
@@ -280,6 +287,7 @@ function removeBotCard(id) {
 function ensureChart(id, bot) {
   const symbolLabel = (SYMBOL_MAP[bot.config.symbol] || bot.config.symbol).replace(' Index', '').trim();
   ChartManager.addBot(id, symbolLabel, TF_LABEL[bot.config.tf] || bot.config.tf);
+  ChartManager.updateLabel(id, symbolLabel, TF_LABEL[bot.config.tf] || bot.config.tf);
 }
 
 function removeChart(id) {
@@ -349,6 +357,7 @@ function applyCandleHistory(botId, candles, h4Candles, htfCandles) {
   bot.candles = candles;
   bot.h4Candles = h4Candles;
   bot.htfCandles = htfCandles;
+  bot.htfGran = HTF_GRAN_MAP[bot.config?.tf] || 14400;
   const engine = engineFor(String(botId));
   if (engine && candles.length) {
     engine.setData(candles);
@@ -360,6 +369,7 @@ function applyCandleHistory(botId, candles, h4Candles, htfCandles) {
 function applyCandleUpdate(botId, candle, granularity) {
   const bot = bots[String(botId)];
   if (!bot || !candle) return;
+  if (!bot.htfGran) bot.htfGran = HTF_GRAN_MAP[bot.config?.tf] || 14400;
 
   if (granularity === bot.config.tf) upsertCandle(bot.candles, candle, 1000);
   if (granularity === 14400) upsertCandle(bot.h4Candles, candle, 500);
@@ -378,6 +388,23 @@ function upsertCandle(list, candle, cap) {
   else {
     list.push(candle);
     if (list.length > cap) list.shift();
+  }
+
+  function registerBotSignal(id, type, price, label, confidence) {
+    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+    if (!card || !confidence) return;
+    let badge = card.querySelector('.bot-confidence-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'bot-confidence-badge';
+      badge.style.cssText = 'font-size:0.58rem;font-weight:700;letter-spacing:0.06em;padding:3px 8px;border-radius:6px;margin-top:6px;text-align:center;font-family:var(--font-mono);';
+      const wlRow = card.querySelector('.bot-card-stats');
+      if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
+    }
+    badge.textContent = `${label || 'SIGNAL'} ${type} · ${confidence.grade} (${confidence.score}%) @ ${Number(price).toFixed(2)}`;
+    badge.style.background = confidence.color + '22';
+    badge.style.color = confidence.color;
+    badge.style.border = `1px solid ${confidence.color}55`;
   }
 }
 

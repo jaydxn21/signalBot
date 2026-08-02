@@ -35,7 +35,7 @@ export class DerivClient {
         method: 'POST',
         headers: {
           'Deriv-App-ID': this.appId,
-          'Authorization': `******
+          Authorization: 'Bearer ' + this.token,
           'Content-Type': 'application/json',
         },
       });

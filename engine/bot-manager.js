@@ -235,6 +235,7 @@ export class BotManager {
   }
 
   onConnectionRestored() {
+    this.subscriptionRefs.clear();
     this.api.fetchActiveSymbols();
     for (const bot of this.bots.values()) {
       if (bot.isActive) this.subscribeBot(bot);

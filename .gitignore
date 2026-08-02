@@ -5,3 +5,4 @@ __pycache__/
 ._*
 *.backup
 .env
+data/engine-store.json

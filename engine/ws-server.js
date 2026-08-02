@@ -87,7 +87,7 @@ export class DashboardWSServer {
   }
 
   send(socket, payload) {
-    if (socket.readyState === socket.OPEN) {
+    if (socket.readyState === 1) {
       socket.send(JSON.stringify(payload));
     }
   }
@@ -95,7 +95,7 @@ export class DashboardWSServer {
   broadcast(payload) {
     const data = JSON.stringify(payload);
     for (const client of this.wss.clients) {
-      if (client.readyState === client.OPEN) client.send(data);
+      if (client.readyState === 1) client.send(data);
     }
   }
 
