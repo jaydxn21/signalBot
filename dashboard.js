@@ -19,11 +19,11 @@ const DEFAULT_CONFIG = { strategy: 'breakout_trend', symbol: 'R_100', tf: 300, l
 const OVERLAY_IDS = ['show-asian', 'show-pdhpdl', 'show-fvg', 'show-h4', 'show-major', 'show-orb', 'show-ob', 'show-bos'];
 
 let strategies = ['breakout_trend'];
-const bots = {};
+const bots = new Map();
 let focusedBotId = null;
 let socket = null;
 let reconnectTimer = null;
-const overlayState = {};
+const overlayState = new Map();
 
 function wsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -158,17 +158,17 @@ function renderSessionSummary(trades) {
 function syncBots(nextBots) {
   const nextIds = new Set(nextBots.map(bot => String(bot.id)));
 
-  for (const staleId of Object.keys(bots)) {
+  for (const staleId of bots.keys()) {
     if (!nextIds.has(staleId)) removeBotCard(staleId);
   }
 
   for (const bot of nextBots) {
     const id = String(bot.id);
-    const existing = bots[id] || { candles: [], h4Candles: [], htfCandles: [] };
-    bots[id] = { ...existing, ...bot, id };
-    if (!document.querySelector(`.bot-card[data-bot-id="${id}"]`)) createBotCard(id, bots[id]);
-    hydrateBotCard(id, bots[id]);
-    if (bots[id].isActive) ensureChart(id, bots[id]);
+    const existing = bots.get(id) || { candles: [], h4Candles: [], htfCandles: [] };
+    bots.set(id, { ...existing, ...bot, id });
+    if (!document.querySelector(`.bot-card[data-bot-id="${id}"]`)) createBotCard(id, bots.get(id));
+    hydrateBotCard(id, bots.get(id));
+    if (bots.get(id).isActive) ensureChart(id, bots.get(id));
     else removeChart(id);
   }
 
@@ -222,7 +222,7 @@ function createBotCard(id, bot = { config: DEFAULT_CONFIG, isActive: false }) {
   symbolSelect.addEventListener('change', updateLabel);
 
   card.querySelector('.bot-toggle-btn').onclick = () => {
-    const isRunning = bots[id]?.isActive;
+    const isRunning = bots.get(id)?.isActive;
     send(isRunning ? 'stop_bot' : 'start_bot', { id });
   };
 
@@ -275,7 +275,7 @@ function hydrateBotCard(id, bot) {
 
 function removeBotCard(id) {
   removeChart(id);
-  delete bots[id];
+  bots.delete(id);
   const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
   if (card) card.remove();
   if (focusedBotId === id) {
@@ -323,7 +323,7 @@ function setBotRunning(id, isRunning) {
 
 function focusBot(id) {
   focusedBotId = id;
-  const bot = bots[id];
+  const bot = bots.get(id);
   if (!bot) return;
 
   if (!bot.isActive) {
@@ -352,7 +352,7 @@ function focusBot(id) {
 }
 
 function applyCandleHistory(botId, candles, h4Candles, htfCandles) {
-  const bot = bots[String(botId)];
+  const bot = bots.get(String(botId));
   if (!bot) return;
   bot.candles = candles;
   bot.h4Candles = h4Candles;
@@ -367,7 +367,7 @@ function applyCandleHistory(botId, candles, h4Candles, htfCandles) {
 }
 
 function applyCandleUpdate(botId, candle, granularity) {
-  const bot = bots[String(botId)];
+  const bot = bots.get(String(botId));
   if (!bot || !candle) return;
   if (!bot.htfGran) bot.htfGran = HTF_GRAN_MAP[bot.config?.tf] || 14400;
 
@@ -414,8 +414,8 @@ function engineFor(botId) {
 }
 
 function redrawOverlays() {
-  if (!focusedBotId || !bots[focusedBotId]) return;
-  const bot = bots[focusedBotId];
+  if (!focusedBotId || !bots.has(focusedBotId)) return;
+  const bot = bots.get(focusedBotId);
   const engine = engineFor(focusedBotId);
   if (!engine) return;
   const series = engine.getCandleSeries();
@@ -436,15 +436,16 @@ function showOverlayPanel(show) {
 }
 
 function saveOverlayState(botId) {
-  overlayState[botId] = {};
+  const nextState = {};
   OVERLAY_IDS.forEach((id) => {
     const el = document.getElementById(id);
-    if (el) overlayState[botId][id] = el.checked;
+    if (el) nextState[id] = el.checked;
   });
+  overlayState.set(botId, nextState);
 }
 
 function loadOverlayState(botId) {
-  const state = overlayState[botId] || {};
+  const state = overlayState.get(botId) || {};
   OVERLAY_IDS.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.checked = Boolean(state[id]);
