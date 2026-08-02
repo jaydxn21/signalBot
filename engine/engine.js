@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { loadConfig } from './config.js';
 import { Store } from './store.js';
 import { DerivClient } from './deriv-client.js';
@@ -6,7 +7,12 @@ import { StrategyRunner } from './strategy-runner.js';
 import { BotManager } from './bot-manager.js';
 import { DashboardWSServer } from './ws-server.js';
 
-const config = loadConfig();
+const config = loadConfig({
+  appId: process.env.APP_ID,
+  token: process.env.DERIV_TOKEN,
+  accountId: process.env.ACCOUNT_ID,
+  enginePort: process.env.WS_ENGINE_PORT,
+});
 const store = new Store({ persistPath: config.storeFile, autoMt5: config.autoMt5 });
 const mt5Bridge = new MT5BridgeClient({
   url: config.bridgeUrl,
