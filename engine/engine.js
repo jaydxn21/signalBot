@@ -22,6 +22,25 @@ const config = loadConfig({
   accountId: process.env.ACCOUNT_ID,
   enginePort: process.env.WS_ENGINE_PORT,
 });
+
+// After const config = loadConfig(); add this:
+console.log('✅ Config loaded:');
+console.log('   APP_ID:', config.appId ? '✓ SET' : '✗ MISSING');
+console.log('   TOKEN:', config.token ? '✓ SET' : '✗ MISSING');
+console.log('   ACCOUNT_ID:', config.accountId ? '✓ SET' : '✗ MISSING');
+console.log('   PORT:', config.enginePort);
+
+// In engine/engine.js, around line where it connects:
+
+console.log('🔌 Connecting to MT5 bridge...');
+mt5Bridge.connect();
+
+console.log('🔌 Connecting to Deriv API...');
+api.connect().catch((error) => {
+  store.addLog(`Initial Deriv connection failed: ${error.message}`, 'error');
+  console.error('❌ Deriv connection failed:', error.message);
+});
+
 const store = new Store({ persistPath: config.storeFile, autoMt5: config.autoMt5 });
 const mt5Bridge = new MT5BridgeClient({
   url: config.bridgeUrl,
