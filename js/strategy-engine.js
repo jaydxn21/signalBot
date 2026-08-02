@@ -98,14 +98,16 @@ export class StrategyEngine {
 
     // Helper to get available strategies
     static async getAvailableStrategies() {
-        try {
-            const response = await fetch('/api/strategy-manifest');
-            if (response.ok) {
-                const manifest = await response.json();
-                return manifest.strategies.map(s => s.name);
+        if (typeof fetch !== 'undefined') {
+            try {
+                const response = await fetch('/api/strategy-manifest');
+                if (response.ok) {
+                    const manifest = await response.json();
+                    return manifest.strategies.map(s => s.name);
+                }
+            } catch (e) {
+                // Fallback
             }
-        } catch (e) {
-            // Fallback
         }
         return ['breakout_trend'];
     }
@@ -117,10 +119,12 @@ export class StrategyEngine {
     }
 }
 
-// ─── EXPOSE TO WINDOW ────────────────────────────────────────────────────
+// ─── EXPOSE TO WINDOW (browser only) ────────────────────────────────────
 
-window.StrategyEngine = StrategyEngine;
-window._strategyModules = strategyModules;
+if (typeof window !== 'undefined') {
+    window.StrategyEngine = StrategyEngine;
+    window._strategyModules = strategyModules;
+}
 
 // ─── PRELOAD DEFAULT STRATEGY ────────────────────────────────────────────
 
