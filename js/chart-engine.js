@@ -66,6 +66,7 @@ export class ChartEngine {
         
         // Visual elements
         this.priceLines = [];
+        this._h4Lines   = [];
         this.markers    = [];
         this.h4Levels   = { high: null, low: null };  // Track current H4 levels
         this.analysisState = {};  // Track which overlays are active
@@ -144,6 +145,7 @@ export class ChartEngine {
     clearAll() {
         this.clearMarkers();
         this.clearPriceLines();
+        this._clearH4Levels();
         this.clearAnalysis();
         this.candleSeries.setData([]);
         const ph = document.getElementById('chart-placeholder');
@@ -172,9 +174,6 @@ export class ChartEngine {
         const h4High = latestH4.high;
         const h4Low  = latestH4.low;
 
-        // Store for reference
-        this.h4Levels = { high: h4High, low: h4Low, time: latestH4.time };
-
         // Clear previous H4 levels
         this._clearH4Levels();
 
@@ -198,20 +197,20 @@ export class ChartEngine {
         });
 
         // Store for cleanup
-        this.priceLines.push(highLine, lowLine);
+        this._h4Lines = [highLine, lowLine];
+        this.h4Levels = { high: h4High, low: h4Low, time: latestH4.time };
         this.analysisState.h4Levels = true;
 
         console.log(`[Chart] H4 Levels: High=${h4High.toFixed(4)}, Low=${h4Low.toFixed(4)}`);
     }
 
     _clearH4Levels() {
-        // Remove only H4 level lines (we'll identify by them being in order)
-        // This is a bit hacky, so we could improve it by storing references separately
-        if (this.analysisState.h4Levels) {
-            // For now, trust the user to manage this manually
-            // A better approach: store H4 lines separately
-            this.analysisState.h4Levels = false;
-        }
+        (this._h4Lines || []).forEach(l => {
+            try { this.candleSeries.removePriceLine(l); }
+            catch(e) {}
+        });
+        this._h4Lines = [];
+        this.analysisState.h4Levels = false;
     }
 
     // ─────────────────────────────────────────────────────────────

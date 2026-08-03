@@ -25,6 +25,11 @@ let _btMode       = 'single';
 let _cachedCandles    = null;
 let _cachedH4Candles  = null;
 let _running      = false;
+const _NON_GENERIC_MULTI_TF_STRATEGIES = new Set(['phantom', 'vortex', 'nova', 'kismet', 'pulse']);
+
+function _usesGenericBacktestEngine(strategyId) {
+    return !_NON_GENERIC_MULTI_TF_STRATEGIES.has(String(strategyId || '').toLowerCase());
+}
 
 window.btClearDates = function() {
     const f = document.getElementById('bt-date-from');
@@ -169,6 +174,13 @@ async function _runComparison(candles, h4Candles, stake, comm) {
         if (sel.value) stratIds.push(sel.value);
     });
 
+    const unsupported = stratIds.find(id => !_usesGenericBacktestEngine(id));
+    if (unsupported) {
+        alert(`Compare mode does not support ${unsupported.toUpperCase()} yet. Run it in single mode.`);
+        document.getElementById('bt-compare-wrap').style.display = 'none';
+        return;
+    }
+
     const results = stratIds.map((id, i) => {
         const obj    = _makeStrategy(id);
         const sym    = document.getElementById('bt-symbol')?.value || '';
@@ -298,12 +310,17 @@ window.btToggleOptimizer = function() {
 };
 
 window.btRunOptimizer = async function() {
+    const strategy = document.getElementById('bt-strategy').value;
+    if (!_usesGenericBacktestEngine(strategy)) {
+        alert(`${strategy.toUpperCase()} optimizer is not supported yet in this mode.`);
+        return;
+    }
+
     if (!_cachedCandles || !_cachedH4Candles) {
         alert('Run a backtest first — optimizer reuses the same candles.');
         return;
     }
 
-    const strategy = document.getElementById('bt-strategy').value;
     const stake    = parseFloat(document.getElementById('bt-stake').value) || 10;
     const comm     = parseFloat(document.getElementById('bt-commission').value) || 0;
 

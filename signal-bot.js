@@ -1286,6 +1286,7 @@ function _drawOverlaysOnEngine(engine, bot) {
 window.startBot = function(id) {
     const config = window.getBotConfig(id);
     if (!config) return;
+    const wasAnyBotActive = Object.values(bots).some(b => b.isActive);
 
     const maxBots = Settings.get('maxBots') || 3;
     const activeBotCount = Object.values(bots).filter(b => b.isActive).length;
@@ -1326,8 +1327,10 @@ window.startBot = function(id) {
 
     SessionState.set({ activeBots: Object.values(bots).filter(b => b.isActive).length });
     _saveBotConfigs();
-    PositionSizing.reset();
-    PositionSizing.resetSession(bot.accountEquity);
+    if (!wasAnyBotActive) {
+        PositionSizing.reset();
+        PositionSizing.resetSession(bot.accountEquity);
+    }
 };
 
 window.stopBot = function(id) {

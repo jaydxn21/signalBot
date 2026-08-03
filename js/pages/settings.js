@@ -414,11 +414,7 @@ const MT5Bridge = {
         const step1  = document.getElementById('mt5-step-1');
 
         // Check SessionState for EA connection
-        let eaConnected = false;
-        try {
-            const state = JSON.parse(localStorage.getItem('nexus_session') || '{}');
-            eaConnected = state.mt5Connected === true;
-        } catch {}
+        const eaConnected = SessionState.get().mt5Connected === true;
 
         if (!online) {
             badge.className  = 'mt5-badge mt5-badge-offline';
