@@ -98,15 +98,21 @@ export const OverlayManager = {
 
     // chartEngine = the ChartEngine instance (has .chart and .getCandleSeries())
     clearAll(series, chartEngine) {
-        // Use chartEngine as the stable key if available, else series
-        const key = chartEngine || series;
-        const st  = _getState(key);
-        st.lines.forEach(l => { try { series.removePriceLine(l); } catch(e) {} });
-        st.lines = [];
+        // Lines are always keyed by the series object
+        const lineSt = _getState(series);
+        lineSt.lines.forEach(l => {
+            try { series.removePriceLine(l); } catch(e) {}
+        });
+        lineSt.lines = [];
+
+        // Bands are keyed by the chartEngine
         if (chartEngine) {
-            st.bands.forEach(s => { try { chartEngine.chart.removeSeries(s); } catch(e) {} });
+            const bandSt = _getState(chartEngine);
+            bandSt.bands.forEach(s => {
+                try { chartEngine.chart.removeSeries(s); } catch(e) {}
+            });
+            bandSt.bands = [];
         }
-        st.bands = [];
     },
 
     // ── ASIAN RANGE ────────────────────────────────────────────

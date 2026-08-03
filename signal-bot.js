@@ -646,6 +646,11 @@ function _restoreBotCards() {
         const symLabel = (SYMBOL_MAP[config.symbol] || config.symbol).replace(' Index','').trim();
         ChartManager.addBot(id, symLabel, TF_LABEL[config.tf] || 'M5');
         log(`Bot #${id} restored — ${config.strategy} on ${config.symbol}`, 'info');
+
+        // Subscribe immediately if already authorized
+        if (api?.socket?.readyState === 1 && authorised) {
+            subscribeBot(bot);
+        }
     });
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph && saved.length > 0) ph.style.display = 'none';
@@ -894,8 +899,10 @@ function processBar(bot, bar, gran) {
 
     checkOutcome(bot);
 
-    // Run strategy
-    _runStrategy(bot, bar, atr, rsi);
+    // Only evaluate strategy on a confirmed closed candle
+    if (isNewCandle) {
+        _runStrategy(bot, bot.candles, atr, rsi);
+    }
 }
 
 // ─── BOT STATUS UPDATES ──────────────────────────────────────────────────
@@ -965,10 +972,15 @@ function startStatusUpdates() {
 
 // ─── RUN STRATEGY WITH STATUS LOGGING ──────────────────────────────────
 
-async function _runStrategy(bot, bar, atr, rsi) {
+async function _runStrategy(bot, candles, atr, rsi) {
     const strategyName = bot.config.strategy;
     const now = Date.now();
-    
+
+    // Evaluate against closed bars only — drop the just-opened forming candle
+    const evalCandles = candles.slice(0, -1);
+    const lastClosed  = evalCandles[evalCandles.length - 1];
+    if (!lastClosed) return;
+
     // Get the strategy class
     let StrategyClass = STRATEGY_MODULES[strategyName];
     
@@ -995,11 +1007,10 @@ async function _runStrategy(bot, bar, atr, rsi) {
     
     // Only log every 5 candles to avoid spam
     if (!bot._lastStatusLog || now - bot._lastStatusLog > (bot.config.tf || 300) * 5 * 1000) {
-        if (bot.candles.length > 20) {
-            const lastCandle = bot.candles[bot.candles.length - 1];
-            const recentHigh = Math.max(...bot.candles.slice(-20).map(c => c.high));
-            const recentLow = Math.min(...bot.candles.slice(-20).map(c => c.low));
-            log(`🔍 ${strategyName.toUpperCase()} monitoring ${bot.config.symbol} | Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} | Price: ${lastCandle.close.toFixed(2)}`, 'info');
+        if (evalCandles.length > 20) {
+            const recentHigh = Math.max(...evalCandles.slice(-20).map(c => c.high));
+            const recentLow = Math.min(...evalCandles.slice(-20).map(c => c.low));
+            log(`🔍 ${strategyName.toUpperCase()} monitoring ${bot.config.symbol} | Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} | Price: ${lastClosed.close.toFixed(2)}`, 'info');
             bot._lastStatusLog = now;
         }
     }
@@ -1008,10 +1019,10 @@ async function _runStrategy(bot, bar, atr, rsi) {
         return;
     }
     
-    // Get signal from strategy
+    // Get signal from strategy — evaluated on confirmed closed candles only
     let signal = null;
     try {
-        signal = await StrategyClass.checkEntry(bot.candles, atr, bot.config.symbol);
+        signal = await StrategyClass.checkEntry(evalCandles, atr, bot.config.symbol);
     } catch (error) {
         console.error(`Strategy ${strategyName} error:`, error);
         log(`❌ Strategy error: ${error.message}`, 'error');
@@ -1021,20 +1032,19 @@ async function _runStrategy(bot, bar, atr, rsi) {
     if (!signal) {
         // Log no signal occasionally
         if (!bot._lastNoSignalLog || now - bot._lastNoSignalLog > (bot.config.tf || 300) * 10 * 1000) {
-            const lastCandle = bot.candles[bot.candles.length - 1];
-            if (lastCandle && bot.candles.length > 20) {
-                const recentHigh = Math.max(...bot.candles.slice(-20).map(c => c.high));
-                const recentLow = Math.min(...bot.candles.slice(-20).map(c => c.low));
-                log(`📉 No signal | ${bot.config.symbol} | Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} | Price: ${lastCandle.close.toFixed(2)}`, 'neutral');
+            if (evalCandles.length > 20) {
+                const recentHigh = Math.max(...evalCandles.slice(-20).map(c => c.high));
+                const recentLow = Math.min(...evalCandles.slice(-20).map(c => c.low));
+                log(`📉 No signal | ${bot.config.symbol} | Range: ${recentLow.toFixed(2)} - ${recentHigh.toFixed(2)} | Price: ${lastClosed.close.toFixed(2)}`, 'neutral');
                 bot._lastNoSignalLog = now;
             }
         }
         return;
     }
     
-    // Fire the signal
+    // Fire the signal using the last confirmed closed bar for price/time reference
     bot.lastFiredMs = now;
-    log(`🎯 ${signal.type} SIGNAL DETECTED on ${bot.config.symbol}! @ ${bar.close.toFixed(4)}`, signal.type === 'BUY' ? 'buy' : 'sell');
+    log(`🎯 ${signal.type} SIGNAL DETECTED on ${bot.config.symbol}! @ ${lastClosed.close.toFixed(4)}`, signal.type === 'BUY' ? 'buy' : 'sell');
     if (signal.reason) {
         log(`📋 Reason: ${signal.reason}`, 'info');
     }
@@ -1042,7 +1052,7 @@ async function _runStrategy(bot, bar, atr, rsi) {
         log(`📋 Factors: ${signal.factors.join(' | ')}`, 'info');
     }
     
-    fireSignal(bot, signal, bar, atr, rsi);
+    fireSignal(bot, signal, lastClosed, atr, rsi);
 }
 
 
@@ -1629,10 +1639,15 @@ async function init() {
     }
 
     // ─── DERIV API CONNECTION ──────────────────────────────
-    const APP_ID = '33XjcwFHStlck2fOZ3IND';
-    const TOKEN = 'pat_729ccc1775f08d1223a443206a0772b933072c3d5d01da589112908ab22e0805';
-    const ACCOUNT_ID = 'DOT93854070';
-    
+    const APP_ID     = Settings.get('appId')     || '33XjcwFHStlck2fOZ3IND';
+    const TOKEN      = Settings.get('apiToken')  || '';
+    const ACCOUNT_ID = Settings.get('accountId') || '';
+
+    if (!TOKEN) {
+        log('No API token configured. Go to Settings and enter your Deriv token.', 'error');
+        return;
+    }
+
     api = new DerivAPI(APP_ID, handleData);
     
     try {

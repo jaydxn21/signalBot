@@ -758,7 +758,10 @@ export function _getBuiltinStrategy(id) {
     };
 
     const fn = strats[id];
-    if (!fn) return null;
+    if (!fn) {
+        console.warn(`[backtest-core] No implementation for strategy "${id}"`);
+        return null;
+    }
     return {
         analyze(stratId, candles, h4, rsiState, atr, symbol) {
             return fn(candles, h4, rsiState, atr, symbol);
