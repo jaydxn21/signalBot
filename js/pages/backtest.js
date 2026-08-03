@@ -666,6 +666,12 @@ async function _run() {
             _setProgress(68, `Running ${strategy.toUpperCase()} on ${m1Filtered.length} M1 bars...`);
             await _sleep(30);
             const stratObj = _makeStrategy(strategy);
+            if (!stratObj) {
+                _setProgress(0, `Error: "${strategy}" is not implemented in the backtest engine yet.`);
+                _setRunning(false);
+                _running = false;
+                return;
+            }
             result = _simulate(m1Filtered, [], stratObj, stake, comm, symbol);
             result._chartCandles = m1Filtered;
 
@@ -683,6 +689,12 @@ async function _run() {
             _setProgress(65, `Running ${strategy}...`);
             await _sleep(30);
             const stratObj = _makeStrategy(strategy);
+            if (!stratObj) {
+                _setProgress(0, `Error: "${strategy}" is not implemented in the backtest engine yet.`);
+                _setRunning(false);
+                _running = false;
+                return;
+            }
             result = _simulate(candles, h4Candles, stratObj, stake, comm, symbol);
             _setProgress(80, 'Walk-forward...');
             await _sleep(30);
