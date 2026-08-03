@@ -83,7 +83,7 @@ async connect(token, accountId) {
 
     _connectLegacy() {
         console.log('🔌 Connecting via legacy endpoint...');
-        const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=96293`;
+        const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(this.appId)}`;
         this._openSocket(wsUrl, true);
     }
 
@@ -189,7 +189,7 @@ async connect(token, accountId) {
         this._send({ active_symbols: 'brief' });
     }
 
-    subscribe(symbol, granularity) {
+    subscribe(symbol, granularity, count) {
         const key = `${symbol}_${granularity}`;
         const subId = this._subscriptions[key];
         if (subId) {
@@ -197,15 +197,33 @@ async connect(token, accountId) {
             delete this._subscriptions[key];
         }
 
+        const gran = parseInt(granularity, 10);
+        const resolvedGran = Number.isFinite(gran) && gran > 0 ? gran : 60;
+        const explicitCount = parseInt(count, 10);
+        const resolvedCount = Number.isFinite(explicitCount) && explicitCount > 0
+            ? explicitCount
+            : this._candleCountForOneDay(resolvedGran);
+
         this._send({
             ticks_history: symbol,
             subscribe: 1,
-            granularity: parseInt(granularity),
-            count: 500,
+            granularity: resolvedGran,
+            count: resolvedCount,
             style: 'candles',
             end: 'latest',
             adjust_start_time: 1
         });
+    }
+
+    _candleCountForOneDay(granularitySeconds) {
+        const ONE_DAY = 86400;
+        const MIN_CANDLES = 200;
+        const MAX_CANDLES = 5000;
+        const safeGranularity = Number.isFinite(granularitySeconds) && granularitySeconds > 0
+            ? granularitySeconds
+            : 60;
+        const forOneDay = Math.ceil(ONE_DAY / safeGranularity);
+        return Math.min(MAX_CANDLES, Math.max(MIN_CANDLES, forOneDay));
     }
 
     forgetSymbol(symbol, granularity) {
