@@ -137,6 +137,39 @@ export const ChartManager = {
     focusedId()   { return _focusedId; },
     mainEngine()  { return mainEngine; },
 
+    // Push a full candles array to the correct engine(s) for a given bot.
+    // Works in both split mode and focus mode.
+    setData(botId, candles) {
+        if (!candles || !candles.length) return;
+
+        // Always update the split engine so data is ready when returning to split view
+        const splitEngine = splitEngines[botId];
+        if (splitEngine) {
+            if (window.clearOverlaysForEngine) window.clearOverlaysForEngine(splitEngine);
+            splitEngine.setData(candles);
+        }
+
+        // If this bot is currently focused, also update the main engine
+        if (!_splitMode && _focusedId === botId && mainEngine) {
+            if (window.clearOverlaysForEngine) window.clearOverlaysForEngine(mainEngine);
+            mainEngine.setData(candles);
+        }
+    },
+
+    // Push a single live bar to the correct engine(s) for a given bot.
+    update(botId, bar) {
+        if (!bar) return;
+
+        const splitEngine = splitEngines[botId];
+        if (splitEngine) {
+            splitEngine.update(bar);
+        }
+
+        if (!_splitMode && _focusedId === botId && mainEngine) {
+            mainEngine.update(bar);
+        }
+    },
+
     // Update the per-panel mini HUD in split mode
     updatePanelHUD(botId, rsi, atr, marketCond) {
         _setPanelHUD(botId, rsi, atr, marketCond);

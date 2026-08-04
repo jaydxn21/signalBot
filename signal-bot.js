@@ -744,8 +744,7 @@ function handleData(data) {
 
             if (gran === bot.config.tf) {
                 bot.candles = history;
-                const eng = ChartManager.get(bot.id);
-                if (eng) eng.setData(history);
+                ChartManager.setData(bot.id, history);
             }
         });
     }
@@ -855,13 +854,7 @@ function processBar(bot, bar, gran) {
         if (bot.candles.length > 1000) bot.candles.shift();
     }
 
-    const activeEng = _engineFor(bot.id);
-    if (activeEng) activeEng.update(bar);
-
-    if (!ChartManager.isSplitMode() && bot.id === focusedBotId) {
-        const splitEng = ChartManager.get(bot.id);
-        if (splitEng && splitEng !== activeEng) splitEng.update(bar);
-    }
+    ChartManager.update(bot.id, bar);
 
     if (bot.candles.length < 20) {
         console.log(`[${bot.config.symbol}] Waiting for candle history (${bot.candles.length}/20)`);
@@ -1291,6 +1284,13 @@ function _drawOverlaysOnEngine(engine, bot) {
     if (document.getElementById('show-bos')?.checked) OverlayManager.drawBreakOfStructure(series, bot.candles);
 }
 
+// Called by ChartManager.setData before resetting chart data so stale price lines are removed
+window.clearOverlaysForEngine = function(engine) {
+    if (!engine) return;
+    const series = engine.getCandleSeries?.();
+    if (series) OverlayManager.clearAll(series, engine);
+};
+
 // ─── START / STOP BOT ────────────────────────────────────────────────────
 
 window.startBot = function(id) {
@@ -1387,7 +1387,7 @@ window.focusBot = function(id) {
         _loadOverlayState(id);
         _showOverlayPanel(true);
         setTimeout(() => {
-            ChartManager.loadMain(id, bot.candles);
+            ChartManager.setData(id, bot.candles);
             redrawOverlays();
             if (bot.openSignal) {
                 const eng = ChartManager.mainEngine();
@@ -1397,9 +1397,9 @@ window.focusBot = function(id) {
     } else {
         _showOverlayPanel(true);
         _loadOverlayState(id);
+        ChartManager.setData(id, bot.candles);
         const engine = ChartManager.get(id);
         if (engine && bot.candles.length > 0) {
-            engine.setData(bot.candles);
             engine.chart.timeScale().fitContent();
             redrawOverlays();
         }
