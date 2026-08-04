@@ -390,7 +390,7 @@ function upsertCandle(list, candle, cap) {
     if (list.length > cap) list.shift();
   }
 
-  function registerBotSignal(id, type, price, label, confidence) {
+    function registerBotSignal(id, type, price, label, confidence) {
     const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
     if (!card || !confidence) return;
     let badge = card.querySelector('.bot-confidence-badge');
@@ -406,6 +406,7 @@ function upsertCandle(list, candle, cap) {
     badge.style.color = confidence.color;
     badge.style.border = `1px solid ${confidence.color}55`;
   }
+  window.registerBotSignal = registerBotSignal;
 }
 
 function engineFor(botId) {
