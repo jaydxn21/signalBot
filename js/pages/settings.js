@@ -185,8 +185,13 @@ function _wireActions() {
     document.getElementById('btn-clear-session')?.addEventListener('click', () => {
         if (!confirm('Clear all session trade data? This cannot be undone.')) return;
         SessionState.clear();
-        _updateSessionInfo();
-        _showStatus('session-action-status', 'Session data cleared.', false);
+        // Also wipe bot configs and any other nexus_ keys so bots don't restore
+        try {
+            const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith('nexus_'));
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+            sessionStorage.clear();
+        } catch(_) {}
+        location.reload();
     });
 
     // Export session trades as CSV
