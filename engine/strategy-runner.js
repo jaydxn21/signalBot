@@ -92,10 +92,21 @@ export class StrategyRunner {
     const atr = Indicators.calculateATR(bot.candles);
 
     this.checkOutcome(bot);
-    await this.runStrategy(bot, bar, atr, rsi);
+
+    // Only evaluate new entries once a candle has actually closed — not on
+    // every intra-candle tick.  When isNewCandle just flipped true the last
+    // element of bot.candles is the brand-new, still-forming bar; the candle
+    // that just closed is the one immediately before it.
+    if (isNewCandle) {
+      const closedCandles = bot.candles.slice(0, -1);
+      const lastClosed = closedCandles[closedCandles.length - 1];
+      if (lastClosed) {
+        await this.runStrategy(bot, closedCandles, lastClosed, atr, rsi);
+      }
+    }
   }
 
-  async runStrategy(bot, bar, atr, rsi) {
+  async runStrategy(bot, candles, lastClosed, atr, rsi) {
     const strategyName = bot.config.strategy;
     const StrategyClass = STRATEGIES[strategyName];
     const now = Date.now();
@@ -110,7 +121,7 @@ export class StrategyRunner {
 
     let signal = null;
     try {
-      signal = await StrategyClass.checkEntry(bot.candles, atr, bot.config.symbol);
+      signal = await StrategyClass.checkEntry(candles, atr, bot.config.symbol);
     } catch (error) {
       this.store.addLog(`Strategy error on bot #${bot.id}: ${error.message}`, 'error');
       return;
@@ -121,7 +132,7 @@ export class StrategyRunner {
     bot.lastFiredMs = now;
     this.store.addLog(`Signal ${signal.type} on ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || bot.config.tf}`, signal.type === 'BUY' ? 'buy' : 'sell');
     if (signal.reason) this.store.addLog(`Reason: ${signal.reason}`, 'info');
-    await this.fireSignal(bot, signal, bar, atr, rsi);
+    await this.fireSignal(bot, signal, lastClosed, atr, rsi);
   }
 
   async fireSignal(bot, signal, bar, atr, rsi) {
