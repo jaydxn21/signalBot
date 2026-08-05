@@ -389,25 +389,26 @@ function upsertCandle(list, candle, cap) {
     list.push(candle);
     if (list.length > cap) list.shift();
   }
-
-    function registerBotSignal(id, type, price, label, confidence) {
-    const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
-    if (!card || !confidence) return;
-    let badge = card.querySelector('.bot-confidence-badge');
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.className = 'bot-confidence-badge';
-      badge.style.cssText = 'font-size:0.58rem;font-weight:700;letter-spacing:0.06em;padding:3px 8px;border-radius:6px;margin-top:6px;text-align:center;font-family:var(--font-mono);';
-      const wlRow = card.querySelector('.bot-card-stats');
-      if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
-    }
-    badge.textContent = `${label || 'SIGNAL'} ${type} · ${confidence.grade} (${confidence.score}%) @ ${Number(price).toFixed(2)}`;
-    badge.style.background = confidence.color + '22';
-    badge.style.color = confidence.color;
-    badge.style.border = `1px solid ${confidence.color}55`;
-  }
-  window.registerBotSignal = registerBotSignal;
 }
+
+function registerBotSignal(id, type, price, label, confidence) {
+  const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
+  if (!card || !confidence) return;
+  let badge = card.querySelector('.bot-confidence-badge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.className = 'bot-confidence-badge';
+    badge.style.cssText = 'font-size:0.58rem;font-weight:700;letter-spacing:0.06em;padding:3px 8px;border-radius:6px;margin-top:6px;text-align:center;font-family:var(--font-mono);';
+    const wlRow = card.querySelector('.bot-card-stats');
+    if (wlRow) wlRow.parentNode.insertBefore(badge, wlRow);
+  }
+  badge.textContent = `${label || 'SIGNAL'} ${type} · ${confidence.grade} (${confidence.score}%) @ ${Number(price).toFixed(2)}`;
+  badge.style.background = confidence.color + '22';
+  badge.style.color = confidence.color;
+  badge.style.border = `1px solid ${confidence.color}55`;
+}
+
+window.registerBotSignal = registerBotSignal;
 
 function engineFor(botId) {
   if (!ChartManager.isSplitMode() && focusedBotId === botId) return ChartManager.mainEngine();
