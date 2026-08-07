@@ -377,7 +377,7 @@ function connectRenderWebSocket() {
         return;
     }
 
-    const WS_URL = 'ws://localhost:3000/';
+    const WS_URL = 'wss://nexus-api-khvt.onrender.com';
     console.log(`[WS] Connecting to LOCAL BRIDGE: ${WS_URL}`);
 
     renderWS = new WebSocket(WS_URL);
