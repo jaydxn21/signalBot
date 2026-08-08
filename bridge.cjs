@@ -1,29 +1,74 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// NEXUS Signal Queue Bridge v2.5 - WITH QUALITY SCORE, AI SCORE & PHONE CONTROL
+// NEXUS Signal Queue Bridge v3.0 - FIRESTORE DIRECT SYNC EDITION
 // ═══════════════════════════════════════════════════════════════════════════
-// FIXES (v2.4):
-// - Passes qualityScore and aiScore from signal-bot to MT5 EA
-// - Preserves all signal fields (no data loss)
-// - Better logging for debugging
-// NEW (v2.5):
-// - Phone control endpoints: pause new trades / resume / emergency stop-all
-// - Shared-secret auth on control endpoints (set BOT_CONTROL_SECRET env var)
-// - New signals are blocked while paused/stopped
+// NEW (v3.0):
+// - Direct sync with Firebase Firestore for bot state (pause, resume, emergency stop)
+// - Eliminates local control endpoints and tunnel dependency
+// - Full real-time synchronization via admin.firestore().onSnapshot()
 
 const WebSocket = require('ws');
 const http = require('http');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const admin = require('firebase-admin');
 
 const WS_PORT = 3000;
 const HTTP_PORT = 8080;
 const RENDER_URL = 'wss://nexus-api-khvt.onrender.com/mt5';
 const TRADE_HISTORY_FILE = path.join(__dirname, 'mt5_trades.json');
 
-// Set this on the old MacBook, e.g.: export BOT_CONTROL_SECRET="something-long-and-random"
-// If not set, falls back to a default — CHANGE THIS before exposing via Cloudflare Tunnel.
-const CONTROL_SECRET = process.env.BOT_CONTROL_SECRET || 'change-me-before-going-live';
+// ═════════════════════════════════════════════════════════════════════════
+// FIREBASE ADMIN INITIALIZATION & FIRESTORE CONTROL
+// ═════════════════════════════════════════════════════════════════════════
+const serviceAccount = require(path.join(__dirname, 'firebase-service-account.json'));
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+
+// Real-time local state tracking
+let botState = {
+    tradingPaused: false,   // pause new trades only
+    emergencyStop: false,   // stop-all — blocks new trades AND flattens
+    lastCommandAt: null,
+    lastCommandSource: null
+};
+
+// Listen to Firestore document 'botControl/status'
+console.log('[FIRESTORE] Listening for control state updates on botControl/status...');
+db.collection('botControl').doc('status').onSnapshot(docSnapshot => {
+    if (docSnapshot.exists) {
+        const data = docSnapshot.data();
+        const prevStopped = botState.emergencyStop;
+        
+        botState.tradingPaused = !!data.isPaused;
+        botState.emergencyStop = !!data.isStopped;
+        botState.lastCommandAt = data.updatedAt || Date.now();
+        botState.lastCommandSource = data.updatedBy || 'firestore';
+
+        log(`State Updated -> Paused: ${botState.tradingPaused} | Emergency Stop: ${botState.emergencyStop}`, 'control');
+
+        // Trigger action on transition to Emergency Stop
+        if (!prevStopped && botState.emergencyStop) {
+            log('EMERGENCY STOP RECEIVED FROM FIRESTORE -> Flushing queue & broadcasting flatten command', 'warn');
+            signalQueue.clear();
+            broadcastCommand({ type: 'command', action: 'flatten_all', timestamp: Date.now() });
+        }
+    } else {
+        log('botControl/status doc missing. Creating initial status document...', 'warn');
+        db.collection('botControl').doc('status').set({
+            isPaused: false,
+            isStopped: false,
+            updatedAt: Date.now(),
+            updatedBy: 'system'
+        });
+    }
+}, err => {
+    log(`Firestore Sync Error: ${err.message}`, 'error');
+});
 
 // ═════════════════════════════════════════════════════════════════════════
 // SYMBOL MINIMUM LOT MAPPING (Matches EA v9.6)
@@ -157,16 +202,6 @@ const signalQueue = new SignalQueue();
 let latestFloatingPnL = { equity: 0, balance: 0, floating_pnl: 0, timestamp: 0, last_heartbeat: 0 };
 
 // ═════════════════════════════════════════════════════════════════════════
-// BOT CONTROL STATE — NEW (phone control)
-// ═════════════════════════════════════════════════════════════════════════
-let botState = {
-    tradingPaused: false,   // pause new trades only — existing positions still managed
-    emergencyStop: false,   // stop-all — blocks new trades AND signals a flatten
-    lastCommandAt: null,
-    lastCommandSource: null
-};
-
-// ═════════════════════════════════════════════════════════════════════════
 // LOGGING UTILITY
 // ═════════════════════════════════════════════════════════════════════════
 function log(msg, type = 'info') {
@@ -180,7 +215,7 @@ function log(msg, type = 'info') {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// EXPRESS HTTP SERVER WITH IMPROVED JSON PARSING
+// EXPRESS HTTP SERVER
 // ═════════════════════════════════════════════════════════════════════════
 const app = express();
 
@@ -212,23 +247,19 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Bot-Token');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
     next();
 });
 
-// ─── Shared-secret guard for control endpoints only ───
-function requireControlAuth(req, res, next) {
-    const token = req.headers['x-bot-token'];
-    if (token !== CONTROL_SECRET) {
-        log(`Control endpoint rejected — bad/missing token`, 'warn');
-        return res.status(401).json({ status: 'error', message: 'Unauthorized' });
-    }
-    next();
-}
-
 // ✅ MT5 POLLS FOR SIGNALS
 app.get('/api/signals', (req, res) => {
+    // Gatekeeper: Reject signals if paused or emergency stopped
+    if (botState.emergencyStop || botState.tradingPaused) {
+        res.json({ status: 'no_signal', reason: 'bot_paused_or_stopped', timestamp: Date.now() });
+        return;
+    }
+
     const signal = signalQueue.pop();
     if (signal) {
         log(`${signal.action.toUpperCase()} ${signal.symbol} | Vol:${signal.volume} | Q:${signal.qualityScore}% | AI:${signal.aiScore}%`, 'signal');
@@ -297,7 +328,7 @@ app.get('/api/ea-status', (req, res) => {
 app.get('/api/health', (req, res) => {
     const now = Date.now();
     res.json({
-        status: 'ok', version: '2.5', signals_queued: signalQueue.size(), signals_processed: signalQueue.processedCount,
+        status: 'ok', version: '3.0', signals_queued: signalQueue.size(), signals_processed: signalQueue.processedCount,
         trades_recorded: tradeHistory.getAllTrades().length, ea_connected: (now - latestFloatingPnL.last_heartbeat) < 60000,
         render_connected: renderWS && renderWS.readyState === WebSocket.OPEN, bot_state: botState, timestamp: now
     });
@@ -321,38 +352,7 @@ app.get('/api/debug/last-request', (req, res) => {
     res.json({ last_heartbeat: latestFloatingPnL.last_heartbeat, queue_size: signalQueue.size(), trades_count: tradeHistory.getAllTrades().length });
 });
 
-// ═════════════════════════════════════════════════════════════════════════
-// ✅ PHONE CONTROL ENDPOINTS — NEW, protected by X-Bot-Token header
-// ═════════════════════════════════════════════════════════════════════════
-app.post('/api/control/pause', requireControlAuth, (req, res) => {
-    botState.tradingPaused = true;
-    botState.lastCommandAt = Date.now();
-    botState.lastCommandSource = req.body.source || 'phone';
-    log('Command: PAUSE new trades (existing positions still managed)', 'control');
-    res.json({ status: 'ok', botState });
-});
-
-app.post('/api/control/resume', requireControlAuth, (req, res) => {
-    botState.tradingPaused = false;
-    botState.emergencyStop = false;
-    botState.lastCommandAt = Date.now();
-    botState.lastCommandSource = req.body.source || 'phone';
-    log('Command: RESUME trading', 'control');
-    res.json({ status: 'ok', botState });
-});
-
-app.post('/api/control/stop-all', requireControlAuth, (req, res) => {
-    botState.emergencyStop = true;
-    botState.tradingPaused = true;
-    botState.lastCommandAt = Date.now();
-    botState.lastCommandSource = req.body.source || 'phone';
-    log('Command: EMERGENCY STOP — flatten all positions', 'control');
-    signalQueue.clear();
-    broadcastCommand({ type: 'command', action: 'flatten_all', timestamp: Date.now() });
-    res.json({ status: 'ok', botState });
-});
-
-// State check does NOT require auth — safe to poll for a status widget
+// Read-only state check endpoint for local dashboards
 app.get('/api/control/state', (req, res) => res.json(botState));
 
 const server = http.createServer(app);
@@ -368,7 +368,7 @@ wss.on('listening', () => log(`Local WebSocket server on ws://localhost:${WS_POR
 wss.on('connection', (ws, req) => {
     log(`WebSocket client connected`, 'ws');
     wsClients.add(ws);
-    ws.send(JSON.stringify({ type: 'handshake', status: 'connected', message: 'Connected to NEXUS Signal Bridge v2.5', version: '2.5', timestamp: Date.now() }));
+    ws.send(JSON.stringify({ type: 'handshake', status: 'connected', message: 'Connected to NEXUS Signal Bridge v3.0', version: '3.0', timestamp: Date.now() }));
 
     ws.on('message', (data) => {
         try {
@@ -400,7 +400,7 @@ function broadcastCommand(message) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// CONNECT TO RENDER (unchanged — still the bot's signal source for now)
+// CONNECT TO RENDER
 // ═════════════════════════════════════════════════════════════════════════
 let renderWS = null;
 let reconnectAttempts = 0;
@@ -413,7 +413,7 @@ function connectToRender() {
     renderWS.on('open', () => {
         log(`✅ Connected to Render!`, 'bot');
         reconnectAttempts = 0;
-        renderWS.send(JSON.stringify({ type: 'bridge', client: 'nexus-signal-bridge', version: '2.5', timestamp: Date.now() }));
+        renderWS.send(JSON.stringify({ type: 'bridge', client: 'nexus-signal-bridge', version: '3.0', timestamp: Date.now() }));
     });
 
     renderWS.on('message', (data) => {
@@ -450,13 +450,9 @@ function connectToRender() {
 // STARTUP
 // ═════════════════════════════════════════════════════════════════════════
 console.log('\n╔═══════════════════════════════════════════════════════════════╗');
-console.log('║ NEXUS Signal Queue Bridge v2.5 - WITH PHONE CONTROL          ║');
-console.log('║ Passes qualityScore & aiScore | pause/resume/stop-all         ║');
+console.log('║ NEXUS Signal Queue Bridge v3.0 - FIRESTORE DIRECT SYNC       ║');
+console.log('║ Real-time control via Firestore | No Tunnels Required        ║');
 console.log('╚═══════════════════════════════════════════════════════════════╝\n');
-
-if (CONTROL_SECRET === 'change-me-before-going-live') {
-    log('⚠️  BOT_CONTROL_SECRET is not set — using default. Set it before exposing via Cloudflare Tunnel!', 'warn');
-}
 
 server.listen(HTTP_PORT, () => {
     log(`HTTP server on http://localhost:${HTTP_PORT}`, 'info');
@@ -469,10 +465,7 @@ server.listen(HTTP_PORT, () => {
     console.log(`   GET  /api/trade-stats      - Frontend trade stats`);
     console.log(`   GET  /api/ea-status        - EA connection status`);
     console.log(`   GET  /api/health           - Bridge health check`);
-    console.log(`   POST /api/control/pause    - [auth] pause new trades`);
-    console.log(`   POST /api/control/resume   - [auth] resume trading`);
-    console.log(`   POST /api/control/stop-all - [auth] flatten + stop`);
-    console.log(`   GET  /api/control/state    - current bot state\n`);
+    console.log(`   GET  /api/control/state    - Current bot state\n`);
 });
 
 setTimeout(() => { connectToRender(); }, 1000);
@@ -497,4 +490,3 @@ process.on('SIGINT', () => {
 });
 
 module.exports = { signalQueue, tradeHistory, latestFloatingPnL, botState };
-
