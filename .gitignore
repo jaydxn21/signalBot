@@ -5,3 +5,4 @@ __pycache__/
 ._*
 *.backup
 .envfirebase-service-account.json
+firebase-service-account.json
