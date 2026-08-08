@@ -4,4 +4,4 @@ __pycache__/
 .DS_Store
 ._*
 *.backup
-.env
+.envfirebase-service-account.json
