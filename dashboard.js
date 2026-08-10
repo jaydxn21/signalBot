@@ -2,6 +2,7 @@ import { SessionState } from './js/session-state.js';
 import { UIManager } from './js/ui-manager.js';
 import { ChartManager, initChartManager } from './js/chart-manager.js';
 import { OverlayManager } from './js/overlays.js';
+import { API_BASE } from './js/auth.js';
 
 const SYMBOL_MAP = {
   R_100: 'Volatility 100 Index', R_75: 'Volatility 75 Index', R_50: 'Volatility 50 Index', R_25: 'Volatility 25 Index', R_10: 'Volatility 10 Index',
@@ -25,6 +26,11 @@ let socket = null;
 let reconnectTimer = null;
 const overlayState = new Map();
 
+// NOTE: this WebSocket engine (port 4000) is a separate local process, not
+// the Render API (nexus-api-khvt.onrender.com). It will not resolve when this
+// dashboard is loaded from Vercel/production unless that engine is deployed
+// somewhere reachable and this URL is updated accordingly. Flagging for you —
+// left unchanged since I don't know where/if that engine is meant to run.
 function wsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const secret = window.localStorage.getItem('dashboard_secret');
@@ -473,7 +479,9 @@ function initOverlayPanel() {
 
 async function loadStrategies() {
   try {
-    const response = await fetch('/api/strategy-manifest');
+    // Fixed: was a relative fetch('/api/strategy-manifest'), which 404'd on
+    // Vercel because the frontend and API no longer share an origin.
+    const response = await fetch(`${API_BASE}/api/strategy-manifest`);
     if (response.ok) {
       const manifest = await response.json();
       strategies = manifest.strategies?.map(s => s.name) || strategies;

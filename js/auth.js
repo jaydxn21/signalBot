@@ -9,8 +9,7 @@
 
 // Compute API base URL once at module load.
 // Empty string = same origin (localhost dev).
-// Set NEXUS_API_URL as a meta tag or just edit the RENDER_URL below.
-const _RENDER_URL = 'https://nexus-api.onrender.com'; // ← update before deploying
+const _RENDER_URL = 'https://nexus-api-khvt.onrender.com'; // ← matches actual deployed Render service
 const _API_BASE = (typeof window !== 'undefined' &&
     window.location.hostname !== 'localhost' &&
     window.location.hostname !== '127.0.0.1')
@@ -133,3 +132,7 @@ export const Auth = {
         } catch { return null; }
     },
 };
+
+// Exported so other modules (e.g. dashboard.js) can reuse the same base URL
+// instead of hardcoding it a second time.
+export const API_BASE = _API_BASE;
