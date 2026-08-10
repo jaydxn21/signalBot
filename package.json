@@ -16,6 +16,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
+    "firebase-admin": "^13.10.0",
     "pg": "^8.11.3",
     "ws": "^8.21.1"
   },
