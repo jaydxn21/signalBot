@@ -1,4 +1,4 @@
-// js/deriv-api.js - Updated for new Deriv API with OTP flow
+// js/deriv-api.js - Updated for new Deriv API (OTP-only, legacy auth retired by Deriv)
 
 import { UIManager } from './ui-manager.js';
 
@@ -13,6 +13,7 @@ export class DerivAPI {
         this._maxDelay = 30000;
         this._token = null;
         this._accountId = null;
+        this._accountType = 'demo'; // 'demo' | 'real' — used only if OTP response omits a ready-made URL
         this._manualClose = false;
         this.symbolMap = {};
         this._subscriptions = {};
@@ -20,23 +21,23 @@ export class DerivAPI {
     }
 
     // ─── MAIN CONNECT METHOD ──────────────────────────────────────────
+    // Deriv retired the legacy wss://ws.derivws.com/websockets/v3 + `authorize`
+    // flow. Every connection — demo or real — now requires an Account ID to
+    // fetch a one-time OTP via REST, then connect to the OTP-scoped WS URL.
+    // There is no more fallback path; if the Account ID is missing or the OTP
+    // request fails, we stop and surface the error instead of looping forever
+    // against a dead endpoint.
 
-    // In deriv-api.js - update the connect method
-
-    async connect(token, accountId) {
+    async connect(token, accountId, accountType = 'demo') {
         this._token = token;
         this._accountId = accountId;
+        this._accountType = accountType;
         this._manualClose = false;
         this._clearReconnectTimer();
 
-        // FIX: previously this bailed out entirely (no socket ever opened) when
-        // no Account ID was configured. An Account ID is only needed for the
-        // OTP multi-account flow — a plain API token still works fine via the
-        // legacy authorize flow. Fall back instead of silently doing nothing.
         if (!this._accountId) {
-            console.log('ℹ️ No Account ID set — using legacy token auth (skipping OTP flow)');
-            UIManager.log('Connecting with API token (legacy auth)...', 'info');
-            this._connectLegacy();
+            console.error('❌ Account ID required — Deriv no longer supports token-only auth');
+            UIManager.log('Account ID required. Enter it in Settings to connect.', 'error');
             return;
         }
 
@@ -44,7 +45,7 @@ export class DerivAPI {
             console.log('🔑 Getting OTP from Deriv...');
             console.log(`📱 App ID: ${this.appId}`);
             console.log(`👤 Account: ${this._accountId}`);
-            
+
             const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${this._accountId}/otp`, {
                 method: 'POST',
                 headers: {
@@ -57,17 +58,22 @@ export class DerivAPI {
             const data = await response.json();
             console.log('📡 OTP Response:', data);
 
-            if (data.error) {
-                throw new Error(`OTP Error: ${data.error.message} (${data.error.code})`);
+            if (!response.ok || data.error) {
+                throw new Error(data.error?.message || `OTP request failed (${response.status})`);
             }
 
-            // ✅ FIX: Check for url in data.data
-            const wsUrl = data.data?.url || data.websocket_url;
-            
+            // Response normally includes a ready-to-use WS URL with the OTP
+            // already embedded. Fall back to building it manually from a raw
+            // otp field against the demo/real endpoint if needed.
+            let wsUrl = data.data?.url || data.websocket_url;
+            const rawOtp = data.data?.otp || data.otp;
+
+            if (!wsUrl && rawOtp) {
+                wsUrl = `wss://api.derivws.com/trading/v1/options/ws/${this._accountType}?otp=${encodeURIComponent(rawOtp)}`;
+            }
+
             if (!wsUrl) {
-                console.warn('⚠️ No WebSocket URL in OTP response, using legacy fallback');
-                this._connectLegacy();
-                return;
+                throw new Error('OTP response contained no usable WebSocket URL');
             }
 
             console.log('✅ OTP received, connecting...');
@@ -77,24 +83,13 @@ export class DerivAPI {
         } catch (error) {
             console.error('❌ Connection failed:', error.message);
             UIManager.log(`Connection failed: ${error.message}`, 'error');
-            
-            // Try legacy fallback
-            console.log('🔄 Trying legacy connection as fallback...');
-            this._connectLegacy();
+            this._scheduleReconnect();
         }
-    }
-
-    // ─── LEGACY CONNECTION (FALLBACK) ────────────────────────────────
-
-    _connectLegacy() {
-        console.log('🔌 Connecting via legacy endpoint...');
-        const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(this.appId)}`;
-        this._openSocket(wsUrl, true);
     }
 
     // ─── OPEN WEBSOCKET ───────────────────────────────────────────────
 
-    _openSocket(url, legacy = false) {
+    _openSocket(url) {
         if (this.socket) {
             try { this.socket.close(); } catch(e) {}
         }
@@ -107,13 +102,9 @@ export class DerivAPI {
             this.isConnected = true;
             this._reconnectDelay = 2000;
             this._subscriptions = {};
-            
-            if (legacy) {
-                // Legacy: Send authorize with PAT
-                this.socket.send(JSON.stringify({ authorize: this._token }));
-            }
-            // OTP flow: Already authenticated via URL
-            
+
+            // OTP flow: already authenticated via the URL — no authorize message needed.
+
             this.startKeepAlive();
             UIManager.setConnectionStatus(true);
             UIManager.log('Connected to Deriv API', 'info');
@@ -122,8 +113,7 @@ export class DerivAPI {
         this.socket.onmessage = (msg) => {
             try {
                 const data = JSON.parse(msg.data);
-                
-                // Handle authorization response
+
                 if (data.msg_type === 'authorize') {
                     console.log('✅ AUTH SUCCESS!');
                     console.log(`👤 Account: ${data.authorize.loginid}`);
@@ -131,15 +121,15 @@ export class DerivAPI {
                     console.log(`📊 Type: ${data.authorize.account_type}`);
                     UIManager.log(`Connected as ${data.authorize.loginid}`, 'success');
                 }
-                
+
                 // Track subscription IDs
                 if (data.subscription?.id && data.echo_req?.ticks_history) {
                     const key = `${data.echo_req.ticks_history}_${data.echo_req.granularity || 0}`;
                     this._subscriptions[key] = data.subscription.id;
                 }
-                
+
                 this.onMessage(data);
-                
+
             } catch(e) {
                 console.error('Failed to parse message:', e);
             }
@@ -167,17 +157,16 @@ export class DerivAPI {
     }
 
     // ─── RECONNECT LOGIC ──────────────────────────────────────────────
+    // Always re-runs the OTP flow — there is no legacy path to fall back to.
+    // If Account ID is still missing, connect() will log and stop rather than
+    // loop, so this won't spin forever on a permanently broken config.
 
     _scheduleReconnect() {
         this._clearReconnectTimer();
         this._reconnectTimer = setTimeout(() => {
             UIManager.log('Attempting reconnect...', 'info');
             this._reconnectDelay = Math.min(this._reconnectDelay * 2, this._maxDelay);
-            if (this._accountId) {
-                this.connect(this._token, this._accountId);
-            } else {
-                this._connectLegacy();
-            }
+            this.connect(this._token, this._accountId, this._accountType);
         }, this._reconnectDelay);
     }
 

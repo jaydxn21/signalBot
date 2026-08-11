@@ -33,6 +33,20 @@
                         <input type="password" id="set-api-token" placeholder="Paste token here">
                     </div>
                     <div class="settings-row">
+                        <span>
+                            Deriv Account ID
+                            <small style="display:block;color:var(--text-muted);font-size:0.6rem;margin-top:2px;">Required — Deriv retired token-only auth. Found in your account switcher, e.g. VRTC1234567</small>
+                        </span>
+                        <input type="text" id="set-account-id" placeholder="e.g. VRTC1234567">
+                    </div>
+                    <div class="settings-row">
+                        <span>Account Type</span>
+                        <select id="set-account-type">
+                            <option value="demo">Demo</option>
+                            <option value="real">Real</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
                         <span>Auto-reconnect on drop</span>
                         <label class="toggle">
                             <input type="checkbox" id="set-auto-reconnect">

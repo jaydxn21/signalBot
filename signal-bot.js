@@ -1644,19 +1644,24 @@ async function init() {
     }
 
     // ─── DERIV API CONNECTION ──────────────────────────────
-    const APP_ID     = Settings.get('appId')     || '33XjcwFHStlck2fOZ3IND';
-    const TOKEN      = Settings.get('apiToken')  || '';
-    const ACCOUNT_ID = Settings.get('accountId') || '';
+    const APP_ID      = Settings.get('appId')      || '33XjcwFHStlck2fOZ3IND';
+    const TOKEN       = Settings.get('apiToken')   || '';
+    const ACCOUNT_ID  = Settings.get('accountId')  || '';
+    const ACCOUNT_TYPE = Settings.get('accountType') || 'demo';
 
     if (!TOKEN) {
         log('No API token configured. Go to Settings and enter your Deriv token.', 'error');
+        return;
+    }
+    if (!ACCOUNT_ID) {
+        log('No Account ID configured. Go to Settings and enter your Deriv Account ID.', 'error');
         return;
     }
 
     api = new DerivAPI(APP_ID, handleData);
     
     try {
-        await api.connect(TOKEN, ACCOUNT_ID);
+        await api.connect(TOKEN, ACCOUNT_ID, ACCOUNT_TYPE);
         console.log('✅ Deriv API connected successfully!');
         log('✅ Connected to Deriv API', 'success');
         

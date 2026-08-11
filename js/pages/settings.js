@@ -11,6 +11,8 @@ import { SessionState } from '../session-state.js';
 const DEFAULTS = {
     // Connection
     apiToken:        '',
+    accountId:       '',      // Required — Deriv retired token-only auth
+    accountType:     'demo',  // 'demo' | 'real'
     mt5Url:          '',
     mt5RiskPerLot:   3.0,   // $ lost per 1.0 lot when SL hit — calibrate from live results
     autoReconnect:   true,
@@ -99,6 +101,8 @@ function _populateForm() {
 
     // Connection
     _setInput('set-api-token',       s.apiToken);
+    _setInput('set-account-id',      s.accountId);
+    _setSelect('set-account-type',   s.accountType);
     _setInput('set-mt5-url',         s.mt5Url);
     _setCheck('set-auto-reconnect',  s.autoReconnect);
 
@@ -131,6 +135,7 @@ function _wireForm() {
     // Each input id maps to a settings key
     const inputMap = {
         'set-api-token':       'apiToken',
+        'set-account-id':      'accountId',
         'set-mt5-url':         'mt5Url',
         'set-max-loss':        'maxDailyLoss',
         'set-max-bots':        'maxBots',
@@ -150,7 +155,8 @@ function _wireForm() {
     };
 
     const selectMap = {
-        'set-chart-theme': 'chartTheme',
+        'set-chart-theme':   'chartTheme',
+        'set-account-type':  'accountType',
     };
 
     Object.entries(inputMap).forEach(([id, key]) => {
