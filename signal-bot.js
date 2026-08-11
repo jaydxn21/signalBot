@@ -1,7 +1,14 @@
 // signal-bot.js — Multi-instance runner v3.0 with AUTO-DISCOVERY
 // PATCH v3.1: Single strategy support (breakout_trend)
+// PATCH v3.2: Fixed relative /api/strategy-manifest fetch (404'd once frontend
+//             moved to Vercel and no longer shares an origin with the API).
 
 console.log('🔍 Strategy Auto-Discovery enabled');
+
+// ─── API BASE (Render backend) ─────────────────────────────────────────────
+// The frontend lives on Vercel; the API lives on Render. Any relative
+// fetch('/api/...') here will 404 once these are different origins.
+const NEXUS_API_BASE = 'https://nexus-api-khvt.onrender.com';
 
 // ─── STRATEGY AUTO-LOADER ──────────────────────────────────────────────────
 
@@ -16,7 +23,7 @@ class StrategyAutoLoader {
     async discoverStrategies() {
         try {
             // Try to get manifest from server
-            const response = await fetch('/api/strategy-manifest');
+            const response = await fetch(`${NEXUS_API_BASE}/api/strategy-manifest`);
             if (response.ok) {
                 const manifest = await response.json();
                 console.log(`📦 Found ${manifest.count} strategies from manifest`);
@@ -798,8 +805,6 @@ function subscribeBot(bot) {
     const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;
     log(`Subscribed: ${bot.config.symbol} ${TF_LABEL[bot.config.tf] || 'M5'} + ${htfLabel}`, 'info');
 }
-
-// ─── PROCESS BAR ─────────────────────────────────────────────────────────
 
 // ─── PROCESS BAR ─────────────────────────────────────────────────────────
 
