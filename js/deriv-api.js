@@ -20,64 +20,69 @@ export class DerivAPI {
     }
 
     // ─── MAIN CONNECT METHOD ──────────────────────────────────────────
-    
- // In deriv-api.js - update the connect method
 
-async connect(token, accountId) {
-    this._token = token;
-    this._accountId = accountId;
-    this._manualClose = false;
-    this._clearReconnectTimer();
+    // In deriv-api.js - update the connect method
 
-    if (!this._accountId) {
-        console.error('❌ Account ID required for OTP flow');
-        UIManager.log('Account ID required. Please enter it.', 'error');
-        return;
-    }
+    async connect(token, accountId) {
+        this._token = token;
+        this._accountId = accountId;
+        this._manualClose = false;
+        this._clearReconnectTimer();
 
-    try {
-        console.log('🔑 Getting OTP from Deriv...');
-        console.log(`📱 App ID: ${this.appId}`);
-        console.log(`👤 Account: ${this._accountId}`);
-        
-        const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${this._accountId}/otp`, {
-            method: 'POST',
-            headers: {
-                'Deriv-App-ID': this.appId,
-                'Authorization': `Bearer ${this._token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        const data = await response.json();
-        console.log('📡 OTP Response:', data);
-
-        if (data.error) {
-            throw new Error(`OTP Error: ${data.error.message} (${data.error.code})`);
-        }
-
-        // ✅ FIX: Check for url in data.data
-        const wsUrl = data.data?.url || data.websocket_url;
-        
-        if (!wsUrl) {
-            console.warn('⚠️ No WebSocket URL in OTP response, using legacy fallback');
+        // FIX: previously this bailed out entirely (no socket ever opened) when
+        // no Account ID was configured. An Account ID is only needed for the
+        // OTP multi-account flow — a plain API token still works fine via the
+        // legacy authorize flow. Fall back instead of silently doing nothing.
+        if (!this._accountId) {
+            console.log('ℹ️ No Account ID set — using legacy token auth (skipping OTP flow)');
+            UIManager.log('Connecting with API token (legacy auth)...', 'info');
             this._connectLegacy();
             return;
         }
 
-        console.log('✅ OTP received, connecting...');
-        console.log('🔗', wsUrl);
-        this._openSocket(wsUrl);
+        try {
+            console.log('🔑 Getting OTP from Deriv...');
+            console.log(`📱 App ID: ${this.appId}`);
+            console.log(`👤 Account: ${this._accountId}`);
+            
+            const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${this._accountId}/otp`, {
+                method: 'POST',
+                headers: {
+                    'Deriv-App-ID': this.appId,
+                    'Authorization': `Bearer ${this._token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
 
-    } catch (error) {
-        console.error('❌ Connection failed:', error.message);
-        UIManager.log(`Connection failed: ${error.message}`, 'error');
-        
-        // Try legacy fallback
-        console.log('🔄 Trying legacy connection as fallback...');
-        this._connectLegacy();
+            const data = await response.json();
+            console.log('📡 OTP Response:', data);
+
+            if (data.error) {
+                throw new Error(`OTP Error: ${data.error.message} (${data.error.code})`);
+            }
+
+            // ✅ FIX: Check for url in data.data
+            const wsUrl = data.data?.url || data.websocket_url;
+            
+            if (!wsUrl) {
+                console.warn('⚠️ No WebSocket URL in OTP response, using legacy fallback');
+                this._connectLegacy();
+                return;
+            }
+
+            console.log('✅ OTP received, connecting...');
+            console.log('🔗', wsUrl);
+            this._openSocket(wsUrl);
+
+        } catch (error) {
+            console.error('❌ Connection failed:', error.message);
+            UIManager.log(`Connection failed: ${error.message}`, 'error');
+            
+            // Try legacy fallback
+            console.log('🔄 Trying legacy connection as fallback...');
+            this._connectLegacy();
+        }
     }
-}
 
     // ─── LEGACY CONNECTION (FALLBACK) ────────────────────────────────
 
