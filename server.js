@@ -11,26 +11,33 @@ const __dirname  = path.dirname(__filename);
 const PORT     = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
 
-// ─── CORS CONFIGURATION - MUST BE BEFORE SERVER CALLBACK ───────────────────
-const _allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(' ').map(s => s.trim()).filter(Boolean)
-    : null;
+// ─── CORS CONFIGURATION - FIXED ──────────────────────────────────────────
+
+// Get allowed origins from environment variable or use defaults
+const _allowedOrigins = (process.env.ALLOWED_ORIGINS || 
+    'https://signal-bot-eight.vercel.app https://nexus-api-khvt.onrender.com http://localhost:3000 http://127.0.0.1:3000')
+    .split(' ')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+console.log('[CORS] Allowed origins:', _allowedOrigins);
 
 function _corsHeaders(req) {
     const origin = req.headers['origin'] || '';
-    const allowedOrigins = [
-        'https://signal-bot-eight.vercel.app',
-        'http://localhost:3000',
-        'http://127.0.0.1:3000'
-    ];
-    const allowed = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+    
+    // Check if origin is in the allowed list
+    const isAllowed = _allowedOrigins.includes(origin);
+    
+    // If allowed, return the origin; otherwise, return the first allowed origin
+    const allowedOrigin = isAllowed ? origin : _allowedOrigins[0];
     
     return {
-        'Access-Control-Allow-Origin': allowed,
+        'Access-Control-Allow-Origin': allowedOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cache-Control',  // ← Added Cache-Control
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cache-Control, X-Requested-With',
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Max-Age': '86400',
+        'Access-Control-Expose-Headers': 'Content-Length, X-Requested-With'
     };
 }
 
@@ -154,7 +161,7 @@ const server = http.createServer((req, res) => {
     if (pathname === '/' || pathname === '') pathname = '/index.html';
 
     if (pathname.startsWith('/api/')) {
-        console.log(`[API] ${req.method} ${pathname}`);
+        console.log(`[API] ${req.method} ${pathname} from ${req.headers['origin'] || 'unknown'}`);
     }
 
     if (req.method === 'OPTIONS') {
@@ -240,7 +247,7 @@ const server = http.createServer((req, res) => {
                     res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                     res.end(JSON.stringify({ status: 'ok', received: latestSignal }));
                 } catch (err) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                     res.end(JSON.stringify({ error: 'Invalid JSON' }));
                 }
             });
@@ -306,7 +313,7 @@ const server = http.createServer((req, res) => {
                 res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ status: 'ok' }));
             } catch(err) {
-                res.writeHead(400);
+                res.writeHead(400, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ error: 'Invalid JSON' }));
             }
         });
@@ -375,83 +382,77 @@ const server = http.createServer((req, res) => {
     }
 
     // ── /api/strategy-manifest ──────────────────────────────────────────────────
-if (pathname === '/api/strategy-manifest' && req.method === 'GET') {
-    try {
-        const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
-        const files = fs.existsSync(strategiesDir)
-            ? fs.readdirSync(strategiesDir)
-                .filter(f => f.endsWith('.js') && !f.includes('_backup_') && f !== 'index.js')
-                .map(f => {
-                    const name = f.replace('.js', '');
-                    const filePath = path.join(strategiesDir, f);
-                    const stats = fs.statSync(filePath);
-                    
-                    // Try to read the file to extract metadata
-                    let meta = { 
-                        name, 
-                        label: name,
-                        type: 'unknown',
-                        exports: 'unknown',
-                        modified: stats.mtime
-                    };
-                    
-                    try {
-                        const content = fs.readFileSync(filePath, 'utf8');
+    if (pathname === '/api/strategy-manifest' && req.method === 'GET') {
+        try {
+            const strategiesDir = path.join(ROOT_DIR, 'js', 'strategies');
+            const files = fs.existsSync(strategiesDir)
+                ? fs.readdirSync(strategiesDir)
+                    .filter(f => f.endsWith('.js') && !f.includes('_backup_') && f !== 'index.js')
+                    .map(f => {
+                        const name = f.replace('.js', '');
+                        const filePath = path.join(strategiesDir, f);
+                        const stats = fs.statSync(filePath);
                         
-                        // Look for @label comment
-                        const labelMatch = content.match(/\/\/\s*@label\s+(.+)/);
-                        if (labelMatch) meta.label = labelMatch[1].trim();
+                        let meta = { 
+                            name, 
+                            label: name,
+                            type: 'unknown',
+                            exports: 'unknown',
+                            modified: stats.mtime
+                        };
                         
-                        // Look for @type comment
-                        const typeMatch = content.match(/\/\/\s*@type\s+(.+)/);
-                        if (typeMatch) meta.type = typeMatch[1].trim();
-                        
-                        // Check exports
-                        if (content.includes('export default')) {
-                            meta.exports = 'default';
-                        } else if (content.includes('export {')) {
-                            meta.exports = 'named';
-                        } else if (content.includes('export const') || content.includes('export function')) {
-                            meta.exports = 'named';
+                        try {
+                            const content = fs.readFileSync(filePath, 'utf8');
+                            
+                            const labelMatch = content.match(/\/\/\s*@label\s+(.+)/);
+                            if (labelMatch) meta.label = labelMatch[1].trim();
+                            
+                            const typeMatch = content.match(/\/\/\s*@type\s+(.+)/);
+                            if (typeMatch) meta.type = typeMatch[1].trim();
+                            
+                            if (content.includes('export default')) {
+                                meta.exports = 'default';
+                            } else if (content.includes('export {')) {
+                                meta.exports = 'named';
+                            } else if (content.includes('export const') || content.includes('export function')) {
+                                meta.exports = 'named';
+                            }
+                            
+                            const classMatch = content.match(/export\s+(?:default\s+)?class\s+(\w+)/);
+                            if (classMatch) meta.className = classMatch[1];
+                            
+                        } catch (err) {
+                            console.warn(`Could not read metadata from ${f}:`, err.message);
                         }
                         
-                        // Check for class name
-                        const classMatch = content.match(/export\s+(?:default\s+)?class\s+(\w+)/);
-                        if (classMatch) meta.className = classMatch[1];
-                        
-                    } catch (err) {
-                        // If we can't read the file, use defaults
-                        console.warn(`Could not read metadata from ${f}:`, err.message);
-                    }
-                    
-                    return meta;
-                })
-                .sort((a, b) => a.name.localeCompare(b.name))
-            : [];
-        
-        const manifest = {
-            strategies: files,
-            count: files.length,
-            timestamp: Date.now(),
-            lastUpdated: new Date().toISOString()
-        };
-        
-        console.log(`[StrategyManifest] Generated manifest with ${files.length} strategies`);
-        
-        res.writeHead(200, { 
-            'Content-Type': 'application/json', 
-            ..._corsHeaders(req),
-            'Cache-Control': 'no-cache'
-        });
-        res.end(JSON.stringify(manifest));
-        
-    } catch(err) {
-        console.error('[StrategyManifest] Error:', err);
-        res.writeHead(500, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-        res.end(JSON.stringify({ error: err.message }));
+                        return meta;
+                    })
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                : [];
+            
+            const manifest = {
+                strategies: files,
+                count: files.length,
+                timestamp: Date.now(),
+                lastUpdated: new Date().toISOString()
+            };
+            
+            console.log(`[StrategyManifest] Generated manifest with ${files.length} strategies`);
+            
+            res.writeHead(200, { 
+                'Content-Type': 'application/json', 
+                ..._corsHeaders(req),
+                'Cache-Control': 'no-cache'
+            });
+            res.end(JSON.stringify(manifest));
+            
+        } catch(err) {
+            console.error('[StrategyManifest] Error:', err);
+            res.writeHead(500, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+            res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
     }
-    return;
-}
 
     // ── /api/ai ───────────────────────────────────────────────────────────────
     if (pathname === '/api/ai' && req.method === 'POST') {
