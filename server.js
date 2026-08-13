@@ -11,25 +11,62 @@ const __dirname  = path.dirname(__filename);
 const PORT     = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
 
-// ─── CORS CONFIGURATION - FIXED ──────────────────────────────────────────
+// ─── CORS CONFIGURATION - RECOMMENDED (Combined Approach) ──────────────
 
-// Get allowed origins from environment variable or use defaults
-const _allowedOrigins = (process.env.ALLOWED_ORIGINS || 
-    'https://signal-bot-eight.vercel.app https://nexus-api-khvt.onrender.com http://localhost:3000 http://127.0.0.1:3000')
-    .split(' ')
-    .map(s => s.trim())
-    .filter(Boolean);
+// 1. Define your default allowed origins (hard-coded fallback)
+const DEFAULT_ORIGINS = [
+    'https://signal-bot-eight.vercel.app',
+    'https://nexus-api-khvt.onrender.com',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://nexus-api.onrender.com'
+];
 
-console.log('[CORS] Allowed origins:', _allowedOrigins);
+// 2. Parse environment variable if it exists (supports spaces, commas, or semicolons)
+function parseOrigins(input) {
+    if (!input) return [];
+    // Split by space, comma, or semicolon
+    return input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+}
+
+// 3. Combine defaults with environment variable
+const envOrigins = process.env.ALLOWED_ORIGINS ? parseOrigins(process.env.ALLOWED_ORIGINS) : [];
+const _allowedOrigins = [...new Set([...DEFAULT_ORIGINS, ...envOrigins])];
+
+console.log('[CORS] 🚀 Allowed origins:');
+console.log('[CORS]   - Defaults:', DEFAULT_ORIGINS.join(', '));
+if (envOrigins.length > 0) {
+    console.log('[CORS]   - From ENV:', envOrigins.join(', '));
+}
+console.log('[CORS]   - Final list:', _allowedOrigins.join(', '));
 
 function _corsHeaders(req) {
     const origin = req.headers['origin'] || '';
     
-    // Check if origin is in the allowed list
+    // For non-browser requests (curl, API calls, etc.)
+    if (!origin) {
+        return {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cache-Control, X-Requested-With',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Max-Age': '86400',
+        };
+    }
+    
+    // Check if origin is in our allowed list
     const isAllowed = _allowedOrigins.includes(origin);
     
-    // If allowed, return the origin; otherwise, return the first allowed origin
+    // If allowed, return the origin; otherwise use first allowed as fallback
     const allowedOrigin = isAllowed ? origin : _allowedOrigins[0];
+    
+    // Log for debugging (only when origin is NOT allowed)
+    if (!isAllowed) {
+        console.warn(`[CORS] ⚠️ Origin not in allowed list: "${origin}"`);
+        console.warn(`[CORS] 📌 Using fallback: "${allowedOrigin}"`);
+    } else {
+        console.log(`[CORS] ✅ Allowed origin: "${origin}"`);
+    }
     
     return {
         'Access-Control-Allow-Origin': allowedOrigin,
