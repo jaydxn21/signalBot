@@ -3,6 +3,12 @@
 // PATCH v3.2: Fixed relative /api/strategy-manifest fetch (404'd once frontend
 //             moved to Vercel and no longer shares an origin with the API).
 
+import { SessionState } from './js/session-state.js';
+import { UIManager } from './js/ui-manager.js';
+import { ChartManager, initChartManager } from './js/chart-manager.js';
+import { OverlayManager } from './js/overlays.js';
+import { API_BASE, Auth } from './js/auth.js';
+
 console.log('🔍 Strategy Auto-Discovery enabled');
 
 // ─── API BASE (Render backend) ─────────────────────────────────────────────
