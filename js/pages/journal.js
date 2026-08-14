@@ -20,7 +20,9 @@ const filters = {
 export const Journal = {
 
     async init() {
+        // Pull trades recorded on other devices before the first render.
         await SessionState.hydrateFromCloud();
+
         _buildFilters();
         _wireFilters();
         _wireExport();

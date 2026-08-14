@@ -1614,20 +1614,7 @@ window.QUALITY_MODE_DESCRIPTIONS = {
 };
 
 
-// ─── CLOUD TRADE SYNC ────────────────────────────────────────────────────
 
-function syncTrades(trades) {
-    const previous = SessionState.get().trades || [];
-    const previousKeys = new Set(previous.map(t => `${t.time}|${t.symbol}`));
-    const freshTrades = trades.filter(t => !previousKeys.has(`${t.time}|${t.symbol}`));
-
-    SessionState.set({ trades: trades.slice(0, 200) });
-
-    if (freshTrades.length) {
-        Analytics.recordTrade();
-        Auth.syncTrades(freshTrades);
-    }
-}
 
 function handleTradeEvent(event) {
     if (event.type === 'signal' && event.signal) {

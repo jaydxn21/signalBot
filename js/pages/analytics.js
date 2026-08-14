@@ -15,7 +15,10 @@ function _jaMidnight() {
 export const Analytics = {
 
     async init() {
+        // Pull trades recorded on other devices before the first render, so
+        // stats reflect the full account history, not just this browser.
         await SessionState.hydrateFromCloud();
+
         _render();
         _fetchMT5Trades();
         _fetchMT5Stats();
@@ -23,7 +26,7 @@ export const Analytics = {
         setInterval(_fetchMT5Stats, 30000);
         setInterval(_render, 5000);
         _scheduleMidnightReset();
-        
+
         // Listen for storage updates from other tabs
         window.addEventListener('storage', (e) => {
             if (e.key === 'nexus_session_state') {
@@ -33,7 +36,7 @@ export const Analytics = {
     },
 
     recordTrade() { _render(); },
-    
+
     refreshMT5() {
         _fetchMT5Trades();
         _fetchMT5Stats();
@@ -85,14 +88,14 @@ function _updateMT5StatsDisplay() {
             badge.className = 'mt5-badge live';
         }
     }
-    
+
     // Update profit factor display
     const pfEl = document.getElementById('an-mt5-pf');
     if (pfEl && mt5Stats.profit_factor) {
         pfEl.textContent = mt5Stats.profit_factor.toFixed(2);
         pfEl.style.color = mt5Stats.profit_factor >= 1 ? 'var(--accent2)' : 'var(--accent3)';
     }
-    
+
     // Update drift display
     const driftEl = document.getElementById('an-mt5-drift');
     if (driftEl && mt5Stats.total_trades > 0) {
