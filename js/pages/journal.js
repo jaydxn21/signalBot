@@ -19,7 +19,8 @@ const filters = {
 // ─────────────────────────────────────────────────────────────
 export const Journal = {
 
-    init() {
+    async init() {
+        await SessionState.hydrateFromCloud();
         _buildFilters();
         _wireFilters();
         _wireExport();
