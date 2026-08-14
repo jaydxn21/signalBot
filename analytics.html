@@ -325,8 +325,8 @@
 <script type="module">
     import './js/nav.js';
     import { Analytics } from './js/pages/analytics.js';
-    document.addEventListener('DOMContentLoaded', () => {
-        Analytics.init();
+    document.addEventListener('DOMContentLoaded', async () => {
+        await Analytics.init();
         
         // Refresh button functionality
         const refreshBtn = document.getElementById('refresh-mt5-btn');

@@ -14,7 +14,8 @@ function _jaMidnight() {
 
 export const Analytics = {
 
-    init() {
+    async init() {
+        await SessionState.hydrateFromCloud();
         _render();
         _fetchMT5Trades();
         _fetchMT5Stats();

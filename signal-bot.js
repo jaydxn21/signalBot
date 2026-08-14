@@ -1613,6 +1613,34 @@ window.QUALITY_MODE_DESCRIPTIONS = {
     3: { name: 'ULTRA', emoji: '👑', minScore: 85 }
 };
 
+
+// ─── CLOUD TRADE SYNC ────────────────────────────────────────────────────
+
+function syncTrades(trades) {
+    const previous = SessionState.get().trades || [];
+    const previousKeys = new Set(previous.map(t => `${t.time}|${t.symbol}`));
+    const freshTrades = trades.filter(t => !previousKeys.has(`${t.time}|${t.symbol}`));
+
+    SessionState.set({ trades: trades.slice(0, 200) });
+
+    if (freshTrades.length) {
+        Analytics.recordTrade();
+        Auth.syncTrades(freshTrades);
+    }
+}
+
+function handleTradeEvent(event) {
+    if (event.type === 'signal' && event.signal) {
+        registerBotSignal(event.botId, event.signal.type, event.signal.entry, event.signal.label, event.signal.confidence);
+    }
+    if (event.trade) {
+        const trades = [event.trade, ...(SessionState.get().trades || [])].slice(0, 200);
+        SessionState.set({ trades });
+        Analytics.recordTrade();
+        Auth.syncTrades([event.trade]);
+    }
+}
+
 // ─── LOGOUT ──────────────────────────────────────────────────────────────
 
 function logout() {
@@ -1648,6 +1676,9 @@ async function init() {
     } catch (error) {
         console.error('Failed to load strategies:', error);
     }
+
+    // Hydrate trades from cloud before wiring up the rest of the UI
+    await SessionState.hydrateFromCloud();
 
     // ─── DERIV API CONNECTION ──────────────────────────────
     const APP_ID      = Settings.get('appId')      || '33XjcwFHStlck2fOZ3IND';
