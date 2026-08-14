@@ -1615,10 +1615,12 @@ function syncTrades(trades) {
     const previousKeys = new Set(previous.map(t => `${t.time}|${t.symbol}`));
     const freshTrades = trades.filter(t => !previousKeys.has(`${t.time}|${t.symbol}`));
 
-    SessionState.set({ trades });
-    Analytics.recordTrade();
+    SessionState.set({ trades: trades.slice(0, 200) });
 
-    if (freshTrades.length) Auth.syncTrades(freshTrades);
+    if (freshTrades.length) {
+        Analytics.recordTrade();
+        Auth.syncTrades(freshTrades);
+    }
 }
 
 function handleTradeEvent(event) {
