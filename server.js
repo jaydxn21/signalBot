@@ -13,23 +13,18 @@ const ROOT_DIR = __dirname;
 
 // ─── CORS CONFIGURATION - RECOMMENDED (Combined Approach) ──────────────
 
-// 1. Define your default allowed origins (hard-coded fallback)
 const DEFAULT_ORIGINS = [
     'https://signal-bot-eight.vercel.app',
     'https://nexus-api-khvt.onrender.com',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
-    'https://nexus-api.onrender.com'
 ];
 
-// 2. Parse environment variable if it exists (supports spaces, commas, or semicolons)
 function parseOrigins(input) {
     if (!input) return [];
-    // Split by space, comma, or semicolon
     return input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
 }
 
-// 3. Combine defaults with environment variable
 const envOrigins = process.env.ALLOWED_ORIGINS ? parseOrigins(process.env.ALLOWED_ORIGINS) : [];
 const _allowedOrigins = [...new Set([...DEFAULT_ORIGINS, ...envOrigins])];
 
@@ -42,8 +37,7 @@ console.log('[CORS]   - Final list:', _allowedOrigins.join(', '));
 
 function _corsHeaders(req) {
     const origin = req.headers['origin'] || '';
-    
-    // For non-browser requests (curl, API calls, etc.)
+
     if (!origin) {
         return {
             'Access-Control-Allow-Origin': '*',
@@ -53,21 +47,17 @@ function _corsHeaders(req) {
             'Access-Control-Max-Age': '86400',
         };
     }
-    
-    // Check if origin is in our allowed list
+
     const isAllowed = _allowedOrigins.includes(origin);
-    
-    // If allowed, return the origin; otherwise use first allowed as fallback
     const allowedOrigin = isAllowed ? origin : _allowedOrigins[0];
-    
-    // Log for debugging (only when origin is NOT allowed)
+
     if (!isAllowed) {
         console.warn(`[CORS] ⚠️ Origin not in allowed list: "${origin}"`);
         console.warn(`[CORS] 📌 Using fallback: "${allowedOrigin}"`);
     } else {
         console.log(`[CORS] ✅ Allowed origin: "${origin}"`);
     }
-    
+
     return {
         'Access-Control-Allow-Origin': allowedOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -80,22 +70,40 @@ function _corsHeaders(req) {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 const AUTH_SECRET = process.env.NEXUS_SECRET || 'nexus_dev_secret_change_in_prod';
-const DB_PATH     = path.join(__dirname, 'data', 'users.json');
 
-function _ensureDB() {
-    const dir = path.join(__dirname, 'data');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ users: {} }, null, 2));
+// ─── Supabase (Postgres) storage layer ─────────────────────────────────────
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.warn('[Supabase] ⚠️ SUPABASE_URL / SUPABASE_SERVICE_KEY not set — auth & user data will fail.');
 }
 
-function _readDB() {
-    _ensureDB();
-    try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); } catch { return { users: {} }; }
-}
-
-function _writeDB(db) {
-    _ensureDB();
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+// Thin helper around Supabase's PostgREST API.
+// `path` is the table + query string, e.g. "users?id=eq.foo&select=*"
+async function sb(pathAndQuery, { method = 'GET', body, prefer } = {}) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${pathAndQuery}`, {
+        method,
+        headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            ...(prefer ? { 'Prefer': prefer } : {}),
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    let data = null;
+    const text = await res.text();
+    if (text) {
+        try { data = JSON.parse(text); } catch { data = text; }
+    }
+    if (!res.ok) {
+        const err = new Error(`Supabase ${method} ${pathAndQuery} → ${res.status}: ${text}`);
+        err.status = res.status;
+        err.data = data;
+        throw err;
+    }
+    return data;
 }
 
 function _hashPassword(password) {
@@ -222,12 +230,12 @@ const server = http.createServer((req, res) => {
             try {
                 const status = JSON.parse(body);
                 console.log(`[STRATEGY] ${status.status}:`, status);
-                
+
                 if (!global.strategyStatusHistory) global.strategyStatusHistory = [];
                 global.latestStrategyStatus = status;
                 global.strategyStatusHistory.unshift(status);
                 if (global.strategyStatusHistory.length > 100) global.strategyStatusHistory.pop();
-                
+
                 res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
                 res.end(JSON.stringify({ status: 'ok' }));
             } catch(err) {
@@ -242,8 +250,8 @@ const server = http.createServer((req, res) => {
     // ── /api/strategy-status (GET) ─────────────────────────────────────────
     if (pathname === '/api/strategy-status' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
-        res.end(JSON.stringify(global.latestStrategyStatus || { 
-            status: 'waiting', 
+        res.end(JSON.stringify(global.latestStrategyStatus || {
+            status: 'waiting',
             message: 'No status updates yet. Strategy bot not running or not sending updates.',
             timestamp: Date.now()
         }));
@@ -429,24 +437,24 @@ const server = http.createServer((req, res) => {
                         const name = f.replace('.js', '');
                         const filePath = path.join(strategiesDir, f);
                         const stats = fs.statSync(filePath);
-                        
-                        let meta = { 
-                            name, 
+
+                        let meta = {
+                            name,
                             label: name,
                             type: 'unknown',
                             exports: 'unknown',
                             modified: stats.mtime
                         };
-                        
+
                         try {
                             const content = fs.readFileSync(filePath, 'utf8');
-                            
+
                             const labelMatch = content.match(/\/\/\s*@label\s+(.+)/);
                             if (labelMatch) meta.label = labelMatch[1].trim();
-                            
+
                             const typeMatch = content.match(/\/\/\s*@type\s+(.+)/);
                             if (typeMatch) meta.type = typeMatch[1].trim();
-                            
+
                             if (content.includes('export default')) {
                                 meta.exports = 'default';
                             } else if (content.includes('export {')) {
@@ -454,35 +462,35 @@ const server = http.createServer((req, res) => {
                             } else if (content.includes('export const') || content.includes('export function')) {
                                 meta.exports = 'named';
                             }
-                            
+
                             const classMatch = content.match(/export\s+(?:default\s+)?class\s+(\w+)/);
                             if (classMatch) meta.className = classMatch[1];
-                            
+
                         } catch (err) {
                             console.warn(`Could not read metadata from ${f}:`, err.message);
                         }
-                        
+
                         return meta;
                     })
                     .sort((a, b) => a.name.localeCompare(b.name))
                 : [];
-            
+
             const manifest = {
                 strategies: files,
                 count: files.length,
                 timestamp: Date.now(),
                 lastUpdated: new Date().toISOString()
             };
-            
+
             console.log(`[StrategyManifest] Generated manifest with ${files.length} strategies`);
-            
-            res.writeHead(200, { 
-                'Content-Type': 'application/json', 
+
+            res.writeHead(200, {
+                'Content-Type': 'application/json',
                 ..._corsHeaders(req),
                 'Cache-Control': 'no-cache'
             });
             res.end(JSON.stringify(manifest));
-            
+
         } catch(err) {
             console.error('[StrategyManifest] Error:', err);
             res.writeHead(500, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
@@ -526,27 +534,35 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/auth/register' && req.method === 'POST') {
         let body = '';
         req.on('data', c => body += c);
-        req.on('end', () => {
+        req.on('end', async () => {
             try {
                 const { username, password } = JSON.parse(body);
                 if (!username || !password || username.length < 3 || password.length < 6)
                     return _json(res, 400, { error: 'Username ≥3 chars, password ≥6 chars required' }, req);
 
-                const db = _readDB();
                 const id = username.toLowerCase().trim();
-                if (db.users[id]) return _json(res, 409, { error: 'Username already taken' }, req);
 
-                db.users[id] = {
-                    id, username,
-                    passwordHash: _hashPassword(password),
-                    createdAt: Date.now(),
-                    settings: {},
-                    strategies: {},
-                };
-                _writeDB(db);
+                const existing = await sb(`users?id=eq.${encodeURIComponent(id)}&select=id`);
+                if (existing.length > 0) return _json(res, 409, { error: 'Username already taken' }, req);
+
+                await sb('users', {
+                    method: 'POST',
+                    prefer: 'return=minimal',
+                    body: {
+                        id,
+                        username,
+                        password_hash: _hashPassword(password),
+                        created_at: Date.now(),
+                        settings: {},
+                    },
+                });
+
                 const token = _makeToken(id);
                 _json(res, 201, { token, userId: id, username }, req);
-            } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+            } catch(e) {
+                console.error('[Register] Error:', e.message);
+                _json(res, 400, { error: 'Invalid request' }, req);
+            }
         });
         return;
     }
@@ -555,18 +571,22 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/auth/login' && req.method === 'POST') {
         let body = '';
         req.on('data', c => body += c);
-        req.on('end', () => {
+        req.on('end', async () => {
             try {
                 const { username, password } = JSON.parse(body);
-                const db  = _readDB();
-                const id  = (username || '').toLowerCase().trim();
-                const user = db.users[id];
-                if (!user || user.passwordHash !== _hashPassword(password))
+                const id = (username || '').toLowerCase().trim();
+
+                const rows = await sb(`users?id=eq.${encodeURIComponent(id)}&select=*`);
+                const user = rows[0];
+                if (!user || user.password_hash !== _hashPassword(password))
                     return _json(res, 401, { error: 'Invalid username or password' }, req);
 
                 const token = _makeToken(id);
                 _json(res, 200, { token, userId: id, username: user.username }, req);
-            } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+            } catch(e) {
+                console.error('[Login] Error:', e.message);
+                _json(res, 400, { error: 'Invalid request' }, req);
+            }
         });
         return;
     }
@@ -575,10 +595,14 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/user/profile' && req.method === 'GET') {
         const auth = _authMiddleware(req);
         if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
-        const db   = _readDB();
-        const user = db.users[auth.userId];
-        if (!user) return _json(res, 404, { error: 'User not found' }, req);
-        _json(res, 200, { userId: user.id, username: user.username, createdAt: user.createdAt }, req);
+        (async () => {
+            try {
+                const rows = await sb(`users?id=eq.${encodeURIComponent(auth.userId)}&select=id,username,created_at`);
+                const user = rows[0];
+                if (!user) return _json(res, 404, { error: 'User not found' }, req);
+                _json(res, 200, { userId: user.id, username: user.username, createdAt: user.created_at }, req);
+            } catch(e) { _json(res, 500, { error: e.message }, req); }
+        })();
         return;
     }
 
@@ -588,22 +612,26 @@ const server = http.createServer((req, res) => {
         if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
         if (req.method === 'GET') {
-            const db = _readDB();
-            _json(res, 200, { settings: db.users[auth.userId]?.settings || {} }, req);
+            (async () => {
+                try {
+                    const rows = await sb(`users?id=eq.${encodeURIComponent(auth.userId)}&select=settings`);
+                    _json(res, 200, { settings: rows[0]?.settings || {} }, req);
+                } catch(e) { _json(res, 500, { error: e.message }, req); }
+            })();
             return;
         }
         if (req.method === 'POST') {
             let body = '';
             req.on('data', c => body += c);
-            req.on('end', () => {
+            req.on('end', async () => {
                 try {
                     const { settings } = JSON.parse(body);
-                    const db = _readDB();
-                    if (db.users[auth.userId]) {
-                        db.users[auth.userId].settings = settings;
-                        _writeDB(db);
-                        _json(res, 200, { ok: true }, req);
-                    } else { _json(res, 404, { error: 'User not found' }, req); }
+                    await sb(`users?id=eq.${encodeURIComponent(auth.userId)}`, {
+                        method: 'PATCH',
+                        prefer: 'return=minimal',
+                        body: { settings },
+                    });
+                    _json(res, 200, { ok: true }, req);
                 } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
             });
             return;
@@ -616,36 +644,53 @@ const server = http.createServer((req, res) => {
         if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
         if (req.method === 'GET') {
-            const db = _readDB();
-            _json(res, 200, { strategies: db.users[auth.userId]?.strategies || {} }, req);
+            (async () => {
+                try {
+                    const rows = await sb(`strategies?user_id=eq.${encodeURIComponent(auth.userId)}&select=name,data,updated_at`);
+                    const strategies = {};
+                    rows.forEach(r => { strategies[r.name] = { ...r.data, updatedAt: r.updated_at }; });
+                    _json(res, 200, { strategies }, req);
+                } catch(e) { _json(res, 500, { error: e.message }, req); }
+            })();
             return;
         }
         if (req.method === 'POST') {
             let body = '';
             req.on('data', c => body += c);
-            req.on('end', () => {
+            req.on('end', async () => {
                 try {
                     const { name, strategy } = JSON.parse(body);
                     if (!name) return _json(res, 400, { error: 'name required' }, req);
-                    const db = _readDB();
-                    if (db.users[auth.userId]) {
-                        db.users[auth.userId].strategies[name] = { ...strategy, updatedAt: Date.now() };
-                        _writeDB(db);
-                        _json(res, 200, { ok: true }, req);
-                    } else { _json(res, 404, { error: 'User not found' }, req); }
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+                    await sb('strategies?on_conflict=user_id,name', {
+                        method: 'POST',
+                        prefer: 'resolution=merge-duplicates,return=minimal',
+                        body: {
+                            user_id: auth.userId,
+                            name,
+                            data: strategy,
+                            updated_at: Date.now(),
+                        },
+                    });
+                    _json(res, 200, { ok: true }, req);
+                } catch(e) {
+                    console.error('[Strategies POST] Error:', e.message);
+                    _json(res, 400, { error: 'Invalid request' }, req);
+                }
             });
             return;
         }
         if (req.method === 'DELETE') {
             const name = new url.URL(req.url, 'http://localhost').searchParams.get('name');
             if (!name) return _json(res, 400, { error: 'name required' }, req);
-            const db = _readDB();
-            if (db.users[auth.userId]) {
-                delete db.users[auth.userId].strategies[name];
-                _writeDB(db);
-                _json(res, 200, { ok: true }, req);
-            } else { _json(res, 404, { error: 'User not found' }, req); }
+            (async () => {
+                try {
+                    await sb(`strategies?user_id=eq.${encodeURIComponent(auth.userId)}&name=eq.${encodeURIComponent(name)}`, {
+                        method: 'DELETE',
+                        prefer: 'return=minimal',
+                    });
+                    _json(res, 200, { ok: true }, req);
+                } catch(e) { _json(res, 500, { error: e.message }, req); }
+            })();
             return;
         }
     }
@@ -656,27 +701,42 @@ const server = http.createServer((req, res) => {
         if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
         if (req.method === 'GET') {
-            const db = _readDB();
-            _json(res, 200, { trades: db.users[auth.userId]?.trades || [] }, req);
+            (async () => {
+                try {
+                    const rows = await sb(`trades?user_id=eq.${encodeURIComponent(auth.userId)}&select=data&order=time.desc&limit=500`);
+                    _json(res, 200, { trades: rows.map(r => r.data) }, req);
+                } catch(e) { _json(res, 500, { error: e.message }, req); }
+            })();
             return;
         }
         if (req.method === 'POST') {
             let body = '';
             req.on('data', c => body += c);
-            req.on('end', () => {
+            req.on('end', async () => {
                 try {
                     const { trades } = JSON.parse(body);
-                    const db = _readDB();
-                    if (db.users[auth.userId]) {
-                        const existing = db.users[auth.userId].trades || [];
-                        const merged   = [...trades, ...existing]
-                            .filter((t, i, arr) => arr.findIndex(x => x.time === t.time && x.symbol === t.symbol) === i)
-                            .slice(0, 500);
-                        db.users[auth.userId].trades = merged;
-                        _writeDB(db);
-                        _json(res, 200, { ok: true, count: merged.length }, req);
-                    } else { _json(res, 404, { error: 'User not found' }, req); }
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+                    if (!Array.isArray(trades) || !trades.length) return _json(res, 200, { ok: true, count: 0 }, req);
+
+                    const rows = trades.map(t => ({
+                        user_id: auth.userId,
+                        time:    t.time ?? null,
+                        symbol:  t.symbol ?? null,
+                        data:    t,
+                    }));
+
+                    // Upsert: relies on the unique(user_id, time, symbol) constraint to dedupe
+                    await sb('trades?on_conflict=user_id,time,symbol', {
+                        method: 'POST',
+                        prefer: 'resolution=merge-duplicates,return=minimal',
+                        body: rows,
+                    });
+
+                    const countRows = await sb(`trades?user_id=eq.${encodeURIComponent(auth.userId)}&select=id`);
+                    _json(res, 200, { ok: true, count: countRows.length }, req);
+                } catch(e) {
+                    console.error('[Trades POST] Error:', e.message);
+                    _json(res, 400, { error: 'Invalid request' }, req);
+                }
             });
             return;
         }
@@ -744,6 +804,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`   UI              → http://127.0.0.1:${PORT}`);
     console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/login`);
     console.log(`   Auth            → POST http://127.0.0.1:${PORT}/api/auth/register`);
+    console.log(`   Supabase        → ${SUPABASE_URL ? '✓ configured' : '✗ SUPABASE_URL not set'}`);
     console.log(`   AI Proxy        → POST http://127.0.0.1:${PORT}/api/ai  [key: ${process.env.ANTHROPIC_API_KEY ? '✓ set' : '✗ ANTHROPIC_API_KEY not set'}]`);
     console.log(`   MT5 poll        → http://127.0.0.1:${PORT}/api/signal`);
     console.log(`   MT5 WS push     → ws://127.0.0.1:${PORT}/mt5`);
