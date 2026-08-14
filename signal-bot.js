@@ -3,11 +3,7 @@
 // PATCH v3.2: Fixed relative /api/strategy-manifest fetch (404'd once frontend
 //             moved to Vercel and no longer shares an origin with the API).
 
-import { SessionState } from './js/session-state.js';
-import { UIManager } from './js/ui-manager.js';
-import { ChartManager, initChartManager } from './js/chart-manager.js';
-import { OverlayManager } from './js/overlays.js';
-import { API_BASE, Auth } from './js/auth.js';
+
 
 console.log('🔍 Strategy Auto-Discovery enabled');
 
@@ -176,7 +172,9 @@ import { ChartManager, initChartManager } from './js/chart-manager.js';
 import { ConfidenceEngine } from './js/confidence.js';
 import { Auth } from './js/auth.js';
 import { PositionSizing } from './js/position-sizing.js';
-
+// import { SessionState } from './js/session-state.js';
+// import { ChartManager, initChartManager } from './js/chart-manager.js';
+import { API_BASE} from './js/auth.js';
 
 
 // Simple EMA calculation for trend detection
