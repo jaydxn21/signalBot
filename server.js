@@ -695,6 +695,50 @@ const server = http.createServer((req, res) => {
         }
     }
 
+    // ── /api/user/heartbeat ───────────────────────────────────────────────────
+    // Lightweight liveness ping, separate from /api/user/trades since this
+    // fires every few seconds and shouldn't touch the trades table at all.
+    // Stored on the users row itself (heartbeat_at / last_candle_at columns).
+    if (pathname === '/api/user/heartbeat') {
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
+
+        if (req.method === 'POST') {
+            let body = '';
+            req.on('data', c => body += c);
+            req.on('end', async () => {
+                try {
+                    const { heartbeatAt, lastCandleAt, activeBots } = JSON.parse(body);
+                    await sb(`users?id=eq.${encodeURIComponent(auth.userId)}`, {
+                        method: 'PATCH',
+                        prefer: 'return=minimal',
+                        body: {
+                            heartbeat_at:   heartbeatAt   ?? null,
+                            last_candle_at: lastCandleAt  ?? null,
+                            active_bots:    activeBots    ?? 0,
+                        },
+                    });
+                    _json(res, 200, { ok: true }, req);
+                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+            });
+            return;
+        }
+        if (req.method === 'GET') {
+            (async () => {
+                try {
+                    const rows = await sb(`users?id=eq.${encodeURIComponent(auth.userId)}&select=heartbeat_at,last_candle_at,active_bots`);
+                    const row = rows[0] || {};
+                    _json(res, 200, {
+                        heartbeatAt:  row.heartbeat_at  || 0,
+                        lastCandleAt: row.last_candle_at || 0,
+                        activeBots:   row.active_bots    || 0,
+                    }, req);
+                } catch(e) { _json(res, 500, { error: e.message }, req); }
+            })();
+            return;
+        }
+    }
+
     // ── /api/user/trades ──────────────────────────────────────────────────────
     if (pathname === '/api/user/trades') {
         const auth = _authMiddleware(req);

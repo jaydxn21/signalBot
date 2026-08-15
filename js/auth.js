@@ -85,6 +85,31 @@ export const Auth = {
         } catch { return null; }
     },
 
+    // ── Cloud sync: push heartbeat (device actually running bots) ─────────
+    // Fires frequently (every few seconds) from whichever device has the
+    // bot terminal open, so any OTHER device can tell "is a bot running
+    // somewhere right now" instead of only knowing about itself.
+    async syncHeartbeat({ heartbeatAt, lastCandleAt, activeBots }) {
+        if (this.isGuest()) return;
+        try {
+            await fetch(`${_API_BASE}/api/user/heartbeat`, {
+                method: 'POST',
+                headers: this.headers(),
+                body: JSON.stringify({ heartbeatAt, lastCandleAt, activeBots }),
+            });
+        } catch(_) {} // silent — high frequency, failures shouldn't be noisy
+    },
+
+    // ── Cloud sync: fetch heartbeat (is ANY device running bots right now) ─
+    async fetchHeartbeat() {
+        if (this.isGuest()) return null;
+        try {
+            const r = await fetch(`${_API_BASE}/api/user/heartbeat`, { headers: this.headers() });
+            if (!r.ok) return null;
+            return await r.json();
+        } catch { return null; }
+    },
+
     // ── Cloud sync: push settings ─────────────────────────────────────────
     async syncSettings(settings) {
         if (this.isGuest()) return;

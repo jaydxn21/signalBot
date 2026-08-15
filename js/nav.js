@@ -138,23 +138,20 @@ function _timeAgoLabel(ms) {
     return `${d}d ago`;
 }
 
-function _updateHeartbeat() {
+// Cache of the last cloud heartbeat fetch — refreshed on its own slower
+// interval (see boot section) since it's a network call, not read on every
+// 2s tick like the local state is.
+let _cloudHeartbeat = null;
+
+function _renderHeartbeat(heartbeatAt, lastCandleAt, source) {
     const el = document.getElementById('heartbeat-chip');
     const dot = document.getElementById('heartbeat-dot');
     const label = document.getElementById('heartbeat-label');
     if (!el || !dot || !label) return;
 
-    const state = SessionState.get();
     const now = Date.now();
-
-    // "Alive" = a heartbeat ping landed within the last 12s (pings fire
-    // every 5s, so this gives margin for a couple of missed ticks without
-    // false-flagging).
-    const tabAlive   = state.heartbeatAt && (now - state.heartbeatAt) < 12000;
-    // "Data flowing" = a candle/tick arrived within the last 90s. Bots can
-    // legitimately go quiet between candle closes, so this window is wider
-    // than the tab-alive check.
-    const dataFlowing = state.lastCandleAt && (now - state.lastCandleAt) < 90000;
+    const tabAlive    = heartbeatAt && (now - heartbeatAt) < 15000;
+    const dataFlowing = lastCandleAt && (now - lastCandleAt) < 90000;
 
     let color, text;
     if (!tabAlive) {
@@ -162,17 +159,47 @@ function _updateHeartbeat() {
         text  = 'Not running';
     } else if (!dataFlowing) {
         color = 'status-warn';
-        text  = `No data · ${_timeAgoLabel(state.lastCandleAt)}`;
+        text  = `No data · ${_timeAgoLabel(lastCandleAt)}`;
     } else {
         color = 'status-online';
-        text  = `Live · ${_timeAgoLabel(state.lastCandleAt)}`;
+        text  = `Live · ${_timeAgoLabel(lastCandleAt)}`;
     }
 
     dot.className = `status-dot ${color}`;
     label.textContent = text;
     el.title = tabAlive
-        ? `Tab active · last candle ${_timeAgoLabel(state.lastCandleAt)}`
-        : `Tab has not pinged since ${_timeAgoLabel(state.heartbeatAt)} — bot page may be closed or asleep`;
+        ? `${source} · last candle ${_timeAgoLabel(lastCandleAt)}`
+        : `No heartbeat since ${_timeAgoLabel(heartbeatAt)} (${source}) — bot page may be closed or asleep on every device`;
+}
+
+function _updateHeartbeat() {
+    const state = SessionState.get();
+    const now = Date.now();
+    const localAlive = state.heartbeatAt && (now - state.heartbeatAt) < 15000;
+
+    // Prefer THIS device's own live state if it's actually running bots —
+    // no need to wait on a network round trip for the common case (you're
+    // looking at the same tab that's running the bot).
+    if (localAlive) {
+        _renderHeartbeat(state.heartbeatAt, state.lastCandleAt, 'this device');
+        return;
+    }
+
+    // Otherwise fall back to whatever the cloud last reported — this is
+    // what lets a monitoring device see that ANOTHER device is running bots.
+    if (_cloudHeartbeat) {
+        _renderHeartbeat(_cloudHeartbeat.heartbeatAt, _cloudHeartbeat.lastCandleAt, 'another device');
+    } else {
+        _renderHeartbeat(state.heartbeatAt, state.lastCandleAt, 'this device');
+    }
+}
+
+async function _refreshCloudHeartbeat() {
+    try {
+        const data = await Auth.fetchHeartbeat();
+        if (data) _cloudHeartbeat = data;
+        _updateHeartbeat();
+    } catch(_) {}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -364,10 +391,14 @@ document.addEventListener('DOMContentLoaded', () => {
     initClock();
     initWaves();
 
-    // Heartbeat: check every 2s so the badge reacts quickly if the bot
-    // page/tab dies, and pick up cross-tab updates via the storage event.
+    // Heartbeat: fast local check every 2s (reacts instantly if THIS
+    // device's bot tab dies), plus a slower cloud poll every 10s so a
+    // monitoring device without its own bots running can still tell
+    // whether the device that DOES run them is alive.
     _updateHeartbeat();
     setInterval(_updateHeartbeat, 2000);
+    _refreshCloudHeartbeat();
+    setInterval(_refreshCloudHeartbeat, 10000);
     window.addEventListener('storage', (e) => {
         if (e.key === 'nexus_session') _updateHeartbeat();
     });
