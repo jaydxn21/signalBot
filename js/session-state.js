@@ -49,6 +49,10 @@ export const SessionState = {
             trades:       [],
             livePrices:   {},
             botConfigs:   [],
+            // Liveness — updated by signal-bot.js while the tab is open and
+            // running. Read by nav.js to render the heartbeat indicator.
+            heartbeatAt:  0,  // last time the JS loop confirmed "tab alive"
+            lastCandleAt: 0,  // last time ANY candle/tick data arrived from Deriv
         };
     },
 
@@ -145,25 +149,5 @@ export const SessionState = {
         sessionStorage.removeItem(this._key);
         try { localStorage.removeItem(_pnlKey()); } catch(_) {}
         this._hydrated = false;
-    },
-
-    // ── Pull trades from the cloud and merge into local state ─────────────
-    async hydrateFromCloud() {
-        try {
-            const { Auth } = await import('./auth.js');
-            const cloudTrades = await Auth.fetchTrades();
-            if (!cloudTrades?.length) return;
-            const current = this.get();
-            const existingKeys = new Set((current.trades || []).map(t => `${t.time}|${t.symbol}`));
-            const merged = [...(current.trades || [])];
-            for (const t of cloudTrades) {
-                if (!existingKeys.has(`${t.time}|${t.symbol}`)) {
-                    merged.push(t);
-                    existingKeys.add(`${t.time}|${t.symbol}`);
-                }
-            }
-            merged.sort((a, b) => b.time - a.time);
-            this.set({ trades: merged.slice(0, 200) });
-        } catch(e) { console.warn('[SessionState] hydrateFromCloud failed:', e); }
     },
 };

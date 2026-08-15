@@ -1,6 +1,6 @@
 // js/nav.js
 // Shared across every page.
-// Handles: nav rail, clock, wave canvas.
+// Handles: nav rail, clock, wave canvas, heartbeat indicator.
 // SessionState lives in session-state.js to avoid duplicate module issues.
 
 export { SessionState } from './session-state.js';
@@ -21,7 +21,6 @@ if (!_onLoginPage) {
 function initNav() {
     const path = window.location.pathname;
 
-    // Map pathname endings to nav item data-page values
     const pageMap = {
         'index.html':     'terminal',
         '/':              'terminal',
@@ -49,7 +48,6 @@ function initNav() {
             }
         };
 
-        // Body-injected tooltip — bypasses all overflow/z-index clipping
         el.addEventListener('mouseenter', () => {
             let tip = document.getElementById('nexus-nav-tip');
             if (!tip) {
@@ -90,11 +88,8 @@ function initNav() {
             const tip = document.getElementById('nexus-nav-tip');
             if (tip) tip.style.display = 'none';
         });
-
-
     });
 
-    // Update connection status dots from session state
     _updateStatusDots();
 }
 
@@ -120,12 +115,72 @@ function _updateStatusDots() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// HEARTBEAT INDICATOR
+// Tracks two independent things:
+//  - heartbeatAt: is the tab/JS loop actually alive? (signal-bot.js pings
+//    this every 5s while running). If this goes stale, the bot page itself
+//    isn't running — closed tab, crashed script, laptop asleep, etc.
+//  - lastCandleAt: is Deriv actually sending data? If the tab is alive but
+//    no candle/tick has arrived in a while, the WebSocket has silently
+//    stalled even though `connected` might still read true.
+// ─────────────────────────────────────────────────────────────
+function _timeAgoLabel(ms) {
+    if (!ms) return 'never';
+    const diff = Date.now() - ms;
+    if (diff < 0) return 'just now';
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
+}
+
+function _updateHeartbeat() {
+    const el = document.getElementById('heartbeat-chip');
+    const dot = document.getElementById('heartbeat-dot');
+    const label = document.getElementById('heartbeat-label');
+    if (!el || !dot || !label) return;
+
+    const state = SessionState.get();
+    const now = Date.now();
+
+    // "Alive" = a heartbeat ping landed within the last 12s (pings fire
+    // every 5s, so this gives margin for a couple of missed ticks without
+    // false-flagging).
+    const tabAlive   = state.heartbeatAt && (now - state.heartbeatAt) < 12000;
+    // "Data flowing" = a candle/tick arrived within the last 90s. Bots can
+    // legitimately go quiet between candle closes, so this window is wider
+    // than the tab-alive check.
+    const dataFlowing = state.lastCandleAt && (now - state.lastCandleAt) < 90000;
+
+    let color, text;
+    if (!tabAlive) {
+        color = 'status-offline';
+        text  = 'Not running';
+    } else if (!dataFlowing) {
+        color = 'status-warn';
+        text  = `No data · ${_timeAgoLabel(state.lastCandleAt)}`;
+    } else {
+        color = 'status-online';
+        text  = `Live · ${_timeAgoLabel(state.lastCandleAt)}`;
+    }
+
+    dot.className = `status-dot ${color}`;
+    label.textContent = text;
+    el.title = tabAlive
+        ? `Tab active · last candle ${_timeAgoLabel(state.lastCandleAt)}`
+        : `Tab has not pinged since ${_timeAgoLabel(state.heartbeatAt)} — bot page may be closed or asleep`;
+}
+
+// ─────────────────────────────────────────────────────────────
 // CLOCK
 // ─────────────────────────────────────────────────────────────
 function initClock() {
     const pad = n => String(n).padStart(2, '0');
     function tick() {
-        // Jamaica time = UTC-5, no DST
         const now = new Date();
         const ja  = new Date(now.getTime() - 5 * 60 * 60 * 1000);
         const cl  = document.getElementById('clock');
@@ -156,7 +211,6 @@ function initWaves() {
     window.addEventListener('resize', resize);
     resize();
 
-    // ── Sine waves ───────────────────────────────────────────
     const waves = [
         { amp: 35, freq: 0.0038, speed: 0.005, y: 0.22, color: 'rgba(37,99,235,0.10)',   lw: 1.2 },
         { amp: 50, freq: 0.0028, speed: 0.003, y: 0.42, color: 'rgba(148,163,184,0.13)', lw: 1.5 },
@@ -165,8 +219,6 @@ function initWaves() {
         { amp: 25, freq: 0.0068, speed: 0.010, y: 0.88, color: 'rgba(148,163,184,0.09)', lw: 0.9 },
     ];
 
-    // ── Animated grid lines ──────────────────────────────────
-    // Diagonal lines that drift slowly across the background
     const gridLines = Array.from({ length: 8 }, (_, i) => ({
         x:     (W / 8) * i,
         speed: 0.12 + (i % 3) * 0.06,
@@ -174,7 +226,6 @@ function initWaves() {
         width: 0.5 + (i % 3) * 0.3,
     }));
 
-    // ── Floating dots ────────────────────────────────────────
     const dots = Array.from({ length: 18 }, () => ({
         x:     Math.random() * 1400,
         y:     Math.random() * 900,
@@ -187,19 +238,16 @@ function initWaves() {
     function draw() {
         ctx.clearRect(0, 0, W, H);
 
-        // Draw animated diagonal grid lines
         gridLines.forEach(gl => {
             gl.x = (gl.x + gl.speed) % (W + 200);
             ctx.beginPath();
             ctx.strokeStyle = gl.color;
             ctx.lineWidth   = gl.width;
-            // Diagonal from top-right to bottom-left offset
             ctx.moveTo(gl.x, 0);
             ctx.lineTo(gl.x - H * 0.4, H);
             ctx.stroke();
         });
 
-        // Draw floating dots
         dots.forEach(d => {
             d.x += d.vx;
             d.y += d.vy;
@@ -214,7 +262,6 @@ function initWaves() {
             ctx.fill();
         });
 
-        // Draw sine waves on top
         waves.forEach(w => {
             ctx.beginPath();
             ctx.strokeStyle = w.color;
@@ -237,12 +284,8 @@ function initWaves() {
 
 // ─────────────────────────────────────────────────────────────
 // SHARED HEADER HTML
-// Injected into every page so you only maintain it in one place.
-// Each page just needs: <div id="nexus-header"></div>
-//                       <div id="nexus-nav"></div>
 // ─────────────────────────────────────────────────────────────
 function injectSharedHTML() {
-    // Nav rail
     const navEl = document.getElementById('nexus-nav');
     if (navEl) {
         navEl.innerHTML = `
@@ -280,7 +323,6 @@ function injectSharedHTML() {
         </nav>`;
     }
 
-    // Header
     const headerEl = document.getElementById('nexus-header');
     if (headerEl) {
         headerEl.innerHTML = `
@@ -295,6 +337,10 @@ function injectSharedHTML() {
                     <div class="status-chip">
                         <div id="mt5-indicator" class="status-dot status-offline"></div>
                         <span>MT5 Bridge</span>
+                    </div>
+                    <div class="status-chip" id="heartbeat-chip" title="Bot liveness">
+                        <div id="heartbeat-dot" class="status-dot status-offline"></div>
+                        <span id="heartbeat-label">Not running</span>
                     </div>
                 </div>
             </div>
@@ -318,7 +364,14 @@ document.addEventListener('DOMContentLoaded', () => {
     initClock();
     initWaves();
 
-    // Show username in header & wire logout to Auth
+    // Heartbeat: check every 2s so the badge reacts quickly if the bot
+    // page/tab dies, and pick up cross-tab updates via the storage event.
+    _updateHeartbeat();
+    setInterval(_updateHeartbeat, 2000);
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'nexus_session') _updateHeartbeat();
+    });
+
     const user    = Auth.user();
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) {

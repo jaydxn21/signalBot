@@ -720,6 +720,7 @@ function handleData(data) {
     }
 
     if (data.msg_type === 'candles') {
+        SessionState.set({ lastCandleAt: Date.now() });
         const gran = data.echo_req.granularity;
         const rawSymbol = data.echo_req.ticks_history;
         const symbol = normalizeSymbol(rawSymbol);
@@ -761,6 +762,7 @@ function handleData(data) {
     }
 
     if (data.msg_type === 'ohlc') {
+        SessionState.set({ lastCandleAt: Date.now() });
         const gran = data.echo_req.granularity;
         const rawSymbol = data.ohlc.symbol || data.echo_req.ticks_history;
         const symbol = normalizeSymbol(rawSymbol);
@@ -1729,6 +1731,14 @@ async function init() {
 
     // ─── START STATUS UPDATES ─────────────────────────────
     startStatusUpdates();
+
+    // ─── HEARTBEAT ──────────────────────────────────────────
+    // Confirms the tab/JS loop is alive, independent of Deriv connection
+    // state. Read by nav.js on every page to render the liveness badge.
+    SessionState.set({ heartbeatAt: Date.now() });
+    setInterval(() => {
+        SessionState.set({ heartbeatAt: Date.now() });
+    }, 5000);
 
     // ─── LOG STARTUP COMPLETE ─────────────────────────────
     log('🚀 Signal Bot ready! Add a bot and start trading.', 'success');
