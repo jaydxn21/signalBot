@@ -5,7 +5,7 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --env-file=.env server.js",
     "dev": "node --watch server.js",
     "engine": "node engine/engine.js",
     "cli": "node engine/cli.js"
