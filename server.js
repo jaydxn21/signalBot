@@ -3,6 +3,7 @@ import fs     from 'fs';
 import path   from 'path';
 import url    from 'url';
 import crypto from 'crypto';
+import 'dotenv/config';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
