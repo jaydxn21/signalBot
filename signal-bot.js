@@ -10,7 +10,7 @@ console.log('🔍 Strategy Auto-Discovery enabled');
 // ─── API BASE (Render backend) ─────────────────────────────────────────────
 // The frontend lives on Vercel; the API lives on Render. Any relative
 // fetch('/api/...') here will 404 once these are different origins.
-const NEXUS_API_BASE = 'https://nexus-api-khvt.onrender.com';
+const NEXUS_API_BASE = 'https://bot.atomicprod.shop';
 
 // ─── STRATEGY AUTO-LOADER ──────────────────────────────────────────────────
 
@@ -388,7 +388,7 @@ function connectRenderWebSocket() {
         return;
     }
 
-    const WS_URL = 'wss://nexus-api-khvt.onrender.com';
+    const WS_URL = 'wss://bot.atomicprod.shop';
     console.log(`[WS] Connecting to LOCAL BRIDGE: ${WS_URL}`);
 
     renderWS = new WebSocket(WS_URL);

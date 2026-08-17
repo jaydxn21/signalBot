@@ -27,7 +27,7 @@ let reconnectTimer = null;
 const overlayState = new Map();
 
 // NOTE: this WebSocket engine (port 4000) is a separate local process, not
-// the Render API (nexus-api-khvt.onrender.com). It will not resolve when this
+// the Render API (bot.atomicprod.shop). It will not resolve when this
 // dashboard is loaded from Vercel/production unless that engine is deployed
 // somewhere reachable and this URL is updated accordingly. Flagging for you —
 // left unchanged since I don't know where/if that engine is meant to run.

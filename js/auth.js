@@ -9,7 +9,7 @@
 
 // Compute API base URL once at module load.
 // Empty string = same origin (localhost dev).
-const _RENDER_URL = 'https://nexus-api-khvt.onrender.com'; // ← matches actual deployed Render service
+const _RENDER_URL = 'https://bot.atomicprod.shop'; // ← matches actual deployed Render service
 const _API_BASE = (typeof window !== 'undefined' &&
     window.location.hostname !== 'localhost' &&
     window.location.hostname !== '127.0.0.1')

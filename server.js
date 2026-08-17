@@ -16,7 +16,7 @@ const ROOT_DIR = __dirname;
 
 const DEFAULT_ORIGINS = [
     'https://signal-bot-eight.vercel.app',
-    'https://nexus-api-khvt.onrender.com',
+    'https://bot.atomicprod.shop',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ];
