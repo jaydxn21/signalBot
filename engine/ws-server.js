@@ -21,7 +21,7 @@ export class DashboardWSServer {
 
   bindServerEvents() {
     this.wss.on('connection', (socket, req) => {
-      const url = new URL(req.url || '/', 'wss://nexus-api-khvt.onrender.com');
+      const url = new URL(req.url || '/', 'wss://bot.atomicprod.shop');
       if (this.secret && url.searchParams.get('secret') !== this.secret) {
         socket.close(1008, 'Unauthorized');
         return;
