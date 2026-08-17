@@ -1735,7 +1735,6 @@ async function init() {
     // ─── HEARTBEAT ──────────────────────────────────────────
     // Confirms the tab/JS loop is alive, independent of Deriv connection
     // state. Read by nav.js on every page to render the liveness badge.
-    SessionState.set({ heartbeatAt: Date.now() });
     setInterval(() => {
         SessionState.set({ heartbeatAt: Date.now() });
     }, 5000);
