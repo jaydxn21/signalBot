@@ -174,6 +174,15 @@ let latestSignal  = null;
 let signalHistory = [];
 const mt5Clients  = [];
 let mt5TradeResults = [];
+const candleBuffer = {}; // { "R_75": [...] }
+
+// Call from your candle-complete feed handler to keep a small hot cache for fast chart rehydration.
+function storeCandle(symbol, candle) {
+    if (!symbol || !candle) return;
+    if (!candleBuffer[symbol]) candleBuffer[symbol] = [];
+    candleBuffer[symbol].push(candle);
+    if (candleBuffer[symbol].length > 200) candleBuffer[symbol].shift();
+}
 
 // ─── CSV helpers ───────────────────────────────────────────────────────────
 const CSV_HEADERS = [
@@ -686,7 +695,7 @@ const server = http.createServer((req, res) => {
                     _json(res, 200, { success: true }, req);
                 } catch(e) {
                     console.error('[Supabase Save Error]:', e.message);
-                    _json(res, 500, { error: 'Failed to save settings' }, req);
+                    _json(res, 500, { error: e.message }, req);
                 }
             });
             return;
@@ -844,6 +853,18 @@ const server = http.createServer((req, res) => {
             });
             return;
         }
+    }
+
+    // ── /api/candles/:symbol ───────────────────────────────────────────────────
+    if (pathname.startsWith('/api/candles/') && req.method === 'GET') {
+        const auth = _authenticateToken(req, res);
+        if (!auth) return;
+
+        const symbol = decodeURIComponent(pathname.slice('/api/candles/'.length) || '').trim();
+        if (!symbol) return _json(res, 400, { error: 'symbol required' }, req);
+
+        _json(res, 200, { candles: candleBuffer[symbol] || [] }, req);
+        return;
     }
 
     // ── API catch-all ─────────────────────────────────────────────────────────

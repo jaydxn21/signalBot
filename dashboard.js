@@ -2,7 +2,16 @@ import { SessionState } from './js/session-state.js';
 import { UIManager } from './js/ui-manager.js';
 import { ChartManager, initChartManager } from './js/chart-manager.js';
 import { OverlayManager } from './js/overlays.js';
-import { API_BASE } from './js/auth.js';
+import { API_BASE, Auth } from './js/auth.js';
+import { SessionHydrator } from './js/session-hydrator.js';
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Guard route
+    Auth.guard();
+
+    // 2. Fully restore UI, chart, trade journal, and settings
+    await SessionHydrator.init();
+});
 
 const SYMBOL_MAP = {
   R_100: 'Volatility 100 Index', R_75: 'Volatility 75 Index', R_50: 'Volatility 50 Index', R_25: 'Volatility 25 Index', R_10: 'Volatility 10 Index',

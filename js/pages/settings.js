@@ -4,6 +4,7 @@
 // Other modules read settings via Settings.get(key).
 
 import { SessionState } from '../session-state.js';
+import { Auth } from '../auth.js';
 
 // ─────────────────────────────────────────────────────────────
 // DEFAULTS — what every setting starts as on first load
@@ -43,6 +44,7 @@ const DEFAULTS = {
 };
 
 const STORAGE_KEY = 'nexus_settings';
+let _cloudSaveTimer = null;
 
 // ─────────────────────────────────────────────────────────────
 // PUBLIC API
@@ -305,6 +307,36 @@ function _setSelect(id, value) {
 
 function _showSaved() {
     _showStatus('settings-saved-indicator', 'Settings saved', false);
+    _scheduleCloudSettingsSync();
+}
+
+async function onSaveSettings() {
+    const current = Settings.getAll();
+    const newSettings = {
+        derivToken: current.apiToken || '',
+        appId: current.appId || '33XjcwFHStlck2fOZ3IND',
+        symbol: current.symbol || '',
+        apiToken: current.apiToken || '',
+        accountId: current.accountId || '',
+        accountType: current.accountType || 'demo',
+        mt5Url: current.mt5Url || '',
+        maxDailyLoss: current.maxDailyLoss,
+        maxBots: current.maxBots,
+        chartTheme: current.chartTheme,
+        autoMt5: current.autoMt5,
+        autoReconnect: current.autoReconnect,
+    };
+
+    await Auth.syncSettings(newSettings);
+    console.log('✅ Settings saved to Supabase');
+}
+
+function _scheduleCloudSettingsSync() {
+    clearTimeout(_cloudSaveTimer);
+    _cloudSaveTimer = setTimeout(() => {
+        // Fire-and-forget to keep UI responsive during frequent input events.
+        void onSaveSettings();
+    }, 400);
 }
 
 function _showStatus(id, msg, isWarn) {
