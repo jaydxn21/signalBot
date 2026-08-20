@@ -210,6 +210,41 @@
       "text": "Engine shutting down",
       "type": "warn",
       "time": 1786100396192
+    },
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1787239543057
+    },
+    {
+      "text": "Initial Deriv connection failed: APP_ID, TOKEN, and ACCOUNT_ID must be configured",
+      "type": "error",
+      "time": 1787239543083
+    },
+    {
+      "text": "Connected to MT5 bridge",
+      "type": "info",
+      "time": 1787239543182
+    },
+    {
+      "text": "Engine shutting down",
+      "type": "warn",
+      "time": 1787241204746
+    },
+    {
+      "text": "Engine listening on ws://0.0.0.0:4000",
+      "type": "info",
+      "time": 1787241206710
+    },
+    {
+      "text": "Initial Deriv connection failed: APP_ID, TOKEN, and ACCOUNT_ID must be configured",
+      "type": "error",
+      "time": 1787241206730
+    },
+    {
+      "text": "Connected to MT5 bridge",
+      "type": "info",
+      "time": 1787241206828
     }
   ],
   "trades": []
