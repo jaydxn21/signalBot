@@ -1134,30 +1134,25 @@ async function fireSignal(bot, signal, bar, atr, rsi) {
         sigEngine.drawTradeLevels(sl, tp);
     }
 
-    // MT5 Push
+    // MT5 Push — minimal signal only. MT5/EA owns sizing, SL, and trailing.
     if (document.getElementById('auto-mt5')?.checked) {
         const derivDisplay = symbolMap[bot.config.symbol] || SYMBOL_MAP[bot.config.symbol] || bot.config.symbol;
         const mt5Symbol = MT5_SYMBOL_MAP[bot.config.symbol] || MT5_SYMBOL_MAP[derivDisplay] || derivDisplay;
-        const clampedLot = Math.max(0.01, parseFloat((Math.round(lotSize / 0.01) * 0.01).toFixed(2)));
 
         const signalMsg = {
             action: type.toLowerCase(),
             symbol: mt5Symbol,
-            lotSize: clampedLot,
-            timestamp: Date.now()
+            timestamp: Date.now(),
         };
 
-        if (!renderWS || renderWS.readyState !== WebSocket.OPEN) {
-            pendingSignals.push(signalMsg);
-            connectRenderWebSocket();
-        } else {
-            try {
-                renderWS.send(JSON.stringify(signalMsg));
-                console.log(`[MT5] Sent to local bridge → ${type} ${mt5Symbol} | lot ${clampedLot}`);
-            } catch (e) {
-                pendingSignals.push(signalMsg);
-            }
-        }
+        fetch(`${NEXUS_API_BASE}/api/signal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(signalMsg),
+        })
+        .then(res => res.json())
+        .then(data => console.log(`[MT5] Signal sent → ${type} ${mt5Symbol}`, data))
+        .catch(err => console.error('[MT5] Failed to send signal:', err));
     }
 }
 
