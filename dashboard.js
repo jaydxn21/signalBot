@@ -25,6 +25,8 @@ let focusedBotId = null;
 let socket = null;
 let reconnectTimer = null;
 const overlayState = new Map();
+let pendingSignals = [];
+let signalPollTimer = null;
 
 // NOTE: this WebSocket engine (port 4000) is a separate local process, not
 // the Render API (bot.atomicprod.shop). It will not resolve when this
@@ -509,11 +511,80 @@ function initUi() {
   window.onSplitView = () => showOverlayPanel(false);
 }
 
+function startSignalPolling() {
+  if (signalPollTimer) clearInterval(signalPollTimer);
+
+  // Poll for signals every 5 seconds
+  signalPollTimer = setInterval(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/signals/pending`);
+      if (!response.ok) return;
+
+      const signals = await response.json();
+      if (!Array.isArray(signals)) return;
+
+      pendingSignals = signals;
+      displaySignals(signals);
+    } catch (error) {
+      console.error('Failed to fetch signals:', error);
+    }
+  }, 5000);
+}
+
+function displaySignals(signals) {
+  // Show signals in dashboard
+  const container = document.getElementById('signal-list');
+  if (!container) return;
+
+  container.innerHTML = '';
+  signals.forEach((signal) => {
+    const el = document.createElement('div');
+    const typeClass = String(signal.signal_type || 'unknown').toLowerCase();
+    el.className = `signal-item signal-${typeClass}`;
+    el.dataset.signalId = String(signal.id || '');
+
+    const type = signal.signal_type || 'UNKNOWN';
+    const price = signal.price ?? '—';
+    const createdAt = signal.created_at ? new Date(signal.created_at).toLocaleTimeString() : '—';
+
+    el.innerHTML = `
+      <span class="signal-type">${type}</span>
+      <span class="signal-price">${price}</span>
+      <span class="signal-time">${createdAt}</span>
+      <button type="button">✓</button>
+    `;
+
+    const ackBtn = el.querySelector('button');
+    ackBtn?.addEventListener('click', () => acknowledgeSignal(signal.id));
+    container.prepend(el);
+  });
+}
+
+async function acknowledgeSignal(signalId) {
+  try {
+    await fetch(`${API_BASE}/api/signals/acknowledge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signalId }),
+    });
+  } catch (error) {
+    console.error('Failed to acknowledge signal:', error);
+    return;
+  }
+
+  pendingSignals = pendingSignals.filter((s) => String(s.id) !== String(signalId));
+
+  // Remove from UI
+  const el = document.querySelector(`[data-signal-id="${signalId}"]`);
+  if (el) el.remove();
+}
+
 async function init() {
   await loadStrategies();
   initChartManager();
   initOverlayPanel();
   initUi();
+  startSignalPolling();
   UIManager.log('Dashboard ready — waiting for engine', 'info');
   SessionState.set({ connected: false, mt5Connected: false, activeBots: 0, botConfigs: [], trades: [] });
   connectSocket();

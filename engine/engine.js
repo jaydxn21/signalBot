@@ -5,7 +5,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Explicitly load .env from root directory (one folder up from engine/)
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 import { loadConfig } from './config.js';
@@ -16,20 +15,17 @@ import { StrategyRunner } from './strategy-runner.js';
 import { BotManager } from './bot-manager.js';
 import { DashboardWSServer } from './ws-server.js';
 
-const config = loadConfig({
-  appId: process.env.APP_ID,
-  token: process.env.TOKEN,
-  accountId: process.env.ACCOUNT_ID,
-  enginePort: process.env.WS_ENGINE_PORT,
+const config = loadConfig();
+
+// Initialize Store with Supabase
+const store = new Store({
+  persistPath: config.storeFile,
+  autoMt5: config.autoMt5,
+  supabaseUrl: process.env.SUPABASE_URL,
+  supabaseKey: process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+  syncToCloud: true,
 });
-
-console.log('✅ Config loaded:');
-console.log('   APP_ID:', config.appId ? '✓ SET' : '✗ MISSING');
-console.log('   TOKEN:', config.token ? '✓ SET' : '✗ MISSING');
-console.log('   ACCOUNT_ID:', config.accountId ? '✓ SET' : '✗ MISSING');
-console.log('   PORT:', config.enginePort);
-
-const store = new Store({ persistPath: config.storeFile, autoMt5: config.autoMt5 });
 const mt5Bridge = new MT5BridgeClient({
   url: config.bridgeUrl,
   onStatus: (connected) => store.setMt5Status(connected),
@@ -60,16 +56,12 @@ const wsServer = new DashboardWSServer({
 });
 
 store.addLog(`Engine listening on ws://${config.engineHost}:${config.enginePort}`, 'info');
-console.log('🔌 Connecting to MT5 bridge...');
-mt5Bridge.connect();
-console.log('🔌 Connecting to Deriv API...');
-api.connect().catch((error) => {
-  store.addLog(`Initial Deriv connection failed: ${error.message}`, 'error');
-  console.error('❌ Deriv connection failed:', error.message);
-});
 
-function shutdown() {
+// ─── GRACEFUL SHUTDOWN ─────────────────────────────────────
+
+async function shutdown() {
   store.addLog('Engine shutting down', 'warn');
+  await store.close();
   api.close();
   mt5Bridge.close();
   wsServer.close();
@@ -78,3 +70,14 @@ function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// ─── CONNECT ──────────────────────────────────────────────
+
+console.log('🔌 Connecting to MT5 bridge...');
+mt5Bridge.connect();
+
+console.log('🔌 Connecting to Deriv API...');
+api.connect().catch((error) => {
+  store.addLog(`Initial Deriv connection failed: ${error.message}`, 'error');
+  console.error('❌ Deriv connection failed:', error.message);
+});

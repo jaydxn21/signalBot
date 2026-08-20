@@ -8,7 +8,15 @@
     "start": "node --env-file=.env server.js",
     "dev": "node --watch server.js",
     "engine": "node engine/engine.js",
-    "cli": "node engine/cli.js"
+    "cli": "node engine/cli.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs",
+    "migrate": "node scripts/migrate-to-supabase.js",
+    "seed:user": "node scripts/seed-users.js",
+    "dashboard": "serve public/",
+    "test:signals": "node scripts/test-signals.js"
   },
   "engines": {
     "node": ">=18.0.0"

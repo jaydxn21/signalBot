@@ -184,6 +184,27 @@ export class StrategyRunner {
       factors: signal.factors || [],
     };
 
+    // Store signal in Supabase via Store
+    const signalData = {
+      type,
+      entry: bar.close,
+      sl,
+      tp,
+      lotSize,
+      label: signal.label || type,
+      confidence,
+      metadata: {
+        strategy: bot.config.strategy,
+        symbol: bot.config.symbol,
+        atr,
+        rsi,
+        ...signal._meta,
+      },
+    };
+
+    // Create signal in store (syncs to Supabase)
+    await this.store.createSignal(bot.id, signalData);
+
     bot.openSignal = {
       type,
       sl,
