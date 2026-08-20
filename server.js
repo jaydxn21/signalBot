@@ -587,7 +587,7 @@ const server = http.createServer((req, res) => {
                     return _json(res, 401, { error: 'Invalid username or password' }, req);
 
                 const token = _makeToken(user.id);
-                _json(res, 200, { token, userId: id, username: user.username }, req);
+                _json(res, 200, { token, userId: user.id, username: user.username }, req);
             } catch(e) {
                 console.error('[Login] Error:', e.message);
                 _json(res, 400, { error: 'Invalid request' }, req);
