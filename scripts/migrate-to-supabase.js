@@ -28,6 +28,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const DEFAULT_USERNAME = 'skipper2';
 
 async function getUserId(username) {
+  console.log(`🔍 Looking up user: ${username}`);
+
   const { data, error } = await supabase
     .from('users')
     .select('id')
@@ -36,8 +38,16 @@ async function getUserId(username) {
   
   if (error) {
     console.error(`❌ User "${username}" not found:`, error.message);
+    console.log('📋 Available users:');
+    // List all users to help debug
+    const { data: allUsers } = await supabase
+      .from('users')
+      .select('username, id');
+    console.table(allUsers);
     return null;
   }
+
+  console.log(`✅ Found user: ${username} (${data.id})`);
   
   return data.id;
 }
