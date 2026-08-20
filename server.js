@@ -541,25 +541,28 @@ const server = http.createServer((req, res) => {
                 if (!username || !password || username.length < 3 || password.length < 6)
                     return _json(res, 400, { error: 'Username ≥3 chars, password ≥6 chars required' }, req);
 
-                const id = username.toLowerCase().trim();
+                const cleanUsername = username.toLowerCase().trim();
 
-                const existing = await sb(`users?id=eq.${encodeURIComponent(id)}&select=id`);
+                // Check if username already exists (by username, not id)
+                const existing = await sb(`users?username=eq.${encodeURIComponent(cleanUsername)}&select=id`);
                 if (existing.length > 0) return _json(res, 409, { error: 'Username already taken' }, req);
 
-                await sb('users', {
+                // Insert — let Supabase generate the UUID
+                const created = await sb('users', {
                     method: 'POST',
-                    prefer: 'return=minimal',
+                    prefer: 'return=representation',
                     body: {
-                        id,
-                        username,
+                        username: cleanUsername,
                         password_hash: _hashPassword(password),
-                        created_at: Date.now(),
                         settings: {},
                     },
                 });
 
-                const token = _makeToken(id);
-                _json(res, 201, { token, userId: id, username }, req);
+                const user = created[0];
+                if (!user) return _json(res, 500, { error: 'Failed to create user' }, req);
+
+                const token = _makeToken(user.id);
+                _json(res, 201, { token, userId: user.id, username: user.username }, req);
             } catch(e) {
                 console.error('[Register] Error:', e.message);
                 _json(res, 400, { error: 'Invalid request' }, req);
@@ -575,14 +578,15 @@ const server = http.createServer((req, res) => {
         req.on('end', async () => {
             try {
                 const { username, password } = JSON.parse(body);
-                const id = (username || '').toLowerCase().trim();
+                const cleanUsername = (username || '').toLowerCase().trim();
 
-                const rows = await sb(`users?id=eq.${encodeURIComponent(id)}&select=*`);
+                // Look up by username (not id)
+                const rows = await sb(`users?username=eq.${encodeURIComponent(cleanUsername)}&select=*`);
                 const user = rows[0];
                 if (!user || user.password_hash !== _hashPassword(password))
                     return _json(res, 401, { error: 'Invalid username or password' }, req);
 
-                const token = _makeToken(id);
+                const token = _makeToken(user.id);
                 _json(res, 200, { token, userId: id, username: user.username }, req);
             } catch(e) {
                 console.error('[Login] Error:', e.message);
