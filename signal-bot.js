@@ -654,19 +654,47 @@ function _restoreBotCards() {
         bot.isActive = true;
         bot.sessionStart = Date.now();
         window.setBotRunning(id, true);
+
         const symLabel = (SYMBOL_MAP[config.symbol] || config.symbol).replace(' Index','').trim();
         ChartManager.addBot(id, symLabel, TF_LABEL[config.tf] || 'M5');
         log(`Bot #${id} restored — ${config.strategy} on ${config.symbol}`, 'info');
 
-        // Subscribe immediately if already authorized
-        if (api?.socket?.readyState === 1 && authorised) {
-            subscribeBot(bot);
-        }
+        // Always attempt subscribe (handles race with Deriv connection)
+        trySubscribeBot(bot);
     });
+
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph && saved.length > 0) ph.style.display = 'none';
+
+    // Focus first restored bot so the chart actually shows data
     const firstId = saved[0]?.id;
-    if (firstId) { focusedBotId = firstId; }
+    if (firstId) {
+        focusedBotId = firstId;
+        if (typeof focusBot === 'function') focusBot(firstId);
+        if (typeof ChartManager?.focus === 'function') ChartManager.focus(firstId);
+    }
+}
+
+function trySubscribeBot(bot) {
+    if (!bot || !bot.isActive) return;
+
+    if (api?.ws?.readyState === 1 && authorised) {
+        subscribeBot(bot);
+        return;
+    }
+
+    // Retry until Deriv is ready (max ~10 s)
+    let attempts = 0;
+    const timer = setInterval(() => {
+        attempts++;
+        if (api?.ws?.readyState === 1 && authorised) {
+            clearInterval(timer);
+            subscribeBot(bot);
+        } else if (attempts >= 20) {
+            clearInterval(timer);
+            console.warn('[restore] Gave up waiting for Deriv connection for bot', bot.id);
+        }
+    }, 500);
 }
 
 // ─── TF LABELS ────────────────────────────────────────────────────────────
