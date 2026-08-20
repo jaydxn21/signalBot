@@ -111,8 +111,8 @@ function _hashPassword(password) {
     return crypto.createHmac('sha256', AUTH_SECRET).update(password).digest('hex');
 }
 
-function _makeToken(userId) {
-    const payload = Buffer.from(JSON.stringify({ userId, exp: Date.now() + 7 * 24 * 3600 * 1000 })).toString('base64');
+function _makeToken(userId, username = null) {
+    const payload = Buffer.from(JSON.stringify({ userId, username, exp: Date.now() + 7 * 24 * 3600 * 1000 })).toString('base64');
     const sig     = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
     return `${payload}.${sig}`;
 }
@@ -135,6 +135,24 @@ function _authMiddleware(req) {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
     return _verifyToken(token);
+}
+
+function _authenticateToken(req, res) {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!token) {
+        _json(res, 401, { error: 'Unauthorized: Missing token' }, req);
+        return null;
+    }
+
+    const user = _verifyToken(token);
+    if (!user) {
+        _json(res, 403, { error: 'Forbidden: Invalid token' }, req);
+        return null;
+    }
+
+    return user;
 }
 
 function _isUuid(value) {
@@ -570,8 +588,13 @@ const server = http.createServer((req, res) => {
                 const user = created[0];
                 if (!user) return _json(res, 500, { error: 'Failed to create user' }, req);
 
-                const token = _makeToken(user.id);
-                _json(res, 201, { token, userId: user.id, username: user.username }, req);
+                const token = _makeToken(user.id, user.username);
+                _json(res, 201, {
+                    token,
+                    userId: user.id,
+                    username: user.username,
+                    settings: user.settings || {},
+                }, req);
             } catch(e) {
                 console.error('[Register] Error:', e.message);
                 _json(res, 400, { error: 'Invalid request' }, req);
@@ -590,13 +613,18 @@ const server = http.createServer((req, res) => {
                 const cleanUsername = (username || '').toLowerCase().trim();
 
                 // Look up by username (not id)
-                const rows = await sb(`users?username=eq.${encodeURIComponent(cleanUsername)}&select=*`);
+                const rows = await sb(`users?username=eq.${encodeURIComponent(cleanUsername)}&select=id,username,password_hash,settings`);
                 const user = rows[0];
                 if (!user || user.password_hash !== _hashPassword(password))
                     return _json(res, 401, { error: 'Invalid username or password' }, req);
 
-                const token = _makeToken(user.id);
-                _json(res, 200, { token, userId: user.id, username: user.username }, req);
+                const token = _makeToken(user.id, user.username);
+                _json(res, 200, {
+                    token,
+                    userId: user.id,
+                    username: user.username,
+                    settings: user.settings || {},
+                }, req);
             } catch(e) {
                 console.error('[Login] Error:', e.message);
                 _json(res, 400, { error: 'Invalid request' }, req);
@@ -622,13 +650,16 @@ const server = http.createServer((req, res) => {
 
     // ── /api/user/settings ────────────────────────────────────────────────────
     if (pathname === '/api/user/settings') {
-        const auth = _authMiddleware(req);
-        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
+        const auth = _authenticateToken(req, res);
+        if (!auth) return;
+
+        const username = (auth.username || (_isUuid(auth.userId) ? '' : auth.userId) || '').trim();
+        if (!username) return _json(res, 400, { error: 'Invalid user context' }, req);
 
         if (req.method === 'GET') {
             (async () => {
                 try {
-                    const rows = await sb(`users?${_userFilter(auth)}&select=settings`);
+                    const rows = await sb(`users?username=eq.${encodeURIComponent(username)}&select=settings`);
                     _json(res, 200, { settings: rows[0]?.settings || {} }, req);
                 } catch(e) { _json(res, 500, { error: e.message }, req); }
             })();
@@ -638,15 +669,25 @@ const server = http.createServer((req, res) => {
             let body = '';
             req.on('data', c => body += c);
             req.on('end', async () => {
+                let parsed;
                 try {
-                    const { settings } = JSON.parse(body);
-                    await sb(`users?${_userFilter(auth)}`, {
+                    parsed = JSON.parse(body);
+                } catch(e) {
+                    return _json(res, 400, { error: 'Invalid request' }, req);
+                }
+
+                try {
+                    const { settings } = parsed;
+                    await sb(`users?username=eq.${encodeURIComponent(username)}`, {
                         method: 'PATCH',
                         prefer: 'return=minimal',
                         body: { settings },
                     });
-                    _json(res, 200, { ok: true }, req);
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+                    _json(res, 200, { success: true }, req);
+                } catch(e) {
+                    console.error('[Supabase Save Error]:', e.message);
+                    _json(res, 500, { error: 'Failed to save settings' }, req);
+                }
             });
             return;
         }
@@ -714,8 +755,13 @@ const server = http.createServer((req, res) => {
     // fires every few seconds and shouldn't touch the trades table at all.
     // Stored on the users row itself (heartbeat_at / last_candle_at columns).
     if (pathname === '/api/user/heartbeat') {
-        const auth = _authMiddleware(req);
-        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
+        const auth = _authenticateToken(req, res);
+        if (!auth) return;
+
+        const username = (auth.username || (_isUuid(auth.userId) ? '' : auth.userId) || '').trim();
+        if (!username) {
+            return _json(res, 400, { error: 'Invalid user context' }, req);
+        }
 
         if (req.method === 'POST') {
             let body = '';
@@ -723,7 +769,7 @@ const server = http.createServer((req, res) => {
             req.on('end', async () => {
                 try {
                     const { heartbeatAt, lastCandleAt, activeBots } = JSON.parse(body);
-                    await sb(`users?${_userFilter(auth)}`, {
+                    await sb(`users?username=eq.${encodeURIComponent(username)}`, {
                         method: 'PATCH',
                         prefer: 'return=minimal',
                         body: {
@@ -740,7 +786,7 @@ const server = http.createServer((req, res) => {
         if (req.method === 'GET') {
             (async () => {
                 try {
-                    const rows = await sb(`users?${_userFilter(auth)}&select=heartbeat_at,last_candle_at,active_bots`);
+                    const rows = await sb(`users?username=eq.${encodeURIComponent(username)}&select=heartbeat_at,last_candle_at,active_bots`);
                     const row = rows[0] || {};
                     _json(res, 200, {
                         heartbeatAt:  row.heartbeat_at  || 0,

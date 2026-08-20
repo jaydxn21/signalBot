@@ -16,6 +16,9 @@ const _API_BASE = (typeof window !== 'undefined' &&
     ? _RENDER_URL
     : '';
 
+const _SETTINGS_STORAGE_KEY = 'nexus_settings';
+let _restorePromise = null;
+
 export const Auth = {
     // ── Read stored session ───────────────────────────────────────────────
     get() {
@@ -33,7 +36,12 @@ export const Auth = {
 
     // ── Redirect to login if not authenticated ────────────────────────────
     guard() {
-        if (!this.get()) window.location.replace('login.html');
+        if (!this.get()) {
+            window.location.replace('login.html');
+            return;
+        }
+        // Fire-and-forget hydration after successful guard on page load.
+        void this.restoreSession();
     },
 
     // ── Current user info ─────────────────────────────────────────────────
@@ -155,6 +163,61 @@ export const Auth = {
             const d = await r.json();
             return d.strategies || null;
         } catch { return null; }
+    },
+
+    // ── Auto-hydration: pull cloud settings and restore Deriv session ─────
+    async restoreSession() {
+        if (_restorePromise) return _restorePromise;
+
+        _restorePromise = (async () => {
+            const user = this.user();
+            if (!user || this.isGuest()) return;
+
+            const savedSettings = await this.fetchSettings();
+            if (!savedSettings || typeof savedSettings !== 'object') return;
+
+            // Keep local settings in sync so Settings.get(...) works immediately.
+            try {
+                const raw = localStorage.getItem(_SETTINGS_STORAGE_KEY);
+                const localSettings = raw ? JSON.parse(raw) : {};
+                localStorage.setItem(
+                    _SETTINGS_STORAGE_KEY,
+                    JSON.stringify({ ...localSettings, ...savedSettings })
+                );
+            } catch {}
+
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('nexus:settings-restored', { detail: savedSettings }));
+            }
+
+            const derivToken = savedSettings.derivToken || savedSettings.apiToken;
+            if (!derivToken) return;
+
+            console.log('🔑 Restoring Deriv credentials from Supabase...');
+
+            const appId = savedSettings.appId || '33XjcwFHStlck2fOZ3IND';
+            const accountId = savedSettings.accountId || savedSettings.derivAccountId;
+            const accountType = savedSettings.accountType || 'demo';
+            const derivTarget = (typeof window !== 'undefined')
+                ? (window.api || window.derivApi || window.DerivAPI)
+                : null;
+
+            if (!derivTarget || typeof derivTarget.connect !== 'function') return;
+
+            try {
+                // Current app instance signature: connect(token, accountId, accountType)
+                if (derivTarget.connect.length >= 2) {
+                    await derivTarget.connect(derivToken, accountId, accountType);
+                } else {
+                    // Fallback for object-style wrappers.
+                    await derivTarget.connect({ token: derivToken, appId, accountId, accountType });
+                }
+            } catch (e) {
+                console.warn('Auto-restore Deriv connect failed:', e?.message || e);
+            }
+        })();
+
+        return _restorePromise;
     },
 };
 
