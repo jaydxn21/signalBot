@@ -83,14 +83,42 @@ export class ChartEngine {
     }
 
     setData(data) {
-        if (!data || !Array.isArray(data)) {
-            console.warn('Invalid data passed to setData');
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            console.warn('[ChartEngine] Invalid or empty data passed to setData');
             return;
         }
-        this.candleSeries.setData(data);
+
+        // 1. Sanitize & convert timestamps to UNIX Seconds
+        const formatted = data.map(c => {
+            let rawTime = c.time || c.epoch;
+            if (typeof rawTime === 'string') rawTime = Math.floor(Date.parse(rawTime) / 1000);
+            if (rawTime > 10000000000) rawTime = Math.floor(rawTime / 1000); // ms to sec
+
+            return {
+                time:  rawTime,
+                open:  parseFloat(c.open),
+                high:  parseFloat(c.high),
+                low:   parseFloat(c.low),
+                close: parseFloat(c.close)
+            };
+        });
+
+        // 2. Sort ascending (oldest -> newest)
+        formatted.sort((a, b) => a.time - b.time);
+
+        // 3. Remove duplicate timestamps
+        const cleanData = formatted.filter((candle, index, self) =>
+            index === 0 || candle.time > self[index - 1].time
+        );
+
+        // 4. Pass clean array to Lightweight Charts
+        this.candleSeries.setData(cleanData);
         this.chart.timeScale().fitContent();
+
         const ph = document.getElementById('chart-placeholder');
         if (ph) ph.style.display = 'none';
+
+        console.log(`[ChartEngine] Rendered ${cleanData.length} valid candles.`);
     }
 
     update(bar) { 
@@ -479,7 +507,9 @@ export class ChartEngine {
 
         for (let i = 0; i < sma.length; i++) {
             const smaPoint = sma[i];
-            const candleIndex = candles.findIndex(c => c.time === smaPoint.time);
+
+            // Fix: Compare explicit numerical value instead of raw object references
+            const candleIndex = candles.findIndex(c => Number(c.time) === Number(smaPoint.time));
             
             if (candleIndex === -1) continue;
 
