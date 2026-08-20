@@ -55,7 +55,15 @@ export class DerivAPI {
                 }
             });
 
-            const data = await response.json();
+            const responseForText = response.clone();
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                const text = await responseForText.text();
+                console.error('Deriv non-JSON error response:', text);
+                throw new Error(`OTP request failed (${response.status})`);
+            }
             console.log('📡 OTP Response:', data);
 
             if (!response.ok || data.error) {

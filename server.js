@@ -137,6 +137,15 @@ function _authMiddleware(req) {
     return _verifyToken(token);
 }
 
+function _isUuid(value) {
+    return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function _userFilter(auth) {
+    const key = _isUuid(auth?.userId) ? 'id' : 'username';
+    return `${key}=eq.${encodeURIComponent(auth?.userId || '')}`;
+}
+
 function _json(res, status, body, req) {
     const corsH = req ? _corsHeaders(req) : { 'Access-Control-Allow-Origin': '*' };
     res.writeHead(status, { 'Content-Type': 'application/json', ...corsH });
@@ -602,7 +611,7 @@ const server = http.createServer((req, res) => {
         if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
         (async () => {
             try {
-                const rows = await sb(`users?id=eq.${encodeURIComponent(auth.userId)}&select=id,username,created_at`);
+                const rows = await sb(`users?${_userFilter(auth)}&select=id,username,created_at`);
                 const user = rows[0];
                 if (!user) return _json(res, 404, { error: 'User not found' }, req);
                 _json(res, 200, { userId: user.id, username: user.username, createdAt: user.created_at }, req);
@@ -619,7 +628,7 @@ const server = http.createServer((req, res) => {
         if (req.method === 'GET') {
             (async () => {
                 try {
-                    const rows = await sb(`users?id=eq.${encodeURIComponent(auth.userId)}&select=settings`);
+                    const rows = await sb(`users?${_userFilter(auth)}&select=settings`);
                     _json(res, 200, { settings: rows[0]?.settings || {} }, req);
                 } catch(e) { _json(res, 500, { error: e.message }, req); }
             })();
@@ -631,7 +640,7 @@ const server = http.createServer((req, res) => {
             req.on('end', async () => {
                 try {
                     const { settings } = JSON.parse(body);
-                    await sb(`users?id=eq.${encodeURIComponent(auth.userId)}`, {
+                    await sb(`users?${_userFilter(auth)}`, {
                         method: 'PATCH',
                         prefer: 'return=minimal',
                         body: { settings },
@@ -714,7 +723,7 @@ const server = http.createServer((req, res) => {
             req.on('end', async () => {
                 try {
                     const { heartbeatAt, lastCandleAt, activeBots } = JSON.parse(body);
-                    await sb(`users?id=eq.${encodeURIComponent(auth.userId)}`, {
+                    await sb(`users?${_userFilter(auth)}`, {
                         method: 'PATCH',
                         prefer: 'return=minimal',
                         body: {
@@ -731,7 +740,7 @@ const server = http.createServer((req, res) => {
         if (req.method === 'GET') {
             (async () => {
                 try {
-                    const rows = await sb(`users?id=eq.${encodeURIComponent(auth.userId)}&select=heartbeat_at,last_candle_at,active_bots`);
+                    const rows = await sb(`users?${_userFilter(auth)}&select=heartbeat_at,last_candle_at,active_bots`);
                     const row = rows[0] || {};
                     _json(res, 200, {
                         heartbeatAt:  row.heartbeat_at  || 0,
