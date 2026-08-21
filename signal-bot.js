@@ -663,6 +663,13 @@ function _restoreBotCards() {
         trySubscribeBot(bot);
     });
 
+    // Extra safety: if socket is already open, force one immediate subscribe pass.
+    if (api?.socket?.readyState === 1) {
+        Object.values(bots).forEach(b => {
+            if (b.isActive) subscribeBot(b);
+        });
+    }
+
     const ph = document.getElementById('chart-placeholder-empty');
     if (ph && saved.length > 0) ph.style.display = 'none';
 
@@ -678,7 +685,7 @@ function _restoreBotCards() {
 function trySubscribeBot(bot) {
     if (!bot || !bot.isActive) return;
 
-    if (api?.ws?.readyState === 1 && authorised) {
+    if (api?.socket?.readyState === 1 && authorised) {
         subscribeBot(bot);
         return;
     }
@@ -687,7 +694,7 @@ function trySubscribeBot(bot) {
     let attempts = 0;
     const timer = setInterval(() => {
         attempts++;
-        if (api?.ws?.readyState === 1 && authorised) {
+        if (api?.socket?.readyState === 1 && authorised) {
             clearInterval(timer);
             subscribeBot(bot);
         } else if (attempts >= 20) {
