@@ -116,6 +116,10 @@ export class DerivAPI {
             this.startKeepAlive();
             UIManager.setConnectionStatus(true);
             UIManager.log('Connected to Deriv API', 'info');
+
+            // OTP flow authenticates via URL. Emit a synthetic authorize event
+            // so downstream authorize-triggered initialization still runs.
+            this.onMessage({ msg_type: 'authorize', authorize: { loginid: this._accountId } });
         };
 
         this.socket.onmessage = (msg) => {
