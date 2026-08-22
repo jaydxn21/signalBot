@@ -5,6 +5,10 @@ export const UIManager = {
     _signalPnL: 0,
     _timerInterval: null,
 
+    initSession() {
+        this.startSession();
+    },
+
     startSession() {
         this._wins      = 0;
         this._losses    = 0;
