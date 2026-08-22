@@ -36,7 +36,7 @@ export function loadConfig() {
   return {
     rootDir: ROOT_DIR,
     dataDir: path.join(ROOT_DIR, 'data'),
-    appId: process.env.APP_ID || '',
+    appId: process.env.appId || '',
     token: process.env.TOKEN || process.env.DERIV_TOKEN || '',
     accountId: process.env.ACCOUNT_ID || '',
     engineHost: process.env.ENGINE_HOST || '0.0.0.0',
