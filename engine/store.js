@@ -23,9 +23,9 @@ export class Store extends EventEmitter {
   constructor({
     persistPath,
     autoMt5 = true,
-    supabaseUrl,
-    supabaseKey,
-    supabaseAnonKey,
+    supabaseUrl = process.env.SUPABASE_URL,
+    supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY,
+    supabaseAnonKey = process.env.SUPABASE_ANON_KEY,
     syncToCloud = true,
   }) {
     super();
@@ -34,24 +34,31 @@ export class Store extends EventEmitter {
     this.cloudSyncQueue = [];
     this.isCloudSyncRunning = false;
     this.currentUserId = null;
+
+    const resolvedKey = supabaseKey
+      || process.env.SUPABASE_SERVICE_ROLE_KEY
+      || process.env.SUPABASE_SERVICE_KEY
+      || process.env.SUPABASE_KEY
+      || process.env.SUPABASE_ANON_KEY;
     
     // Initialize Supabase with service role for backend operations
-    if (supabaseUrl && supabaseKey) {
-      this.supabase = createClient(supabaseUrl, supabaseKey, {
+    if (supabaseUrl && resolvedKey) {
+      this.supabase = createClient(supabaseUrl, resolvedKey, {
         auth: {
           autoRefreshToken: false,
           persistSession: false,
         },
       });
-      console.log('[store] Supabase admin client initialized');
+      console.log('[store] Supabase admin client initialized successfully');
     } else {
       this.supabase = null;
-      console.log('[store] Running in local-only mode');
+      console.log('[store] Running in local-only mode (missing URL or Key)');
     }
 
     // Initialize anon client for user-facing operations if provided
-    if (supabaseUrl && supabaseAnonKey) {
-      this.supabaseAnon = createClient(supabaseUrl, supabaseAnonKey);
+    const resolvedAnonKey = supabaseAnonKey || process.env.SUPABASE_ANON_KEY || resolvedKey;
+    if (supabaseUrl && resolvedAnonKey) {
+      this.supabaseAnon = createClient(supabaseUrl, resolvedAnonKey);
       console.log('[store] Supabase anon client initialized');
     } else {
       this.supabaseAnon = null;

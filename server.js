@@ -76,8 +76,11 @@ const AUTH_SECRET = process.env.NEXUS_SECRET || 'nexus_dev_secret_change_in_prod
 
 // ─── Supabase (Postgres) storage layer ─────────────────────────────────────
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-
+const SUPABASE_KEY = process.env.SUPABASE_KEY 
+                  || process.env.SUPABASE_SERVICE_KEY 
+                  || process.env.SUPABASE_SERVICE_ROLE_KEY 
+                  || process.env.SUPABASE_ANON_KEY;
+                  
 if (!SUPABASE_URL || !SUPABASE_KEY) {
     console.warn('[Supabase] ⚠️ SUPABASE_URL / SUPABASE_SERVICE_KEY not set — auth & user data will fail.');
 }
