@@ -47,6 +47,8 @@ function wsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const secret = window.localStorage.getItem('dashboard_secret');
   const query = secret ? `?secret=${encodeURIComponent(secret)}` : '';
+  
+  // CHANGE THIS: Don't use port 4000. Use the standard domain path.
   return `${protocol}://${window.location.hostname}/engine-ws${query}`;
 }
 
