@@ -43,14 +43,12 @@ let signalPollTimer = null;
 // dashboard is loaded from Vercel/production unless that engine is deployed
 // somewhere reachable and this URL is updated accordingly. Flagging for you —
 // left unchanged since I don't know where/if that engine is meant to run.
-function wsUrl() {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const secret = window.localStorage.getItem('dashboard_secret');
-  const query = secret ? `?secret=${encodeURIComponent(secret)}` : '';
-  
-  // CHANGE THIS: Don't use port 4000. Use the standard domain path.
-  return `${protocol}://${window.location.hostname}/engine-ws${query}`;
-}
+   function wsUrl() {
+     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+     const secret = window.localStorage.getItem('dashboard_secret');
+     const query = secret ? `?secret=${encodeURIComponent(secret)}` : '';
+     return `${protocol}://${window.location.hostname}/engine-ws${query}`;
+   }
 
 function send(type, payload = {}) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
