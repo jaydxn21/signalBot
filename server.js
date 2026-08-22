@@ -659,51 +659,44 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // ── /api/user/settings ────────────────────────────────────────────────────
+// ── /api/user/settings ────────────────────────────────────────────────────
     if (pathname === '/api/user/settings') {
-        const auth = _authenticateToken(req, res);
-        if (!auth) return;
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
-        const username = (auth.username || (_isUuid(auth.userId) ? '' : auth.userId) || '').trim();
-        if (!username) return _json(res, 400, { error: 'Invalid user context' }, req);
+        const filter = _userFilter(auth);
 
         if (req.method === 'GET') {
             (async () => {
                 try {
-                    const rows = await sb(`users?username=eq.${encodeURIComponent(username)}&select=settings`);
+                    const rows = await sb(`users?${filter}&select=settings`);
                     _json(res, 200, { settings: rows[0]?.settings || {} }, req);
-                } catch(e) { _json(res, 500, { error: e.message }, req); }
+                } catch(e) { 
+                    _json(res, 500, { error: e.message }, req); 
+                }
             })();
             return;
         }
+
         if (req.method === 'POST') {
             let body = '';
             req.on('data', c => body += c);
             req.on('end', async () => {
-                let parsed;
                 try {
-                    parsed = JSON.parse(body);
-                } catch(e) {
-                    return _json(res, 400, { error: 'Invalid request' }, req);
-                }
-
-                try {
-                    const { settings } = parsed;
-                    await sb(`users?username=eq.${encodeURIComponent(username)}`, {
+                    const { settings } = JSON.parse(body);
+                    await sb(`users?${filter}`, {
                         method: 'PATCH',
                         prefer: 'return=minimal',
                         body: { settings },
                     });
                     _json(res, 200, { success: true }, req);
                 } catch(e) {
-                    console.error('[Supabase Save Error]:', e.message);
                     _json(res, 500, { error: e.message }, req);
                 }
             });
             return;
         }
     }
-
     // ── /api/user/strategies ──────────────────────────────────────────────────
     if (pathname === '/api/user/strategies') {
         const auth = _authMiddleware(req);
@@ -761,17 +754,33 @@ const server = http.createServer((req, res) => {
         }
     }
 
-    // ── /api/user/heartbeat ───────────────────────────────────────────────────
-    // Lightweight liveness ping, separate from /api/user/trades since this
-    // fires every few seconds and shouldn't touch the trades table at all.
-    // Stored on the users row itself (heartbeat_at / last_candle_at columns).
-    if (pathname === '/api/user/heartbeat') {
-        const auth = _authenticateToken(req, res);
-        if (!auth) return;
+// ── /api/signals/pending ───────────────────────────────────────────────
+    if (pathname === '/api/signals/pending' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+        res.end(JSON.stringify({ 
+            success: true, 
+            signals: latestSignal ? [latestSignal] : [] 
+        }));
+        return;
+    }
 
-        const username = (auth.username || (_isUuid(auth.userId) ? '' : auth.userId) || '').trim();
-        if (!username) {
-            return _json(res, 400, { error: 'Invalid user context' }, req);
+   // ── /api/user/heartbeat ───────────────────────────────────────────────
+    if (pathname === '/api/user/heartbeat') {
+        const auth = _authMiddleware(req);
+        if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
+
+        const filter = _userFilter(auth);
+
+        if (req.method === 'GET') {
+            (async () => {
+                try {
+                    const rows = await sb(`users?${filter}&select=heartbeat`);
+                    _json(res, 200, rows[0]?.heartbeat || { activeBots: [], heartbeatAt: null }, req);
+                } catch(e) { 
+                    _json(res, 500, { error: e.message }, req); 
+                }
+            })();
+            return;
         }
 
         if (req.method === 'POST') {
@@ -780,77 +789,55 @@ const server = http.createServer((req, res) => {
             req.on('end', async () => {
                 try {
                     const { heartbeatAt, lastCandleAt, activeBots } = JSON.parse(body);
-                    await sb(`users?username=eq.${encodeURIComponent(username)}`, {
+                    const heartbeatData = { heartbeatAt, lastCandleAt, activeBots, updated_at: Date.now() };
+
+                    await sb(`users?${filter}`, {
                         method: 'PATCH',
                         prefer: 'return=minimal',
-                        body: {
-                            heartbeat_at:   heartbeatAt   ?? null,
-                            last_candle_at: lastCandleAt  ?? null,
-                            active_bots:    activeBots    ?? 0,
-                        },
+                        body: { heartbeat: heartbeatData },
                     });
-                    _json(res, 200, { ok: true }, req);
-                } catch(e) { _json(res, 400, { error: 'Invalid request' }, req); }
+                    _json(res, 200, { success: true }, req);
+                } catch(e) {
+                    _json(res, 400, { error: e.message }, req);
+                }
             });
-            return;
-        }
-        if (req.method === 'GET') {
-            (async () => {
-                try {
-                    const rows = await sb(`users?username=eq.${encodeURIComponent(username)}&select=heartbeat_at,last_candle_at,active_bots`);
-                    const row = rows[0] || {};
-                    _json(res, 200, {
-                        heartbeatAt:  row.heartbeat_at  || 0,
-                        lastCandleAt: row.last_candle_at || 0,
-                        activeBots:   row.active_bots    || 0,
-                    }, req);
-                } catch(e) { _json(res, 500, { error: e.message }, req); }
-            })();
             return;
         }
     }
 
-    // ── /api/user/trades ──────────────────────────────────────────────────────
+// ── /api/user/trades ──────────────────────────────────────────────────
     if (pathname === '/api/user/trades') {
         const auth = _authMiddleware(req);
         if (!auth) return _json(res, 401, { error: 'Unauthorized' }, req);
 
+        const filter = _userFilter(auth);
+
         if (req.method === 'GET') {
             (async () => {
                 try {
-                    const rows = await sb(`trades?user_id=eq.${encodeURIComponent(auth.userId)}&select=data&order=time.desc&limit=500`);
-                    _json(res, 200, { trades: rows.map(r => r.data) }, req);
-                } catch(e) { _json(res, 500, { error: e.message }, req); }
+                    const rows = await sb(`users?${filter}&select=trades`);
+                    _json(res, 200, { trades: rows[0]?.trades || [] }, req);
+                } catch(e) { 
+                    _json(res, 500, { error: e.message }, req); 
+                }
             })();
             return;
         }
+
         if (req.method === 'POST') {
             let body = '';
             req.on('data', c => body += c);
             req.on('end', async () => {
                 try {
                     const { trades } = JSON.parse(body);
-                    if (!Array.isArray(trades) || !trades.length) return _json(res, 200, { ok: true, count: 0 }, req);
-
-                    const rows = trades.map(t => ({
-                        user_id: auth.userId,
-                        time:    t.time ?? null,
-                        symbol:  t.symbol ?? null,
-                        data:    t,
-                    }));
-
-                    // Upsert: relies on the unique(user_id, time, symbol) constraint to dedupe
-                    await sb('trades?on_conflict=user_id,time,symbol', {
-                        method: 'POST',
-                        prefer: 'resolution=merge-duplicates,return=minimal',
-                        body: rows,
+                    await sb(`users?${filter}`, {
+                        method: 'PATCH',
+                        prefer: 'return=minimal',
+                        body: { trades },
                     });
-
-                    const countRows = await sb(`trades?user_id=eq.${encodeURIComponent(auth.userId)}&select=id`);
-                    _json(res, 200, { ok: true, count: countRows.length }, req);
+                    _json(res, 200, { success: true }, req);
                 } catch(e) {
-                    console.error('[Trades POST] Error:', e.message);
-                    _json(res, 400, { error: 'Invalid request' }, req);
+                    _json(res, 400, { error: e.message }, req);
                 }
             });
             return;
