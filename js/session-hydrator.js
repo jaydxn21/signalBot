@@ -9,7 +9,7 @@ export const SessionHydrator = {
         console.log('🔄 Rehydrating session state from backend & cloud...');
 
         // 1. Hydrate UI Session Stats (wins/losses/timer)
-        UIManager.initSession();
+        UIManager.startSession();
 
         // 2. Hydrate Settings & Deriv API state
         const settings = await Auth.fetchSettings();

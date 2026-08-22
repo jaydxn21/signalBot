@@ -5,6 +5,8 @@ import url    from 'url';
 import crypto from 'crypto';
 import 'dotenv/config';
 import { fileURLToPath } from 'url';
+import net    from 'net';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -893,6 +895,14 @@ const server = http.createServer((req, res) => {
 
 // ─── WebSocket Upgrade ───────────────────────────────────────────────────
 server.on('upgrade', (req, socket, head) => {
+    const { pathname } = url.parse(req.url);
+
+    if (pathname === '/engine-ws') {
+        proxyEngineUpgrade(req, socket, head);
+        return;
+    }
+
+    // ── MT5 bridge upgrade (unchanged) ─────────────────────────────────────
     const keyHeader = req.headers['sec-websocket-key'];
     if (!keyHeader) {
         socket.destroy();
@@ -923,6 +933,38 @@ server.on('upgrade', (req, socket, head) => {
     socket.on('error', err => console.error('[WS] Socket error:', err.message));
 });
 
+// ─── ENGINE WS PROXY ──────────────────────────────────────────────────────
+// Raw TCP relay from the browser's upgrade socket to signalbot-engine's
+// internal WebSocketServer on 127.0.0.1:<ENGINE_PORT>. The engine's `ws`
+// library still performs its own real handshake/framing — this function
+// never parses WebSocket frames itself, it just pipes bytes. This lets
+// dashboard.js reach the engine via wss://bot.atomicprod.shop/engine-ws
+// (through Cloudflare + this existing port-3000 process) without exposing
+// port 4000 to the internet at all.
+const ENGINE_PORT = Number(process.env.ENGINE_PORT || process.env.ENGINE_WS_PORT || 4000);
+
+function proxyEngineUpgrade(req, clientSocket, head) {
+    const engineSocket = net.connect(ENGINE_PORT, '127.0.0.1', () => {
+        const requestLine = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+        const headerLines = Object.entries(req.headers)
+            .map(([key, value]) => `${key}: ${value}\r\n`)
+            .join('');
+        engineSocket.write(requestLine + headerLines + '\r\n');
+        if (head && head.length) engineSocket.write(head);
+
+        clientSocket.pipe(engineSocket);
+        engineSocket.pipe(clientSocket);
+    });
+
+    engineSocket.on('error', (err) => {
+        console.error('[EngineProxy] Failed to reach engine on', ENGINE_PORT, '-', err.message);
+        try { clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n'); } catch(_) {}
+        clientSocket.destroy();
+    });
+
+    clientSocket.on('error', () => { try { engineSocket.destroy(); } catch(_) {} });
+    clientSocket.on('close', () => { try { engineSocket.destroy(); } catch(_) {} });
+}
 // ─── Start ─────────────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 Signal Bot running`);

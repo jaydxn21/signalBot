@@ -47,7 +47,7 @@ function wsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const secret = window.localStorage.getItem('dashboard_secret');
   const query = secret ? `?secret=${encodeURIComponent(secret)}` : '';
-  return `${protocol}://${window.location.hostname}:4000${query}`;
+  return `${protocol}://${window.location.hostname}/engine-ws${query}`;
 }
 
 function send(type, payload = {}) {
