@@ -1,5 +1,6 @@
 import { Auth } from './auth.js';
 import { UIManager } from './ui-manager.js';
+import { API_BASE } from './auth.js';
 
 export const SessionHydrator = {
     async init() {

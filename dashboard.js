@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await SessionHydrator.init();
 });
 
+
 const SYMBOL_MAP = {
   R_100: 'Volatility 100 Index', R_75: 'Volatility 75 Index', R_50: 'Volatility 50 Index', R_25: 'Volatility 25 Index', R_10: 'Volatility 10 Index',
   '1HZ100V': 'Volatility 100 (1s) Index', '1HZ75V': 'Volatility 75 (1s) Index', '1HZ50V': 'Volatility 50 (1s) Index', '1HZ25V': 'Volatility 25 (1s) Index', '1HZ10V': 'Volatility 10 (1s) Index',
@@ -518,6 +519,10 @@ function initUi() {
   const autoMt5 = document.getElementById('auto-mt5');
   if (autoMt5) autoMt5.addEventListener('change', () => send('set_auto_mt5', { enabled: autoMt5.checked }));
   window.onSplitView = () => showOverlayPanel(false);
+
+  if (!localStorage.getItem('dashboard_secret')) {
+    localStorage.setItem('dashboard_secret', '1635b7dc40f7264b243ea3daaa64f8371a849c296dbc70e4e63456b4825fb52f');
+}
 }
 
 function startSignalPolling() {
