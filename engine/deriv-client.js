@@ -1,10 +1,12 @@
 import WebSocket from 'ws';
 
 export class DerivClient {
-  constructor({ appId, token, accountId, onMessage, onStatus, onLog }) {
-    this.appId = appId;
-    this.token = token;
-    this.accountId = accountId;
+  constructor({ appId, token, accountId, onMessage, onStatus, onLog } = {}) {
+    // Fall back to process.env if constructor arguments are missing
+    this.appId = appId || process.env.DERIV_APP_ID || process.env.appId;
+    this.token = token || process.env.DERIV_TOKEN;
+    this.accountId = accountId || process.env.DERIV_ACCOUNT_ID;
+    
     this.onMessage = onMessage;
     this.onStatus = onStatus;
     this.onLog = onLog;
