@@ -397,11 +397,13 @@ export class Store extends EventEmitter {
 
   async _addLogToCloud(log) {
     if (!this.supabase) return;
+    if (!this.currentUserId) return;
+
     try {
       const { error } = await this.supabase
         .from('logs')
         .insert({
-          user_id: this.currentUserId || null,
+          user_id: this.currentUserId,
           text: log.text,
           type: log.type || 'info',
           time: log.time ? new Date(log.time).toISOString() : new Date().toISOString(),
@@ -410,7 +412,6 @@ export class Store extends EventEmitter {
       if (error) throw error;
     } catch (error) {
       console.error('[store] Failed to add log to cloud:', error.message);
-      throw error;
     }
   }
 
