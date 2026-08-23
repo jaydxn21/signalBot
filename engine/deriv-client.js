@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 export class DerivClient {
   constructor({ appId, token, accountId, onMessage, onStatus, onLog } = {}) {
     // Fall back to process.env if constructor arguments are missing
-    this.appId = appId || process.env.DERIV_APP_ID || process.env.appId;
+    this.appId = appId || process.env.appId || process.env.appId;
     this.token = token || process.env.DERIV_TOKEN;
     this.accountId = accountId || process.env.DERIV_ACCOUNT_ID;
     
@@ -42,6 +42,9 @@ export class DerivClient {
         },
       });
 
+      this.log('Requesting Deriv OTP session...', 'info');
+      this.log(`App ID: ${this.appId} | Account: ${this.accountId}`, 'info');
+
       const data = await response.json();
       if (!response.ok || data.error) {
         throw new Error(data.error?.message || `OTP request failed (${response.status})`);
@@ -53,15 +56,10 @@ export class DerivClient {
       }
 
       this._openSocket(wsUrl, false);
-    } catch (error) {
-      this.log(`Deriv OTP failed, falling back to legacy auth: ${error.message}`, 'warn');
-      this._connectLegacy();
+        } catch (error) {
+      this.log(`Deriv OTP failed: ${error.message}`, 'error');
+      this._scheduleReconnect();
     }
-  }
-
-  _connectLegacy() {
-    const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(this.appId)}`;
-    this._openSocket(wsUrl, true);
   }
 
   _openSocket(url, legacy) {
