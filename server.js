@@ -80,7 +80,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY
                   || process.env.SUPABASE_SERVICE_KEY 
                   || process.env.SUPABASE_SERVICE_ROLE_KEY 
                   || process.env.SUPABASE_ANON_KEY;
-                  
+
 if (!SUPABASE_URL || !SUPABASE_KEY) {
     console.warn('[Supabase] ⚠️ SUPABASE_URL / SUPABASE_SERVICE_KEY not set — auth & user data will fail.');
 }
@@ -442,6 +442,19 @@ const server = http.createServer((req, res) => {
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
+        return;
+    }
+
+    // ── /api/user/heartbeat ───────────────────────────────────────────────────
+    if (pathname === '/api/user/heartbeat' && req.method === 'GET') {
+        const auth = _authMiddleware(req);
+        res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });
+        res.end(JSON.stringify({ 
+            status: 'online', 
+            authenticated: !!auth,
+            userId: auth?.userId || 'guest',
+            timestamp: Date.now() 
+        }));
         return;
     }
 
