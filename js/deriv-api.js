@@ -4,7 +4,7 @@ import { UIManager } from './ui-manager.js';
 
 export class DerivAPI {
     constructor(appId, onMessage) {
-        this.appId = appId;  // Your OAuth App ID (e.g., '33XjCwFHSt1ck2f0Z3IND')
+        this.appId = appId;  // Your OAuth App ID
         this.onMessage = onMessage;
         this.socket = null;
         this._pingInterval = null;
@@ -17,6 +17,7 @@ export class DerivAPI {
         this._manualClose = false;
         this.symbolMap = {};
         this._subscriptions = {};
+        this._hasBackfilled = new Set(); // symbols we've already pulled tick history for
         this.isConnected = false;
     }
 
@@ -62,7 +63,7 @@ export class DerivAPI {
             } catch (e) {
                 const text = await responseForText.text();
                 console.error('Deriv non-JSON error response:', text);
-                throw new Error(`OTP request failed (${response.status})`);
+                throw new Error(`OTP request failed (${response.status}): ${text}`);
             }
             console.log('📡 OTP Response:', data);
 
@@ -110,6 +111,7 @@ export class DerivAPI {
             this.isConnected = true;
             this._reconnectDelay = 2000;
             this._subscriptions = {};
+            this._hasBackfilled.clear(); // fresh socket — re-backfill history on next symbol load
 
             // OTP flow: already authenticated via the URL — no authorize message needed.
 
@@ -193,6 +195,30 @@ export class DerivAPI {
 
     fetchActiveSymbols() {
         this._send({ active_symbols: 'brief' });
+    }
+
+    // ─── HISTORIC TICKS (for chart backfill) ───────────────────────────
+    // One-shot request (no `subscribe`) — returns a `history` message with
+    // parallel `prices[]` / `times[]` arrays. Call this once per symbol
+    // right after connecting (or when switching symbols), then call
+    // `subscribe()` separately to start the live candle/tick stream.
+    fetchTickHistory(symbol, count = 500) {
+        this._send({
+            ticks_history: symbol,
+            count,
+            end: 'latest',
+            style: 'ticks'
+        });
+    }
+
+    // Convenience: backfill + subscribe in one call, guarded so a symbol's
+    // history is only ever pulled once per socket connection.
+    loadSymbol(symbol, granularity, count) {
+        if (!this._hasBackfilled.has(symbol)) {
+            this.fetchTickHistory(symbol, 500);
+            this._hasBackfilled.add(symbol);
+        }
+        this.subscribe(symbol, granularity, count);
     }
 
     subscribe(symbol, granularity, count) {

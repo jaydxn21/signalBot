@@ -3,10 +3,10 @@ import WebSocket from 'ws';
 export class DerivClient {
   constructor({ appId, token, accountId, onMessage, onStatus, onLog } = {}) {
     // Fall back to process.env if constructor arguments are missing
-    this.appId = appId || process.env.appId || process.env.appId;
+    this.appId = appId || process.env.DERIV_APP_ID || process.env.appId;
     this.token = token || process.env.DERIV_TOKEN;
     this.accountId = accountId || process.env.DERIV_ACCOUNT_ID;
-    
+
     this.onMessage = onMessage;
     this.onStatus = onStatus;
     this.onLog = onLog;
@@ -17,6 +17,7 @@ export class DerivClient {
     this._maxDelay = 30000;
     this._subscriptions = {};
     this._manualClose = false;
+    this._hasBackfilled = new Set(); // symbols we've already pulled tick history for
   }
 
   log(message, type = 'info') {
@@ -33,6 +34,8 @@ export class DerivClient {
 
     try {
       this.log('Requesting Deriv OTP session...', 'info');
+      this.log(`App ID: ${this.appId} | Account: ${this.accountId}`, 'info');
+
       const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${this.accountId}/otp`, {
         method: 'POST',
         headers: {
@@ -42,10 +45,13 @@ export class DerivClient {
         },
       });
 
-      this.log('Requesting Deriv OTP session...', 'info');
-      this.log(`App ID: ${this.appId} | Account: ${this.accountId}`, 'info');
-
-      const data = await response.json();
+      const rawText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(`OTP request failed (${response.status}): ${rawText}`);
+      }
       if (!response.ok || data.error) {
         throw new Error(data.error?.message || `OTP request failed (${response.status})`);
       }
@@ -56,7 +62,7 @@ export class DerivClient {
       }
 
       this._openSocket(wsUrl, false);
-        } catch (error) {
+    } catch (error) {
       this.log(`Deriv OTP failed: ${error.message}`, 'error');
       this._scheduleReconnect();
     }
@@ -72,6 +78,7 @@ export class DerivClient {
     this.socket.on('open', () => {
       this._reconnectDelay = 2000;
       this._subscriptions = {};
+      this._hasBackfilled.clear(); // fresh socket — re-backfill history on next subscribe
       if (legacy) {
         this._send({ authorize: this.token });
       }
@@ -137,6 +144,30 @@ export class DerivClient {
 
   fetchActiveSymbols() {
     this._send({ active_symbols: 'brief' });
+  }
+
+  // ─── HISTORIC TICKS (for chart backfill) ───────────────────────────
+  // One-shot request (no `subscribe`) — returns a `history` message with
+  // parallel `prices[]` / `times[]` arrays. Call this once per symbol
+  // right after connecting (or when switching symbols), then call
+  // `subscribe()` separately to start the live candle/tick stream.
+  fetchTickHistory(symbol, count = 500) {
+    this._send({
+      ticks_history: symbol,
+      count,
+      end: 'latest',
+      style: 'ticks',
+    });
+  }
+
+  // Convenience: backfill + subscribe in one call, guarded so a symbol's
+  // history is only ever pulled once per socket connection.
+  loadSymbol(symbol, granularity, historyCount = 500) {
+    if (!this._hasBackfilled.has(symbol)) {
+      this.fetchTickHistory(symbol, historyCount);
+      this._hasBackfilled.add(symbol);
+    }
+    this.subscribe(symbol, granularity);
   }
 
   subscribe(symbol, granularity) {
