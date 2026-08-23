@@ -754,6 +754,26 @@ function handleData(data) {
         log(`${data.active_symbols.length} symbols loaded`, 'info');
     }
 
+    if (data.msg_type === 'history') {
+        const rawSymbol = data.echo_req?.ticks_history;
+        const symbol = normalizeSymbol(rawSymbol);
+        const prices = data.history?.prices || [];
+        const times = data.history?.times || [];
+
+        const ticks = times.map((time, index) => ({
+            time: parseInt(time, 10),
+            value: parseFloat(prices[index])
+        }));
+
+        Object.values(bots).forEach(bot => {
+            if (bot.isActive && bot.config.symbol === symbol) {
+                ChartManager.seedHistory(bot.id, ticks);
+            }
+        });
+
+        log(`Backfilled ${ticks.length} historic ticks for ${symbol}`, 'info');
+    }
+
     if (data.msg_type === 'candles') {
         SessionState.set({ lastCandleAt: Date.now() });
         const gran = data.echo_req.granularity;
@@ -828,7 +848,7 @@ function subscribeBot(bot) {
 
     if (bot.config.strategy === 'jump75') {
         console.log(`[SUBSCRIBE] Jump75 → Subscribing M5 + M15 + H4 for ${bot.config.symbol}`);
-        api.subscribe(bot.config.symbol, 300);
+        api.loadSymbol(bot.config.symbol, 300);
         api.subscribe(bot.config.symbol, 900);
         api.subscribe(bot.config.symbol, 14400);
         log(`✅ Subscribed ${bot.config.symbol} for Jump75: M5 + M15 + H4`, 'info');
@@ -840,7 +860,7 @@ function subscribeBot(bot) {
         ? (HTF_GRAN_MAP[bot.config.tf] || 3600)
         : 14400;
 
-    api.subscribe(bot.config.symbol, bot.config.tf);
+    api.loadSymbol(bot.config.symbol, bot.config.tf);
     api.subscribe(bot.config.symbol, bot.htfGran);
     
     const htfLabel = TF_LABEL[bot.htfGran] || `${bot.htfGran}s`;

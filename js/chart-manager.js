@@ -156,6 +156,23 @@ export const ChartManager = {
         }
     },
 
+    // Render historical ticks as zero-range candles for the candle-based chart.
+    seedHistory(botId, ticks) {
+        if (!Array.isArray(ticks) || !ticks.length) return;
+
+        const candles = ticks
+            .filter(tick => Number.isFinite(tick?.time) && Number.isFinite(tick?.value))
+            .map(tick => ({
+                time: tick.time,
+                open: tick.value,
+                high: tick.value,
+                low: tick.value,
+                close: tick.value,
+            }));
+
+        ChartManager.setData(botId, candles);
+    },
+
     // Push a single live bar to the correct engine(s) for a given bot.
     update(botId, bar) {
         if (!bar) return;
