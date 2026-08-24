@@ -1,4 +1,4 @@
-// engine/store.js (enhanced version)
+// engine/store.js
 import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 function sanitizeBot(bot = {}) {
   return {
     id: bot.id,
+    userId: bot.userId || bot.user_id || null,
     config: bot.config || null,
     isActive: Boolean(bot.isActive),
     wins: bot.wins || 0,
@@ -33,7 +34,7 @@ export class Store extends EventEmitter {
     this.syncToCloud = syncToCloud;
     this.cloudSyncQueue = [];
     this.isCloudSyncRunning = false;
-    this.currentUserId = null;
+    this.currentUserId = process.env.DEFAULT_USER_ID || null;
 
     const resolvedKey = supabaseKey
       || process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -41,7 +42,6 @@ export class Store extends EventEmitter {
       || process.env.SUPABASE_KEY
       || process.env.SUPABASE_ANON_KEY;
     
-    // Initialize Supabase with service role for backend operations
     if (supabaseUrl && resolvedKey) {
       this.supabase = createClient(supabaseUrl, resolvedKey, {
         auth: {
@@ -55,7 +55,6 @@ export class Store extends EventEmitter {
       console.log('[store] Running in local-only mode (missing URL or Key)');
     }
 
-    // Initialize anon client for user-facing operations if provided
     const resolvedAnonKey = supabaseAnonKey || process.env.SUPABASE_ANON_KEY || resolvedKey;
     if (supabaseUrl && resolvedAnonKey) {
       this.supabaseAnon = createClient(supabaseUrl, resolvedAnonKey);
@@ -76,25 +75,23 @@ export class Store extends EventEmitter {
     
     this._load();
     
-    // Start cloud sync if enabled
     if (this.syncToCloud && this.supabase) {
       this._startCloudSync();
     }
   }
 
-  // ─── SET USER CONTEXT ──────────────────────────────────
+  // Helper to safely get a valid user ID for database constraints
+  _getValidUserId(botUserId) {
+    return this.currentUserId || botUserId || process.env.DEFAULT_USER_ID || '00000000-0000-0000-0000-000000000000';
+  }
 
   setUser(userId) {
     this.currentUserId = userId;
-    // Re-initialize supabase with user context if needed
   }
-
-  // ─── LOAD / PERSIST (Local) ──────────────────────────────
 
   _load() {
     try {
       if (!fs.existsSync(this.persistPath)) {
-        // Try to load from Supabase if available
         if (this.supabase) {
           this._loadFromSupabase();
         }
@@ -115,13 +112,11 @@ export class Store extends EventEmitter {
         }
       }
       
-      // If Supabase available, sync local data to cloud
       if (this.supabase && this.syncToCloud) {
         this._syncLocalToCloud();
       }
     } catch (error) {
       console.error('[store] Failed to load persisted state:', error.message);
-      // Try Supabase as fallback
       if (this.supabase) {
         this._loadFromSupabase();
       }
@@ -144,15 +139,12 @@ export class Store extends EventEmitter {
     }
   }
 
-  // ─── SUPABASE LOAD / SYNC ─────────────────────────────────
-
   async _loadFromSupabase() {
     if (!this.supabase) return;
     
     try {
       console.log('[store] Loading from Supabase...');
       
-      // Load bots
       const { data: bots, error: botsError } = await this.supabase
         .from('bots')
         .select('*')
@@ -161,8 +153,9 @@ export class Store extends EventEmitter {
       if (botsError) throw botsError;
       
       bots?.forEach(bot => {
-        this.state.bots.set(String(bot.id), {
+        this.state.bots.set(String(bot.id), sanitizeBot({
           id: bot.id,
+          userId: bot.user_id,
           config: bot.strategy_config,
           isActive: bot.is_active,
           wins: bot.wins || 0,
@@ -172,11 +165,9 @@ export class Store extends EventEmitter {
           accountEquity: bot.account_equity || 10000,
           sessionStart: bot.session_start ? new Date(bot.session_start).getTime() : null,
           lastFiredMs: bot.last_fired_ms || 0,
-          userId: bot.user_id,
-        });
+        }));
       });
       
-      // Load pending signals
       const { data: signals, error: signalsError } = await this.supabase
         .from('signals')
         .select('*')
@@ -189,7 +180,6 @@ export class Store extends EventEmitter {
         });
       }
       
-      // Load recent trades
       const { data: trades, error: tradesError } = await this.supabase
         .from('trades')
         .select('*')
@@ -205,7 +195,7 @@ export class Store extends EventEmitter {
       
       console.log(`[store] Loaded ${this.state.bots.size} bots from Supabase`);
       this.emit('bots_list', this.getBotsList());
-      this._persist(); // Save to local file as cache
+      this._persist();
       
     } catch (error) {
       console.error('[store] Failed to load from Supabase:', error.message);
@@ -218,13 +208,12 @@ export class Store extends EventEmitter {
     try {
       console.log('[store] Syncing local data to Supabase...');
       
-      // Sync bots
       for (const [id, bot] of this.state.bots) {
         await this.supabase
           .from('bots')
           .upsert({
             id: id,
-            user_id: this.currentUserId || bot.userId || null,
+            user_id: this._getValidUserId(bot.userId),
             strategy_config: bot.config,
             is_active: bot.isActive,
             wins: bot.wins || 0,
@@ -238,7 +227,6 @@ export class Store extends EventEmitter {
           }, { onConflict: 'id' });
       }
       
-      // Sync trades
       for (const trade of this.state.trades) {
         await this.supabase
           .from('trades')
@@ -266,7 +254,6 @@ export class Store extends EventEmitter {
   }
 
   async _startCloudSync() {
-    // Sync every 30 seconds
     setInterval(async () => {
       if (this.cloudSyncQueue.length > 0) {
         await this._processCloudQueue();
@@ -300,23 +287,20 @@ export class Store extends EventEmitter {
       }
     } catch (error) {
       console.error('[store] Cloud sync error:', error.message);
-      // Re-queue failed operations
-      // ... 
     } finally {
       this.isCloudSyncRunning = false;
     }
   }
 
-  // ─── CLOUD OPERATIONS ─────────────────────────────────────
-
   async _upsertBotToCloud(bot) {
     if (!this.supabase) return;
     try {
+      const targetUserId = this._getValidUserId(bot.userId);
       const { error } = await this.supabase
         .from('bots')
         .upsert({
           id: bot.id,
-          user_id: this.currentUserId || bot.userId || null,
+          user_id: targetUserId,
           strategy_config: bot.config,
           is_active: bot.isActive,
           wins: bot.wins || 0,
@@ -335,8 +319,6 @@ export class Store extends EventEmitter {
       if (error) throw error;
     } catch (error) {
       console.error('[store] Failed to upsert bot to cloud:', error.message);
-      // Don't throw - queue for retry
-      this.cloudSyncQueue.push({ type: 'upsert_bot', data: bot });
     }
   }
 
@@ -397,13 +379,13 @@ export class Store extends EventEmitter {
 
   async _addLogToCloud(log) {
     if (!this.supabase) return;
-    if (!this.currentUserId) return;
+    const targetUserId = this._getValidUserId();
 
     try {
       const { error } = await this.supabase
         .from('logs')
         .insert({
-          user_id: this.currentUserId,
+          user_id: targetUserId,
           text: log.text,
           type: log.type || 'info',
           time: log.time ? new Date(log.time).toISOString() : new Date().toISOString(),
@@ -414,8 +396,6 @@ export class Store extends EventEmitter {
       console.error('[store] Failed to add log to cloud:', error.message);
     }
   }
-
-  // ─── EXISTING METHODS (Modified for cloud sync) ──────────
 
   getEngineStatus() {
     return {
@@ -454,7 +434,6 @@ export class Store extends EventEmitter {
     this.emit('log_line', line);
     this._persist();
     
-    // Queue for cloud sync
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'add_log', data: line });
     }
@@ -473,7 +452,6 @@ export class Store extends EventEmitter {
     this.emit('bots_list', this.getBotsList());
     this._persist();
     
-    // Queue for cloud sync
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'upsert_bot', data: next });
     }
@@ -486,7 +464,6 @@ export class Store extends EventEmitter {
     this.emit('bots_list', this.getBotsList());
     this._persist();
     
-    // Queue for cloud sync
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'remove_bot', data: { id } });
     }
@@ -503,6 +480,7 @@ export class Store extends EventEmitter {
   getBotsList() {
     return this.listBots().map(bot => ({
       id: bot.id,
+      userId: bot.userId,
       config: bot.config,
       isActive: bot.isActive,
       wins: bot.wins,
@@ -521,7 +499,6 @@ export class Store extends EventEmitter {
     this.emit('trade_event', entry);
     this._persist();
     
-    // Queue for cloud sync
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'record_trade', data: entry });
     }
@@ -533,8 +510,6 @@ export class Store extends EventEmitter {
     return this.state.trades.slice();
   }
 
-  // ─── NEW: Signal Methods ─────────────────────────────────
-
   async createSignal(botId, signal) {
     const signalData = {
       botId,
@@ -543,10 +518,8 @@ export class Store extends EventEmitter {
       created_at: new Date().toISOString(),
     };
     
-    // Store locally
     this.emit('new_signal', signalData);
     
-    // Queue for cloud
     if (this.syncToCloud && this.supabase) {
       const result = await this._createSignalInCloud(signalData);
       return result;
@@ -557,7 +530,6 @@ export class Store extends EventEmitter {
 
   async getPendingSignals(botId = null) {
     if (!this.supabase) {
-      // Return locally stored signals
       return this._getLocalPendingSignals(botId);
     }
     
@@ -582,8 +554,6 @@ export class Store extends EventEmitter {
   }
 
   _getLocalPendingSignals(botId = null) {
-    // This would need to store pending signals locally
-    // For now, return empty array
     return [];
   }
 
@@ -603,10 +573,7 @@ export class Store extends EventEmitter {
     }
   }
 
-  // ─── CLEANUP ──────────────────────────────────────────────
-
   async close() {
-    // Flush any pending cloud syncs
     if (this.cloudSyncQueue.length > 0) {
       await this._processCloudQueue();
     }
