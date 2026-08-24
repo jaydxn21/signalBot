@@ -41,7 +41,7 @@ export class Store extends EventEmitter {
       || process.env.SUPABASE_SERVICE_KEY
       || process.env.SUPABASE_KEY
       || process.env.SUPABASE_ANON_KEY;
-    
+
     if (supabaseUrl && resolvedKey) {
       this.supabase = createClient(supabaseUrl, resolvedKey, {
         auth: {
@@ -62,7 +62,7 @@ export class Store extends EventEmitter {
     } else {
       this.supabaseAnon = null;
     }
-    
+
     this.state = {
       connected: false,
       mt5Connected: false,
@@ -72,9 +72,9 @@ export class Store extends EventEmitter {
       trades: [],
       startedAt: Date.now(),
     };
-    
+
     this._load();
-    
+
     if (this.syncToCloud && this.supabase) {
       this._startCloudSync();
     }
@@ -97,7 +97,7 @@ export class Store extends EventEmitter {
         }
         return;
       }
-      
+
       const raw = JSON.parse(fs.readFileSync(this.persistPath, 'utf8'));
       this.state.connected = false;
       this.state.mt5Connected = false;
@@ -105,13 +105,13 @@ export class Store extends EventEmitter {
       this.state.startedAt = raw.startedAt || this.state.startedAt;
       this.state.logs = Array.isArray(raw.logs) ? raw.logs.slice(-200) : [];
       this.state.trades = Array.isArray(raw.trades) ? raw.trades.slice(-500) : [];
-      
+
       for (const bot of Array.isArray(raw.bots) ? raw.bots : []) {
         if (bot?.id != null) {
           this.state.bots.set(String(bot.id), sanitizeBot(bot));
         }
       }
-      
+
       if (this.supabase && this.syncToCloud) {
         this._syncLocalToCloud();
       }
@@ -141,17 +141,17 @@ export class Store extends EventEmitter {
 
   async _loadFromSupabase() {
     if (!this.supabase) return;
-    
+
     try {
       console.log('[store] Loading from Supabase...');
-      
+
       const { data: bots, error: botsError } = await this.supabase
         .from('bots')
         .select('*')
         .order('created_at', { ascending: true });
-      
+
       if (botsError) throw botsError;
-      
+
       bots?.forEach(bot => {
         this.state.bots.set(String(bot.id), sanitizeBot({
           id: bot.id,
@@ -167,36 +167,36 @@ export class Store extends EventEmitter {
           lastFiredMs: bot.last_fired_ms || 0,
         }));
       });
-      
+
       const { data: signals, error: signalsError } = await this.supabase
         .from('signals')
         .select('*')
         .eq('is_processed', false)
         .order('created_at', { ascending: true });
-      
+
       if (!signalsError && signals) {
         signals.forEach(signal => {
           this.emit('signal_pending', signal);
         });
       }
-      
+
       const { data: trades, error: tradesError } = await this.supabase
         .from('trades')
         .select('*')
         .order('timestamp', { ascending: false })
         .limit(500);
-      
+
       if (!tradesError && trades) {
         this.state.trades = trades.map(t => ({
           ...t,
           time: new Date(t.timestamp).getTime(),
         }));
       }
-      
+
       console.log(`[store] Loaded ${this.state.bots.size} bots from Supabase`);
       this.emit('bots_list', this.getBotsList());
       this._persist();
-      
+
     } catch (error) {
       console.error('[store] Failed to load from Supabase:', error.message);
     }
@@ -204,10 +204,10 @@ export class Store extends EventEmitter {
 
   async _syncLocalToCloud() {
     if (!this.supabase) return;
-    
+
     try {
       console.log('[store] Syncing local data to Supabase...');
-      
+
       for (const [id, bot] of this.state.bots) {
         try {
           await this.supabase
@@ -228,9 +228,10 @@ export class Store extends EventEmitter {
             }, { onConflict: 'id' });
         } catch (botErr) {
           console.warn(`[store] Failed to sync bot ${id}: ${botErr.message}`);
+          this.cloudSyncQueue.push({ type: 'upsert_bot', data: bot });
         }
       }
-      
+
       console.log('[store] Sync to Supabase complete');
     } catch (error) {
       console.error('[store] Failed to sync to Supabase:', error.message);
@@ -248,11 +249,11 @@ export class Store extends EventEmitter {
   async _processCloudQueue() {
     if (this.isCloudSyncRunning || !this.supabase) return;
     this.isCloudSyncRunning = true;
-    
+
     try {
       const queue = [...this.cloudSyncQueue];
       this.cloudSyncQueue = [];
-      
+
       for (const operation of queue) {
         switch (operation.type) {
           case 'upsert_bot':
@@ -299,14 +300,16 @@ export class Store extends EventEmitter {
           onConflict: 'id',
           ignoreDuplicates: false,
         });
-      
+
       if (error) {
         console.error('[store] Supabase upsert error:', error.message);
+        this.cloudSyncQueue.push({ type: 'upsert_bot', data: bot });
       }
     } catch (error) {
-      // Gracefully catch network / fetch failures without crashing or flooding logs
+      // Network / fetch failures — requeue instead of silently dropping
       const msg = error?.cause?.message || error.message || 'Network unreachable';
-      console.warn(`[store] Cloud sync temporary network error (${msg}). Will retry next cycle.`);
+      console.warn(`[store] Cloud sync temporary network error (${msg}). Requeuing for retry.`);
+      this.cloudSyncQueue.push({ type: 'upsert_bot', data: bot });
     }
   }
 
@@ -328,13 +331,14 @@ export class Store extends EventEmitter {
         })
         .select()
         .single();
-      
+
       if (error) throw error;
       this.emit('signal_created', data);
       return data;
     } catch (error) {
-      console.error('[store] Failed to create signal in cloud:', error.message);
-      throw error;
+      const msg = error?.cause?.message || error.message || 'Unknown error';
+      console.error('[store] Failed to create signal in cloud:', msg);
+      this.cloudSyncQueue.push({ type: 'create_signal', data: signal });
     }
   }
 
@@ -360,8 +364,9 @@ export class Store extends EventEmitter {
 
       if (error) throw error;
     } catch (error) {
-      console.error('[store] Failed to record trade in cloud:', error.message);
-      throw error;
+      const msg = error?.cause?.message || error.message || 'Unknown error';
+      console.error('[store] Failed to record trade in cloud:', msg);
+      this.cloudSyncQueue.push({ type: 'record_trade', data: trade });
     }
   }
 
@@ -381,7 +386,9 @@ export class Store extends EventEmitter {
 
       if (error) throw error;
     } catch (error) {
-      console.error('[store] Failed to add log to cloud:', error.message);
+      const msg = error?.cause?.message || error.message || 'Unknown error';
+      console.error('[store] Failed to add log to cloud:', msg);
+      // Logs are lower-value / high-volume — don't requeue to avoid unbounded growth
     }
   }
 
@@ -421,11 +428,11 @@ export class Store extends EventEmitter {
     if (this.state.logs.length > 200) this.state.logs.shift();
     this.emit('log_line', line);
     this._persist();
-    
+
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'add_log', data: line });
     }
-    
+
     return line;
   }
 
@@ -439,11 +446,11 @@ export class Store extends EventEmitter {
     this.state.bots.set(String(next.id), next);
     this.emit('bots_list', this.getBotsList());
     this._persist();
-    
+
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'upsert_bot', data: next });
     }
-    
+
     return next;
   }
 
@@ -451,7 +458,7 @@ export class Store extends EventEmitter {
     this.state.bots.delete(String(id));
     this.emit('bots_list', this.getBotsList());
     this._persist();
-    
+
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'remove_bot', data: { id } });
     }
@@ -486,11 +493,11 @@ export class Store extends EventEmitter {
     if (this.state.trades.length > 500) this.state.trades.pop();
     this.emit('trade_event', entry);
     this._persist();
-    
+
     if (this.syncToCloud && this.supabase) {
       this.cloudSyncQueue.push({ type: 'record_trade', data: entry });
     }
-    
+
     return entry;
   }
 
@@ -505,14 +512,14 @@ export class Store extends EventEmitter {
       metadata: signal.metadata || {},
       created_at: new Date().toISOString(),
     };
-    
+
     this.emit('new_signal', signalData);
-    
+
     if (this.syncToCloud && this.supabase) {
       const result = await this._createSignalInCloud(signalData);
       return result;
     }
-    
+
     return signalData;
   }
 
@@ -520,18 +527,18 @@ export class Store extends EventEmitter {
     if (!this.supabase) {
       return this._getLocalPendingSignals(botId);
     }
-    
+
     try {
       let query = this.supabase
         .from('signals')
         .select('*')
         .eq('is_processed', false)
         .order('created_at', { ascending: true });
-      
+
       if (botId) {
         query = query.eq('bot_id', botId);
       }
-      
+
       const { data, error } = await query;
       if (error) throw error;
       return data || [];
@@ -547,13 +554,13 @@ export class Store extends EventEmitter {
 
   async markSignalProcessed(signalId) {
     if (!this.supabase) return;
-    
+
     try {
       await this.supabase
         .from('signals')
-        .update({ 
-          is_processed: true, 
-          processed_at: new Date().toISOString() 
+        .update({
+          is_processed: true,
+          processed_at: new Date().toISOString()
         })
         .eq('id', signalId);
     } catch (error) {
