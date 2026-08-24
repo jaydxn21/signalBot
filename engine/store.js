@@ -209,45 +209,29 @@ export class Store extends EventEmitter {
       console.log('[store] Syncing local data to Supabase...');
       
       for (const [id, bot] of this.state.bots) {
-        await this.supabase
-          .from('bots')
-          .upsert({
-            id: id,
-            user_id: this._getValidUserId(bot.userId),
-            strategy_config: bot.config,
-            is_active: bot.isActive,
-            wins: bot.wins || 0,
-            losses: bot.losses || 0,
-            pnl: bot.pnl || 0,
-            open_signal: bot.openSignal,
-            account_equity: bot.accountEquity || 10000,
-            session_start: bot.sessionStart ? new Date(bot.sessionStart).toISOString() : null,
-            last_fired_ms: bot.lastFiredMs || 0,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'id' });
-      }
-      
-      for (const trade of this.state.trades) {
-        await this.supabase
-          .from('trades')
-          .upsert({
-            bot_id: trade.botId,
-            symbol: trade.symbol,
-            strategy: trade.strategy,
-            type: trade.type,
-            entry: trade.entry,
-            sl: trade.sl,
-            tp: trade.tp,
-            outcome: trade.outcome,
-            pnl: trade.pnl,
-            lot_size: trade.lotSize || 0.01,
-            confidence: trade.confidence || {},
-            timestamp: trade.time ? new Date(trade.time).toISOString() : new Date().toISOString(),
-          });
+        try {
+          await this.supabase
+            .from('bots')
+            .upsert({
+              id: id,
+              user_id: this._getValidUserId(bot.userId),
+              strategy_config: bot.config,
+              is_active: bot.isActive,
+              wins: bot.wins || 0,
+              losses: bot.losses || 0,
+              pnl: bot.pnl || 0,
+              open_signal: bot.openSignal,
+              account_equity: bot.accountEquity || 10000,
+              session_start: bot.sessionStart ? new Date(bot.sessionStart).toISOString() : null,
+              last_fired_ms: bot.lastFiredMs || 0,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' });
+        } catch (botErr) {
+          console.warn(`[store] Failed to sync bot ${id}: ${botErr.message}`);
+        }
       }
       
       console.log('[store] Sync to Supabase complete');
-      
     } catch (error) {
       console.error('[store] Failed to sync to Supabase:', error.message);
     }
@@ -316,9 +300,13 @@ export class Store extends EventEmitter {
           ignoreDuplicates: false,
         });
       
-      if (error) throw error;
+      if (error) {
+        console.error('[store] Supabase upsert error:', error.message);
+      }
     } catch (error) {
-      console.error('[store] Failed to upsert bot to cloud:', error.message);
+      // Gracefully catch network / fetch failures without crashing or flooding logs
+      const msg = error?.cause?.message || error.message || 'Network unreachable';
+      console.warn(`[store] Cloud sync temporary network error (${msg}). Will retry next cycle.`);
     }
   }
 
