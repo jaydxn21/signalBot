@@ -1,6 +1,6 @@
 // js/nav.js
 // Shared across every page.
-// Handles: nav rail, clock, wave canvas, heartbeat indicator.
+// Handles: nav rail, clock, wave canvas, heartbeat indicator, mobile nav.
 // SessionState lives in session-state.js to avoid duplicate module issues.
 
 export { SessionState } from './session-state.js';
@@ -16,23 +16,29 @@ if (!_onLoginPage) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// PAGE MAP — shared by desktop nav rail + mobile bottom nav
+// ─────────────────────────────────────────────────────────────
+const PAGE_MAP = {
+    'index.html':     'terminal',
+    '/':              'terminal',
+    'market.html':    'market',
+    'analytics.html': 'analytics',
+    'journal.html':   'history',
+    'backtest.html':  'backtest',
+    'strategy-builder.html': 'builder',
+    'settings.html':  'settings',
+};
+
+function _currentPage() {
+    const path = window.location.pathname;
+    return Object.entries(PAGE_MAP).find(([k]) => path.endsWith(k))?.[1] || 'terminal';
+}
+
+// ─────────────────────────────────────────────────────────────
 // NAV RAIL — highlights current page
 // ─────────────────────────────────────────────────────────────
 function initNav() {
-    const path = window.location.pathname;
-
-    const pageMap = {
-        'index.html':     'terminal',
-        '/':              'terminal',
-        'market.html':    'market',
-        'analytics.html': 'analytics',
-        'journal.html':   'history',
-        'backtest.html':  'backtest',
-        'strategy-builder.html': 'builder',
-        'settings.html':  'settings',
-    };
-
-    const current = Object.entries(pageMap).find(([k]) => path.endsWith(k))?.[1] || 'terminal';
+    const current = _currentPage();
 
     document.querySelectorAll('.nav-item[data-page]').forEach(el => {
         if (el.dataset.page === current) {
@@ -42,7 +48,7 @@ function initNav() {
         }
         el.style.cursor = 'pointer';
         el.onclick = () => {
-            const pageFile = Object.entries(pageMap).find(([, v]) => v === el.dataset.page)?.[0];
+            const pageFile = Object.entries(PAGE_MAP).find(([, v]) => v === el.dataset.page)?.[0];
             if (pageFile && !pageFile.startsWith('/')) {
                 window.location.href = pageFile;
             }
@@ -310,8 +316,36 @@ function initWaves() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SHARED HEADER HTML
+// SHARED HEADER HTML + MOBILE BOTTOM NAV
 // ─────────────────────────────────────────────────────────────
+const MOBILE_NAV_ITEMS = [
+    { page: 'terminal',  href: 'index.html',      label: 'Terminal',
+      svg: '<rect x="2" y="3" width="7" height="7"/><rect x="15" y="3" width="7" height="7"/><rect x="15" y="14" width="7" height="7"/><rect x="2" y="14" width="7" height="7"/>' },
+    { page: 'analytics', href: 'analytics.html',  label: 'Analytics',
+      svg: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>' },
+    { page: 'backtest',  href: 'backtest.html',   label: 'Backtest',
+      svg: '<polygon points="5 3 19 12 5 21 5 3"/><line x1="19" y1="3" x2="19" y2="21"/>' },
+    { page: 'settings',  href: 'settings.html',   label: 'Settings',
+      svg: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>' },
+];
+
+function injectMobileNav() {
+    // If a page already has its own #mobile-nav markup (legacy pages not yet
+    // migrated), leave it alone rather than injecting a duplicate.
+    if (document.getElementById('mobile-nav')) return;
+
+    const current = _currentPage();
+    const nav = document.createElement('nav');
+    nav.id = 'mobile-nav';
+    nav.innerHTML = MOBILE_NAV_ITEMS.map(item => `
+        <a href="${item.href}" class="mobile-nav-btn${item.page === current ? ' active' : ''}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${item.svg}</svg>
+            ${item.label}
+        </a>
+    `).join('');
+    document.body.appendChild(nav);
+}
+
 function injectSharedHTML() {
     const navEl = document.getElementById('nexus-nav');
     if (navEl) {
@@ -380,6 +414,8 @@ function injectSharedHTML() {
             </div>
         </header>`;
     }
+
+    injectMobileNav();
 }
 
 // ─────────────────────────────────────────────────────────────

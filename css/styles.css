@@ -1313,12 +1313,25 @@ input[type="checkbox"] {
 @media (max-width: 768px) {
     #wave-canvas { display: none; }
 
+    body {
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto;
+    }
+
     #app-shell {
         flex-direction: column;
         padding: 6px;
         gap: 6px;
         height: auto;
         min-height: 100vh;
+        overflow: visible;
+    }
+
+    #main-content {
+        width: 100%;
+        overflow: visible;
+        padding-bottom: 70px;
     }
 
     #nexus-nav { display: none; }
@@ -1358,11 +1371,6 @@ input[type="checkbox"] {
     .header-inner { flex-wrap: wrap; gap: 6px; }
     .nexus-brand { font-size: 0.9rem; }
     .header-clock { font-size: 0.65rem; }
-
-    #main-content {
-        width: 100%;
-        padding-bottom: 70px;
-    }
 
     #workspace {
         padding: 0 !important;
