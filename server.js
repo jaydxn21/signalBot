@@ -257,6 +257,32 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // ── Mobile route detection ──────────────────────────────────────────────
+// Add this before the static file handling
+
+// Check if the request is from a mobile device
+function isMobileDevice(userAgent) {
+    if (!userAgent) return false;
+    const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i;
+    return mobileRegex.test(userAgent);
+}
+
+// ── /mobile route ────────────────────────────────────────────────────────
+if (pathname === '/mobile' || pathname === '/mobile/') {
+    // Redirect to mobile.html
+    const filePath = path.join(ROOT_DIR, 'mobile.html');
+    fs.readFile(filePath, (err, content) => {
+        if (err) {
+            res.writeHead(404);
+            res.end('Mobile page not found');
+            return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(content, 'utf-8');
+    });
+    return;
+}
+
     // ── /api/test ──────────────────────────────────────────────────────────
     if (pathname === '/api/test' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json', ..._corsHeaders(req) });

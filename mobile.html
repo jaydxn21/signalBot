@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEXUS | Mobile</title>
+    
+    <!-- Shared: Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    
+    <!-- Shared: Main styles -->
+    <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- Mobile overrides -->
+    <style>
+        /* Mobile.css - Inlined for speed, or link to external file */
+        /* ... (paste the mobile.css content from earlier) ... */
+    </style>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75' font-family='Courier' fill='%232563eb'>N</text></svg>">
+    
+    <script>
+        // Check if user wants to force desktop
+        if (localStorage.getItem('nexus_force_desktop') === 'true') {
+            // User explicitly chose desktop, redirect
+            localStorage.removeItem('nexus_force_desktop');
+            window.location.href = '/';
+        }
+    </script>
+</head>
+<body>
+
+<!-- AUTH OVERLAY (same as desktop) -->
+<div id="auth-overlay">
+    <div class="auth-box">
+        <h1>NEXUS</h1>
+        <p class="mono" style="font-size:0.6rem;letter-spacing:0.14em;color:var(--text-muted);margin-bottom:28px;">MOBILE TERMINAL v2.0</p>
+        <input type="password" id="api-token" placeholder="Enter Deriv API Token"
+               style="margin-bottom:12px;padding:12px 14px;font-size:0.78rem;">
+        <button id="btn-login" class="btn-pro" style="width:100%;padding:12px;font-size:0.72rem;letter-spacing:0.1em;">
+            INITIALIZE SYSTEM
+        </button>
+    </div>
+</div>
+
+<!-- MOBILE APP SHELL -->
+<div id="app-shell">
+
+    <!-- MOBILE HEADER -->
+    <div id="mobile-header">
+        <div class="mobile-header-brand">
+            <span class="nexus-logo">NEXUS</span>
+            <div class="mobile-status-dots">
+                <div class="mobile-status-dot-wrap">
+                    <span class="status-dot status-offline" id="mobile-conn-status"></span>
+                    <span>NEXUS</span>
+                </div>
+                <div class="mobile-status-dot-wrap">
+                    <span class="status-dot status-offline" id="mobile-mt5-status"></span>
+                    <span>MT5</span>
+                </div>
+            </div>
+        </div>
+        <div class="mobile-header-right">
+            <span id="clock">9:41</span>
+            <button id="btn-logout" class="mobile-logout-btn">Logout</button>
+            <button id="btn-desktop-mode" class="mobile-logout-btn" style="font-size:0.4rem;">Desktop</button>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main-content">
+
+        <!-- TICKER (smaller on mobile) -->
+        <div id="ticker" style="height:22px;">
+            <div style="width:100%;overflow:hidden;">
+                <div class="ticker-inner" style="font-size:0.5rem;">
+                    <span>V10 <span class="pnl-pos">+0.12%</span></span>
+                    <span>V25 <span class="pnl-neg">-0.08%</span></span>
+                    <span>BTC/USD <span class="pnl-pos">+2.18%</span></span>
+                    <span>XAU/USD <span class="pnl-neg">-0.41%</span></span>
+                    <span>V100 <span class="pnl-pos">+0.67%</span></span>
+                    <span>ETH/USD <span class="pnl-pos">+1.54%</span></span>
+                    <span>EUR/USD <span class="pnl-neg">-0.12%</span></span>
+                    <span>GBP/USD <span class="pnl-pos">+0.31%</span></span>
+                    <span>USD/JPY <span class="pnl-pos">+0.09%</span></span>
+                    <!-- Duplicate for seamless scroll -->
+                    <span>V10 <span class="pnl-pos">+0.12%</span></span>
+                    <span>V25 <span class="pnl-neg">-0.08%</span></span>
+                    <span>BTC/USD <span class="pnl-pos">+2.18%</span></span>
+                    <span>XAU/USD <span class="pnl-neg">-0.41%</span></span>
+                    <span>V100 <span class="pnl-pos">+0.67%</span></span>
+                    <span>ETH/USD <span class="pnl-pos">+1.54%</span></span>
+                    <span>EUR/USD <span class="pnl-neg">-0.12%</span></span>
+                    <span>GBP/USD <span class="pnl-pos">+0.31%</span></span>
+                    <span>USD/JPY <span class="pnl-pos">+0.09%</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- WORKSPACE -->
+        <div id="workspace">
+
+            <!-- SIDEBAR (full width on mobile) -->
+            <aside id="sidebar">
+                <div class="stat-grid">
+                    <div class="stat-item hero">
+                        <div class="stat-label">Est. Session P&amp;L</div>
+                        <div id="session-pnl" class="stat-value mono" style="font-size:1.2rem;">0.00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Active Bots</div>
+                        <div id="stat-active" class="stat-value" style="color:var(--accent);">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Win Rate</div>
+                        <div id="session-stats" class="stat-value" style="color:var(--accent2);">—</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Avg RR</div>
+                        <div id="avg-rr" class="stat-value">2.00</div>
+                    </div>
+                </div>
+
+                <!-- BOT LIST -->
+                <div id="bot-list" class="bot-list"></div>
+
+                <!-- ADD BOT BUTTON -->
+                <button id="btn-add-bot" class="btn-pro btn-outline" style="width:100%;margin-bottom:12px;font-size:0.66rem;">
+                    + Add Bot Instance
+                </button>
+
+                <!-- AUTOMATIONS -->
+                <div class="automations-wrap" style="border-top:1px solid var(--border-subtle);padding-top:12px;margin-top:2px;">
+                    <div class="stat-label" style="margin-bottom:10px;">Automations</div>
+                    <label><span>Loss Protection (3x)</span><input type="checkbox" id="auto-stop-losses" checked></label>
+                    <label><span>Log Training Data</span><input type="checkbox" id="auto-log" checked></label>
+                    <label><span>MT5 Auto-Push</span><input type="checkbox" id="auto-mt5" checked></label>
+                    <label><span>Session Filter</span><input type="checkbox" id="auto-session"></label>
+                </div>
+            </aside>
+
+            <!-- TERMINAL PANEL (chart simplified on mobile) -->
+            <div id="page-terminal" class="page-panel active" style="display:flex;flex-direction:column;gap:8px;">
+
+                <!-- Mini Chart Area (smaller on mobile) -->
+                <div id="chart-area" style="min-height:200px;max-height:300px;">
+                    <div id="chart-grid" class="chart-grid chart-grid-single" style="flex:1;min-height:200px;">
+                        <div id="chart-placeholder-empty" class="chart-placeholder-empty" style="position:relative;height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.3);border-radius:var(--r-md);">
+                            <h2 style="font-size:1.4rem;font-weight:700;letter-spacing:0.2em;color:rgba(15,23,42,0.12);">NEXUS</h2>
+                            <p style="font-size:0.62rem;letter-spacing:0.1em;color:rgba(15,23,42,0.2);">ADD A BOT TO VIEW CHARTS</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LOG AREA (smaller on mobile) -->
+                <div id="log-area" style="height:80px;flex-shrink:0;background:var(--surface-dark);border-radius:var(--r-lg);padding:8px 12px;display:flex;flex-direction:column;border:1px solid rgba(255,255,255,0.07);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <span class="stat-label" style="color:rgba(241,245,249,0.4);font-size:0.5rem;">System Terminal</span>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <span id="log-count" style="font-family:var(--font-mono);font-size:0.5rem;color:rgba(241,245,249,0.28);">0 events</span>
+                            <button id="clear-logs" style="font-family:var(--font-mono);font-size:0.5rem;background:none;border:none;cursor:pointer;color:rgba(241,245,249,0.28);">CLEAR</button>
+                        </div>
+                    </div>
+                    <div id="logs" style="flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:0.55rem;margin-top:4px;"></div>
+                </div>
+
+            </div><!-- /page-terminal -->
+
+        </div><!-- /workspace -->
+    </div><!-- /main-content -->
+
+</div><!-- /app-shell -->
+
+<!-- SHARED BOT CARD TEMPLATE (same as desktop) -->
+<template id="bot-card-template">
+    <div class="bot-card stopped" data-bot-id="">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div class="status-dot status-offline bot-status-dot"></div>
+                <span class="bot-symbol-label">—</span>
+            </div>
+            <button class="bot-remove-btn" title="Remove">x</button>
+        </div>
+        <div style="margin-bottom:6px;">
+            <div class="stat-label" style="margin-bottom:4px;">Strategy</div>
+            <select class="bot-strategy-select"></select>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+            <div style="flex:1;min-width:0;">
+                <div class="stat-label" style="margin-bottom:4px;">Symbol</div>
+                <select class="bot-symbol-select"></select>
+            </div>
+            <div style="width:60px;">
+                <div class="stat-label" style="margin-bottom:4px;">TF</div>
+                <select class="bot-tf-select">
+                    <option value="60">M1</option>
+                    <option value="300" selected>M5</option>
+                    <option value="900">M15</option>
+                    <option value="3600">H1</option>
+                    <option value="14400">H4</option>
+                </select>
+            </div>
+            <div style="width:62px;">
+                <div class="stat-label" style="margin-bottom:4px;">Lot</div>
+                <input type="number" class="bot-lot-input" value="0.01" min="0.01" max="100" step="0.01"
+                    style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:var(--text-primary);font-size:0.68rem;padding:5px 6px;font-family:'DM Mono',monospace;box-sizing:border-box;">
+            </div>
+        </div>
+        <hr class="bot-card-divider">
+        <div class="stat-grid bot-card-stats" style="margin-bottom:10px;grid-template-columns:1fr 1fr;">
+            <div class="stat-item">
+                <div class="stat-label">W / L</div>
+                <div class="stat-value" style="font-size:0.85rem;">
+                    <span class="bot-wins" style="color:var(--accent2);">0</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem;"> / </span>
+                    <span class="bot-losses" style="color:var(--accent3);">0</span>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">P&amp;L</div>
+                <div class="bot-pnl stat-value" style="font-size:0.85rem;">0.00</div>
+            </div>
+        </div>
+        <button class="bot-toggle-btn btn-pro" style="width:100%;padding:9px;font-size:0.66rem;letter-spacing:0.08em;">
+            START BOT
+        </button>
+    </div>
+</template>
+
+<!-- MOBILE BOTTOM NAVIGATION -->
+<nav id="mobile-nav">
+    <button class="mobile-nav-btn active" data-page="terminal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2"/>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+        </svg>
+        <span>Terminal</span>
+    </button>
+    <button class="mobile-nav-btn" data-page="analytics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12v-2a5 5 0 0 0-5-5H8a5 5 0 0 0-5 5v2"/>
+            <circle cx="12" cy="16" r="5"/>
+            <path d="M12 11v5"/>
+            <path d="M9 14l3-3 3 3"/>
+        </svg>
+        <span>Analytics</span>
+    </button>
+    <button class="mobile-nav-btn" data-page="backtest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4M12 22v-4M4 12H2M22 12h-2M19.07 4.93l-2.83 2.83M6.9 17.1l-2.83 2.83M17.1 6.9l2.83-2.83M4.93 19.07l2.83-2.83"/>
+            <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>Backtest</span>
+    </button>
+    <button class="mobile-nav-btn" data-page="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Settings</span>
+    </button>
+</nav>
+
+<!-- SHARED SCRIPTS -->
+<script type="module" src="js/nav.js"></script>
+<script type="module" src="js/dashboard.js"></script>
+<script type="module" src="js/signal-bot.js"></script>
+
+<!-- MOBILE INIT -->
+<script type="module">
+    document.addEventListener('DOMContentLoaded', () => {
+        // Set mobile flag
+        window.IS_MOBILE = true;
+        
+        // Mobile navigation
+        const navBtns = document.querySelectorAll('.mobile-nav-btn');
+        navBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                navBtns.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                const page = this.dataset.page;
+                // For now, only terminal is fully functional on mobile
+                if (page !== 'terminal') {
+                    alert(`${page.charAt(0).toUpperCase() + page.slice(1)} coming soon on mobile. Please use the desktop version for full features.`);
+                    this.classList.remove('active');
+                    document.querySelector('.mobile-nav-btn[data-page="terminal"]')?.classList.add('active');
+                    return;
+                }
+                
+                // Show/hide page panels
+                document.querySelectorAll('.page-panel').forEach(p => p.classList.remove('active'));
+                const panel = document.getElementById(`page-${page}`);
+                if (panel) panel.classList.add('active');
+            });
+        });
+        
+        // Clock
+        function updateClock() {
+            const now = new Date();
+            const clockEl = document.getElementById('clock');
+            if (clockEl) {
+                clockEl.textContent = now.toLocaleTimeString('en-US', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+            }
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+        
+        // Sync status dots from desktop status indicators
+        function syncStatus() {
+            const nexusDot = document.querySelector('.status-chip .status-dot');
+            const mt5Dot = document.querySelector('.mt5-status-chip .status-dot');
+            
+            const mobileNexus = document.getElementById('mobile-conn-status');
+            const mobileMt5 = document.getElementById('mobile-mt5-status');
+            
+            if (nexusDot && mobileNexus) {
+                mobileNexus.className = nexusDot.className;
+            }
+            if (mt5Dot && mobileMt5) {
+                mobileMt5.className = mt5Dot.className;
+            }
+        }
+        
+        setInterval(syncStatus, 2000);
+        setTimeout(syncStatus, 1000);
+        
+        // Desktop mode toggle
+        document.getElementById('btn-desktop-mode')?.addEventListener('click', function() {
+            localStorage.setItem('nexus_force_desktop', 'true');
+            window.location.href = '/';
+        });
+        
+        // Logout
+        document.getElementById('btn-logout')?.addEventListener('click', function() {
+            if (confirm('Logout?')) {
+                // Clear session
+                localStorage.removeItem('deriv_token');
+                sessionStorage.removeItem('deriv_token');
+                window.location.reload();
+            }
+        });
+    });
+</script>
+
+</body>
+</html>

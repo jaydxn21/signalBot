@@ -56,6 +56,28 @@
         }
     </style>
 </head>
+
+<script>
+    // Auto-redirect mobile users to mobile version
+    (function() {
+        // Don't redirect if already on mobile page
+        if (window.location.pathname.includes('mobile.html')) return;
+        
+        // Check if mobile
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent);
+        const isSmallScreen = window.innerWidth <= 768;
+        
+        // Check if user has explicitly chosen desktop
+        const forceDesktop = localStorage.getItem('nexus_force_desktop') === 'true';
+        
+        if ((isMobile || isSmallScreen) && !forceDesktop) {
+            // Store current path to redirect back after
+            sessionStorage.setItem('nexus_mobile_return_url', window.location.pathname);
+            window.location.href = '/mobile.html';
+        }
+    })();
+</script>
+
 <body>
 
 <div id="deploy-overlay">
