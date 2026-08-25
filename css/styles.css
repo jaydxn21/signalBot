@@ -1,7 +1,8 @@
 /* ============================================================
-   NEXUS TERMINAL — styles.css v4.3
+   NEXUS TERMINAL — styles.css v4.4
    Frosted Glass · Wave Background · Full Nav Layout
    Fixed sidebar scrolling · Chart display fixes · Responsive
+   Dedicated mobile header/nav (not squeezed desktop layout)
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -1380,38 +1381,66 @@ input[type="checkbox"] {
     .mobile-nav-btn svg { width: 20px; height: 20px; stroke-width: 1.6; }
     .mobile-nav-btn.active { color: var(--accent); }
 
-    /* ── HEADER — real markup: <header><span.nexus-logo>
-       <div.header-status><div.status-chip>...</div></div></header> ── */
-    #nexus-header { padding: 0 0 6px; width: 100%; max-width: 100%; }
-    header {
-        height: auto;
-        flex-wrap: wrap;
-        row-gap: 8px;
-        padding: 10px 12px;
-    }
-    header > div { flex-wrap: wrap; row-gap: 6px; }
-    .nexus-logo { font-size: 0.8rem; }
+    /* ── DESKTOP HEADER — hidden on mobile, replaced by #mobile-header below ── */
+    #nexus-header { display: none; }
+    #ticker { display: none; }
 
-    .header-status {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        flex-wrap: nowrap;
+    /* ── MOBILE HEADER — dedicated simplified markup injected by nav.js,
+       not a squeezed version of the desktop header ── */
+    #mobile-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        background: var(--surface-white);
+        backdrop-filter: blur(24px) saturate(160%);
+        -webkit-backdrop-filter: blur(24px) saturate(160%);
+        border: 1px solid var(--border-light);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-card);
+        width: 100%;
         max-width: 100%;
-        padding-left: 10px;
-        margin-left: 8px;
-    }
-    .header-status::-webkit-scrollbar { display: none; }
-
-    .status-chip {
-        flex-shrink: 0;
-        font-size: 0.53rem;
-        padding: 4px 8px;
-        white-space: nowrap;
+        box-sizing: border-box;
     }
 
-    #clock { font-size: 0.75rem; }
-    #utc-date { font-size: 0.48rem; }
-    #btn-logout { font-size: 0.55rem; padding: 4px 9px; }
+    .mobile-header-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .mobile-header-brand .nexus-logo { font-size: 0.85rem; }
+
+    .mobile-status-dots {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .mobile-status-dot-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+    .mobile-status-dot-wrap .status-dot { width: 8px; height: 8px; }
+    .mobile-status-dot-wrap span:last-child {
+        font-size: 0.42rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+    }
+
+    .mobile-header-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .mobile-header-right #clock { font-size: 0.68rem; }
+    .mobile-header-right #utc-date { display: none; }
+    .mobile-header-right #btn-logout { font-size: 0.5rem; padding: 3px 8px; }
 
     #workspace {
         padding: 0 !important;
@@ -1420,12 +1449,44 @@ input[type="checkbox"] {
         max-width: 100%;
     }
 
+    /* ── STAT CARDS — mobile home layout: dark full-width P&L "hero"
+       card (matches session-pnl's grid-column:span 2) + compact light
+       stat cards beneath, styled after the reference balance-app layout ── */
+    .stat-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+
+    .stat-item {
+        padding: 12px 14px;
+        border-radius: var(--r-lg);
+    }
+
+    /* The Est. Session P&L card (grid-column:span 2 inline) becomes the
+       dark hero card, same idea as the reference's "Current Balance" block */
+    .stat-item[style*="span 2"] {
+        background: var(--surface-dark);
+        border-color: rgba(255,255,255,0.08);
+        box-shadow: var(--shadow-dark);
+        padding: 16px 18px;
+    }
+    .stat-item[style*="span 2"] .stat-label { color: var(--text-on-dark-sub); }
+    .stat-item[style*="span 2"] .stat-value { font-size: 1.4rem; }
+
+    /* ── BOT CARDS — kept single-column: unlike the reference's simple
+       display-only asset cards, these contain real form controls
+       (strategy select, symbol/TF/lot inputs, stop button) that would
+       be unusable squeezed into 2 columns ── */
     #bot-grid { grid-template-columns: 1fr !important; gap: 8px; }
-    .bot-card { padding: 12px 14px; }
+    .bot-card {
+        padding: 12px 14px;
+        border-radius: var(--r-lg);
+    }
     .bot-card-header { gap: 8px; }
     .bot-stats-row { gap: 8px; flex-wrap: wrap; }
+    .bot-card .stat-grid { grid-template-columns: 1fr 1fr !important; }
 
-    #chart-section { display: none; }
+    #btn-add-bot { margin-top: 4px; }
+
+    /* Mobile has no chart — data/cards only */
+    #chart-section, #chart-area, #chart-grid { display: none !important; }
 
     .analytics-grid { grid-template-columns: 1fr !important; }
     .analytics-card.span-2, .analytics-card.span-3 { grid-column: span 1 !important; }
