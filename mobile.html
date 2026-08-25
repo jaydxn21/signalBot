@@ -11,40 +11,452 @@
     <!-- Shared: Main styles -->
     <link rel="stylesheet" href="css/styles.css">
     
-    <!-- Mobile overrides -->
-    <style>
-        /* Mobile.css - Inlined for speed, or link to external file */
-        /* ... (paste the mobile.css content from earlier) ... */
-    </style>
-    
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75' font-family='Courier' fill='%232563eb'>N</text></svg>">
     
-    <script>
-        // Check if user wants to force desktop
-        if (localStorage.getItem('nexus_force_desktop') === 'true') {
-            // User explicitly chose desktop, redirect
-            localStorage.removeItem('nexus_force_desktop');
-            window.location.href = '/';
+    <style>
+        /* Mobile-specific styles */
+        #mobile-header {
+            display: flex !important;
         }
-    </script>
+        #mobile-nav {
+            display: flex !important;
+        }
+        #nexus-nav, #nav-rail, #nexus-header {
+            display: none !important;
+        }
+
+        /* Mobile header */
+        #mobile-header {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: var(--surface-white);
+            backdrop-filter: blur(24px) saturate(160%);
+            border: 1px solid var(--border-light);
+            border-radius: var(--r-lg);
+            box-shadow: var(--shadow-card);
+            margin-bottom: 6px;
+        }
+
+        .mobile-header-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mobile-header-brand .nexus-logo {
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--text-dark);
+        }
+
+        .mobile-status-dots {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 10px;
+            padding-left: 10px;
+            border-left: 1px solid var(--border-subtle);
+        }
+
+        .mobile-status-dot-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+        }
+
+        .mobile-status-dot-wrap .status-dot {
+            width: 8px;
+            height: 8px;
+        }
+
+        .mobile-status-dot-wrap span:last-child {
+            font-size: 0.38rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .mobile-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mobile-header-right #clock {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+
+        .mobile-logout-btn {
+            font-family: var(--font-mono);
+            font-size: 0.5rem;
+            letter-spacing: 0.07em;
+            color: var(--text-muted);
+            background: rgba(15,23,42,0.05);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 3px 10px;
+            cursor: pointer;
+            transition: all 0.18s;
+            text-transform: uppercase;
+        }
+
+        .mobile-logout-btn:hover {
+            color: var(--accent3);
+            border-color: rgba(239,68,68,0.3);
+            background: rgba(239,68,68,0.04);
+        }
+
+        /* Mobile bottom nav */
+        #mobile-nav {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface-nav);
+            backdrop-filter: blur(24px) saturate(180%);
+            border-top: 1px solid var(--border-light);
+            z-index: 1000;
+            padding: 6px 0 env(safe-area-inset-bottom);
+            justify-content: space-around;
+            box-shadow: 0 -4px 20px rgba(15,23,42,0.08);
+        }
+
+        .mobile-nav-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            padding: 4px 12px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 0.45rem;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            transition: color 0.15s;
+        }
+
+        .mobile-nav-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 1.8;
+        }
+
+        .mobile-nav-btn.active {
+            color: var(--accent);
+        }
+
+        /* App shell mobile */
+        #app-shell {
+            flex-direction: column;
+            padding: 8px;
+            height: 100vh;
+            gap: 4px;
+            overflow-y: auto;
+            padding-bottom: 70px;
+        }
+
+        #main-content {
+            width: 100%;
+            max-width: 100%;
+            padding: 0;
+            gap: 4px;
+        }
+
+        #workspace {
+            flex-direction: column;
+            gap: 6px;
+            height: auto;
+            overflow: visible;
+            padding: 0 !important;
+        }
+
+        #sidebar {
+            width: 100% !important;
+            max-height: none !important;
+            min-height: auto !important;
+            height: auto !important;
+            overflow-y: visible !important;
+            padding: 12px;
+            border-radius: var(--r-lg);
+            background: var(--surface-white);
+            backdrop-filter: blur(22px) saturate(160%);
+            border: 1px solid var(--border-light);
+            box-shadow: var(--shadow-card);
+            flex-shrink: 0;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .stat-item {
+            background: rgba(255,255,255,0.75);
+            border: 1px solid var(--border-light);
+            border-radius: var(--r-md);
+            padding: 10px 12px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .stat-item.hero {
+            grid-column: span 2;
+            background: var(--surface-dark);
+            border-color: rgba(255,255,255,0.08);
+            box-shadow: var(--shadow-dark);
+            padding: 14px 16px;
+        }
+
+        .stat-item.hero .stat-label {
+            color: var(--text-on-dark-sub);
+        }
+
+        .stat-item.hero .stat-value {
+            color: var(--text-on-dark);
+            font-size: 1.2rem;
+        }
+
+        .stat-label {
+            font-size: 0.5rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+
+        .stat-value {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-dark);
+            line-height: 1.1;
+        }
+
+        .bot-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: none !important;
+            overflow-y: visible !important;
+            margin-bottom: 6px;
+        }
+
+        .bot-card {
+            background: rgba(255,255,255,0.62);
+            border: 1px solid var(--border-light);
+            border-radius: var(--r-md);
+            padding: 12px;
+            box-shadow: var(--shadow-sm);
+            flex-shrink: 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .bot-card.running {
+            background: var(--surface-dark);
+            border-color: rgba(37,99,235,0.3);
+            box-shadow: var(--shadow-dark);
+        }
+
+        .bot-card.running .stat-item {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(255,255,255,0.08);
+        }
+
+        .bot-card.running .stat-label {
+            color: var(--text-on-dark-sub);
+        }
+
+        .bot-card.running .stat-value {
+            color: var(--text-on-dark);
+        }
+
+        .bot-card .stat-grid {
+            grid-template-columns: 1fr 1fr !important;
+            gap: 4px;
+        }
+
+        .bot-card .stat-item {
+            padding: 6px 8px;
+        }
+
+        .bot-symbol-label {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+
+        input:not([type="checkbox"]), select {
+            padding: 8px 10px;
+            font-size: 0.75rem;
+            min-height: 40px;
+            border-radius: var(--r-sm);
+            background: rgba(255,255,255,0.65);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-dark);
+            width: 100%;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+
+        .btn-pro {
+            padding: 10px 14px;
+            font-size: 0.7rem;
+            min-height: 40px;
+            border-radius: var(--r-sm);
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .bot-toggle-btn {
+            width: 100%;
+            padding: 8px;
+            font-size: 0.62rem;
+            min-height: 40px;
+        }
+
+        #btn-add-bot {
+            width: 100%;
+            margin-bottom: 8px;
+            font-size: 0.62rem;
+            min-height: 40px;
+        }
+
+        #chart-area {
+            min-height: 180px !important;
+            max-height: 250px !important;
+        }
+
+        #chart-grid {
+            min-height: 180px !important;
+        }
+
+        #log-area {
+            height: 70px !important;
+        }
+
+        #logs {
+            font-size: 0.5rem !important;
+        }
+
+        .automations-wrap label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.6rem;
+            color: var(--text-body);
+            cursor: pointer;
+            padding: 4px 0;
+        }
+
+        #ticker {
+            height: 22px !important;
+        }
+
+        .ticker-inner {
+            font-size: 0.5rem !important;
+        }
+
+        #overlay-panel {
+            display: none !important;
+        }
+
+        .chart-hud {
+            display: none !important;
+        }
+
+        /* Mobile auth overlay */
+        #auth-overlay {
+            display: none !important;
+        }
+
+        /* Redirect to login page */
+        #login-redirect {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            padding: 20px;
+            text-align: center;
+            gap: 16px;
+        }
+
+        #login-redirect .logo {
+            font-size: 2rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        #login-redirect p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            max-width: 280px;
+        }
+
+        #login-redirect .btn-login {
+            padding: 12px 40px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff;
+            border: none;
+            border-radius: var(--r-sm);
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            text-decoration: none;
+        }
+
+        #login-redirect .btn-login:hover {
+            opacity: 0.9;
+        }
+
+        #login-redirect .guest-link {
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 0.7rem;
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
 
-<!-- AUTH OVERLAY (same as desktop) -->
-<div id="auth-overlay">
-    <div class="auth-box">
-        <h1>NEXUS</h1>
-        <p class="mono" style="font-size:0.6rem;letter-spacing:0.14em;color:var(--text-muted);margin-bottom:28px;">MOBILE TERMINAL v2.0</p>
-        <input type="password" id="api-token" placeholder="Enter Deriv API Token"
-               style="margin-bottom:12px;padding:12px 14px;font-size:0.78rem;">
-        <button id="btn-login" class="btn-pro" style="width:100%;padding:12px;font-size:0.72rem;letter-spacing:0.1em;">
-            INITIALIZE SYSTEM
-        </button>
+<!-- AUTH CHECK - Redirect to login if not authenticated -->
+<div id="auth-check" style="display:none;">
+    <div id="login-redirect">
+        <div class="logo">NEXUS</div>
+        <p>Please sign in to access the mobile trading terminal.</p>
+        <a href="login.html" class="btn-login">Sign In</a>
+        <a onclick="guestLogin()" class="guest-link">Continue as guest</a>
     </div>
 </div>
 
-<!-- MOBILE APP SHELL -->
-<div id="app-shell">
+<!-- MAIN APP (shown when authenticated) -->
+<div id="app-shell" style="display:none;">
 
     <!-- MOBILE HEADER -->
     <div id="mobile-header">
@@ -63,6 +475,7 @@
         </div>
         <div class="mobile-header-right">
             <span id="clock">9:41</span>
+            <span id="mobile-username" style="font-size:0.55rem;color:var(--text-muted);font-family:var(--font-mono);"></span>
             <button id="btn-logout" class="mobile-logout-btn">Logout</button>
             <button id="btn-desktop-mode" class="mobile-logout-btn" style="font-size:0.4rem;">Desktop</button>
         </div>
@@ -71,7 +484,7 @@
     <!-- MAIN CONTENT -->
     <div id="main-content">
 
-        <!-- TICKER (smaller on mobile) -->
+        <!-- TICKER -->
         <div id="ticker" style="height:22px;">
             <div style="width:100%;overflow:hidden;">
                 <div class="ticker-inner" style="font-size:0.5rem;">
@@ -84,7 +497,6 @@
                     <span>EUR/USD <span class="pnl-neg">-0.12%</span></span>
                     <span>GBP/USD <span class="pnl-pos">+0.31%</span></span>
                     <span>USD/JPY <span class="pnl-pos">+0.09%</span></span>
-                    <!-- Duplicate for seamless scroll -->
                     <span>V10 <span class="pnl-pos">+0.12%</span></span>
                     <span>V25 <span class="pnl-neg">-0.08%</span></span>
                     <span>BTC/USD <span class="pnl-pos">+2.18%</span></span>
@@ -101,7 +513,7 @@
         <!-- WORKSPACE -->
         <div id="workspace">
 
-            <!-- SIDEBAR (full width on mobile) -->
+            <!-- SIDEBAR -->
             <aside id="sidebar">
                 <div class="stat-grid">
                     <div class="stat-item hero">
@@ -140,10 +552,10 @@
                 </div>
             </aside>
 
-            <!-- TERMINAL PANEL (chart simplified on mobile) -->
+            <!-- TERMINAL PANEL -->
             <div id="page-terminal" class="page-panel active" style="display:flex;flex-direction:column;gap:8px;">
 
-                <!-- Mini Chart Area (smaller on mobile) -->
+                <!-- Mini Chart Area -->
                 <div id="chart-area" style="min-height:200px;max-height:300px;">
                     <div id="chart-grid" class="chart-grid chart-grid-single" style="flex:1;min-height:200px;">
                         <div id="chart-placeholder-empty" class="chart-placeholder-empty" style="position:relative;height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.3);border-radius:var(--r-md);">
@@ -153,7 +565,7 @@
                     </div>
                 </div>
 
-                <!-- LOG AREA (smaller on mobile) -->
+                <!-- LOG AREA -->
                 <div id="log-area" style="height:80px;flex-shrink:0;background:var(--surface-dark);border-radius:var(--r-lg);padding:8px 12px;display:flex;flex-direction:column;border:1px solid rgba(255,255,255,0.07);">
                     <div style="display:flex;align-items:center;justify-content:space-between;">
                         <span class="stat-label" style="color:rgba(241,245,249,0.4);font-size:0.5rem;">System Terminal</span>
@@ -172,7 +584,7 @@
 
 </div><!-- /app-shell -->
 
-<!-- SHARED BOT CARD TEMPLATE (same as desktop) -->
+<!-- SHARED BOT CARD TEMPLATE -->
 <template id="bot-card-template">
     <div class="bot-card stopped" data-bot-id="">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -269,55 +681,77 @@
 
 <!-- MOBILE INIT -->
 <script type="module">
+    import { Auth } from './js/auth.js';
+
     document.addEventListener('DOMContentLoaded', () => {
+        // Check authentication
+        const auth = Auth.get();
+        const appShell = document.getElementById('app-shell');
+        const authCheck = document.getElementById('auth-check');
+
+        if (!auth || auth.guest) {
+            // Not authenticated - show login prompt
+            authCheck.style.display = 'flex';
+            appShell.style.display = 'none';
+            return;
+        }
+
+        // Authenticated - show app
+        authCheck.style.display = 'none';
+        appShell.style.display = 'flex';
+
+        // Set username
+        const usernameEl = document.getElementById('mobile-username');
+        if (usernameEl && auth.username) {
+            usernameEl.textContent = '@' + auth.username;
+        }
+
         // Set mobile flag
         window.IS_MOBILE = true;
-        
+
         // Mobile navigation
         const navBtns = document.querySelectorAll('.mobile-nav-btn');
         navBtns.forEach(btn => {
             btn.addEventListener('click', function() {
                 navBtns.forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
-                
+
                 const page = this.dataset.page;
-                // For now, only terminal is fully functional on mobile
                 if (page !== 'terminal') {
                     alert(`${page.charAt(0).toUpperCase() + page.slice(1)} coming soon on mobile. Please use the desktop version for full features.`);
                     this.classList.remove('active');
                     document.querySelector('.mobile-nav-btn[data-page="terminal"]')?.classList.add('active');
                     return;
                 }
-                
-                // Show/hide page panels
+
                 document.querySelectorAll('.page-panel').forEach(p => p.classList.remove('active'));
                 const panel = document.getElementById(`page-${page}`);
                 if (panel) panel.classList.add('active');
             });
         });
-        
+
         // Clock
         function updateClock() {
             const now = new Date();
             const clockEl = document.getElementById('clock');
             if (clockEl) {
-                clockEl.textContent = now.toLocaleTimeString('en-US', { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
+                clockEl.textContent = now.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit'
                 });
             }
         }
         setInterval(updateClock, 1000);
         updateClock();
-        
-        // Sync status dots from desktop status indicators
+
+        // Sync status dots
         function syncStatus() {
             const nexusDot = document.querySelector('.status-chip .status-dot');
             const mt5Dot = document.querySelector('.mt5-status-chip .status-dot');
-            
+
             const mobileNexus = document.getElementById('mobile-conn-status');
             const mobileMt5 = document.getElementById('mobile-mt5-status');
-            
+
             if (nexusDot && mobileNexus) {
                 mobileNexus.className = nexusDot.className;
             }
@@ -325,26 +759,35 @@
                 mobileMt5.className = mt5Dot.className;
             }
         }
-        
+
         setInterval(syncStatus, 2000);
         setTimeout(syncStatus, 1000);
-        
+
         // Desktop mode toggle
         document.getElementById('btn-desktop-mode')?.addEventListener('click', function() {
             localStorage.setItem('nexus_force_desktop', 'true');
             window.location.href = '/';
         });
-        
+
         // Logout
         document.getElementById('btn-logout')?.addEventListener('click', function() {
             if (confirm('Logout?')) {
-                // Clear session
-                localStorage.removeItem('deriv_token');
-                sessionStorage.removeItem('deriv_token');
-                window.location.reload();
+                Auth.logout();
             }
         });
     });
+
+    // Guest login function (exposed to global scope for onclick)
+    window.guestLogin = function() {
+        localStorage.setItem('nexus_auth', JSON.stringify({
+            token: null,
+            userId: 'guest',
+            username: 'Guest',
+            exp: Date.now() + 365 * 24 * 3600 * 1000,
+            guest: true
+        }));
+        window.location.reload();
+    };
 </script>
 
 </body>
