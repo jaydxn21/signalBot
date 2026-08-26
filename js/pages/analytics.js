@@ -143,8 +143,7 @@ function _stats() {
     const losses  = trades.filter(t => t.outcome === 'SL');
     const winRate = Math.round((wins.length / total) * 100);
 
-    const totalPnL = wins.reduce((s, t) => s + t.pnl, 0)
-                   - losses.reduce((s, t) => s + t.pnl, 0);
+    const totalPnL = trades.reduce((s, t) => s + t.pnl, 0);
 
     const maxDrawdown = _calcMaxDrawdown(trades);
 
@@ -205,7 +204,7 @@ function _stats() {
     const equity = [];
     let running = 0;
     trades.forEach(t => {
-        running += t.outcome === 'TP' ? t.pnl : -t.pnl;
+        running += t.pnl;
         equity.push(running);
     });
 
@@ -252,7 +251,7 @@ function _empty() {
 function _calcMaxDrawdown(trades) {
     let peak = 0, equity = 0, maxDD = 0;
     trades.forEach(t => {
-        equity += t.outcome === 'TP' ? t.pnl : -t.pnl;
+        equity += t.pnl;
         if (equity > peak) peak = equity;
         const dd = peak - equity;
         if (dd > maxDD) maxDD = dd;

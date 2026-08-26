@@ -1237,33 +1237,33 @@ function checkOutcome(bot) {
     const pv = _pointValue(bot.config.symbol);
     const slPriceDist = Math.abs(entry - sl);
     const tpPriceDist = Math.abs(tp - entry);
-    const pnlAmt = hit === 'TP' ? lotSizeUsed * pv * tpPriceDist : lotSizeUsed * pv * slPriceDist;
-
-    const newEquity = (SessionState.get().sessionPnL || 0) + (hit === 'TP' ? pnlAmt : -pnlAmt);
+    const pnlMag = lotSizeUsed * pv * (hit === 'TP' ? tpPriceDist : slPriceDist);
+    const pnlAmt = hit === 'TP' ? pnlMag : -pnlMag;
+    const newEquity = (SessionState.get().sessionPnL || 0) + pnlAmt;    
     PositionSizing.updateAfterTrade(hit, hit === 'TP' ? pnlAmt : -pnlAmt, newEquity + 10000);
 
     if (hit === 'TP') {
-        log(`✓ TP hit +$${pnlAmt.toFixed(2)}`, 'buy');
-        window.registerBotWin(bot.id, pnlAmt);
-        UIManager.registerWin(pnlAmt);
-        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
+    log(`✓ TP hit +$${pnlAmt.toFixed(2)}`, 'buy');
+    window.registerBotWin(bot.id, pnlAmt);
+    UIManager.registerWin(pnlAmt);
+    Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'TP', pnl: pnlAmt });
     } else {
-        log(`✗ SL hit -$${pnlAmt.toFixed(2)}`, 'sell');
-        window.registerBotLoss(bot.id, pnlAmt);
-        UIManager.registerLoss(pnlAmt);
-        Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
+    log(`✗ SL hit -$${Math.abs(pnlAmt).toFixed(2)}`, 'sell');
+    window.registerBotLoss(bot.id, pnlAmt);
+    UIManager.registerLoss(pnlAmt);
+    Analytics.recordTrade({ symbol: bot.config.symbol, strategy: bot.config.strategy, type, entry, sl, tp, outcome: 'SL', pnl: pnlAmt });
     }
 
     SessionState.pushTrade({
-        time: Date.now(), symbol: bot.config.symbol, strategy: bot.config.strategy,
-        type, entry, sl, tp, outcome: hit, pnl: pnlAmt,
-        confidence: bot.lastConfidence || null,
-    });
+    time: Date.now(), symbol: bot.config.symbol, strategy: bot.config.strategy,
+    type, entry, sl, tp, outcome: hit, pnl: pnlAmt,
+    confidence: bot.lastConfidence || null,
+});
 
     const state = SessionState.get();
     const wins = state.wins + (hit === 'TP' ? 1 : 0);
     const losses = state.losses + (hit === 'SL' ? 1 : 0);
-    const pnl = state.sessionPnL + (hit === 'TP' ? pnlAmt : -pnlAmt);
+    const pnl = state.sessionPnL + pnlAmt;
     const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
     SessionState.set({ wins, losses, sessionPnL: pnl, winRate, accountEquity: newEquity + 10000 });
 
@@ -1645,7 +1645,7 @@ window.registerBotLoss = function(id, pnl) {
     const card = document.querySelector(`.bot-card[data-bot-id="${id}"]`);
     if (!card) return;
     const bot = bots[id];
-    if (bot) { bot.losses++; bot.pnl -= pnl; }
+    if (bot) { bot.losses++; bot.pnl += pnl; }
     const lossEl = card.querySelector('.bot-losses');
     const pnlEl = card.querySelector('.bot-pnl');
     if (lossEl && bot) lossEl.textContent = bot.losses;

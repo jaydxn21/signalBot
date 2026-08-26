@@ -116,8 +116,8 @@ function _render() {
     tbody.innerHTML = trades.map(t => {
         const time   = new Date(t.time).toLocaleTimeString('en-GB', { hour12: false });
         const date   = new Date(t.time).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-        const pnlPos = t.outcome === 'TP';
-        const pnlVal = pnlPos ? `+${t.pnl.toFixed(2)}` : `-${t.pnl.toFixed(2)}`;
+        const pnlPos = t.pnl >= 0;
+        const pnlVal = `${pnlPos ? '+' : ''}${t.pnl.toFixed(2)}`;
         const pnlCol = pnlPos ? 'var(--accent2)' : 'var(--accent3)';
 
         return `
@@ -152,7 +152,7 @@ function _renderSummary(trades) {
     const wins   = trades.filter(t => t.outcome === 'TP').length;
     const losses = trades.filter(t => t.outcome === 'SL').length;
     const wr     = Math.round((wins / trades.length) * 100);
-    const pnl    = trades.reduce((s, t) => s + (t.outcome === 'TP' ? t.pnl : -t.pnl), 0);
+    const pnl = trades.reduce((s, t) => s + t.pnl, 0);
     const pnlPos = pnl >= 0;
 
     _set('jnl-total',   trades.length);
@@ -201,7 +201,7 @@ function _wireExport() {
                 _fmt(t.sl),
                 _fmt(t.tp),
                 t.outcome  || '',
-                t.outcome === 'TP' ? t.pnl.toFixed(5) : (-t.pnl).toFixed(5),
+                t.pnl.toFixed(5),
             ].join(',');
         });
 
