@@ -12,6 +12,9 @@ const CHUNK_SIZE  = 1500;
 const CHUNK_DELAY = 800;
 export { WS_URL, CHUNK_SIZE, CHUNK_DELAY };
 
+import { BreakoutTrendStrategy } from './strategies/breakout_trend.js';
+
+
 // ─────────────────────────────────────────────────────────────
 // CANDLE FETCHING
 // ─────────────────────────────────────────────────────────────
@@ -251,7 +254,7 @@ export function _simulate(candles, h4Candles, strategyObj, stake = 1, commission
 
         let signal = null;
         try {
-            signal = strategyObj.analyze('__bt__', slice, h4s, rsiState, atr, symbol, rsi);
+signal = await strategyObj.analyze('__bt__', slice, h4s, rsiState, atr, symbol, rsi);
         } catch(e) { /* skip */ }
 
         if (!signal) { equity.push(running); continue; }
@@ -289,7 +292,7 @@ export function _simulate(candles, h4Candles, strategyObj, stake = 1, commission
 // ─────────────────────────────────────────────────────────────
 // WALK-FORWARD  (IS + OOS split, overfit check)
 // ─────────────────────────────────────────────────────────────
-export function _walkForward(candles, h4Candles, strategyObj, stake, commission, symbol) {
+export async function _walkForward(candles, h4Candles, strategyObj, stake, commission, symbol) {
     const splitIdx  = Math.floor(candles.length * 0.6); // 60% IS / 40% OOS
     const splitTime = candles[splitIdx].time;
     const isC       = candles.slice(0, splitIdx);
@@ -323,45 +326,38 @@ export function _getBuiltinStrategy(id) {
     }
 
     // Create a strategy object with the analyze method
-    // We use a wrapper that creates the BreakoutTrendStrategy instance
-    // and calls its checkEntry method
     const strategyWrapper = {
-    // 1. Mark the analyze function as async to handle dynamic importing safely
-    async analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
-        try {
-            // 2. Natively import your strategy file asynchronously via browser standards
-            const { BreakoutTrendStrategy } = await import('./strategies/breakout_trend.js');
-            
-            const strategy = new BreakoutTrendStrategy({
-                riskRewardRatio: 2,
-                minTouchesForLevel: 2,
-                minBreakoutSize: 0.3,
-                stopLossMultiplier: 1.2,
-                useATRStop: true,
-                confirmationCandles: 1,
-                requireTrendFilter: true,
-                emaShortPeriod: 20,
-                emaLongPeriod: 50,
-                minVolatilityFilter: 0.7,
-                maxConsecutiveLosses: 3
-            });
-            
-            const signal = strategy.checkEntry(candles, atr, symbol);
-            if (!signal) return null;
-            
-            return {
-                type: signal.type,
-                tpMultiplier: 2.0,
-                slMultiplier: signal.slMultiplier || 1.2,
-                ...signal
-            };
-        } catch (e) {
-            console.error('[backtest-core] Error in breakout strategy:', e.message);
-            return null;
+        analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
+            try {
+                const strategy = new BreakoutTrendStrategy({
+                    riskRewardRatio: 2,
+                    minTouchesForLevel: 2,
+                    minBreakoutSize: 0.3,
+                    stopLossMultiplier: 1.2,
+                    useATRStop: true,
+                    confirmationCandles: 1,
+                    requireTrendFilter: true,
+                    emaShortPeriod: 20,
+                    emaLongPeriod: 50,
+                    minVolatilityFilter: 0.7,
+                    maxConsecutiveLosses: 3
+                });
+                
+                const signal = strategy.checkEntry(candles, atr, symbol);
+                if (!signal) return null;
+                
+                return {
+                    type: signal.type,
+                    tpMultiplier: 2.0,
+                    slMultiplier: signal.slMultiplier || 1.2,
+                    ...signal
+                };
+            } catch (e) {
+                console.error('[backtest-core] Error in breakout strategy:', e.message);
+                return null;
+            }
         }
-    }
-};
-
+    };
 
     return strategyWrapper;
 }
