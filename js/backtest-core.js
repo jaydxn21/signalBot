@@ -326,42 +326,42 @@ export function _getBuiltinStrategy(id) {
     // We use a wrapper that creates the BreakoutTrendStrategy instance
     // and calls its checkEntry method
     const strategyWrapper = {
-        analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
-            try {
-                // Dynamically import the breakout strategy
-                // Note: This uses a synchronous require-style import since we're in a module
-                // We'll use the class directly
-                const { BreakoutTrendStrategy } = require('./strategies/breakout_trend.js');
-                const strategy = new BreakoutTrendStrategy({
-                    riskRewardRatio: 2,
-                    minTouchesForLevel: 2,
-                    minBreakoutSize: 0.3,
-                    stopLossMultiplier: 1.2,
-                    useATRStop: true,
-                    confirmationCandles: 1,
-                    requireTrendFilter: true,
-                    emaShortPeriod: 20,
-                    emaLongPeriod: 50,
-                    minVolatilityFilter: 0.7,
-                    maxConsecutiveLosses: 3
-                });
-                
-                const signal = strategy.checkEntry(candles, atr, symbol);
-                if (!signal) return null;
-                
-                // Map the signal to the format expected by the simulation engine
-                return {
-                    type: signal.type,
-                    tpMultiplier: 2.0,
-                    slMultiplier: signal.slMultiplier || 1.2,
-                    ...signal
-                };
-            } catch (e) {
-                console.error('[backtest-core] Error in breakout strategy:', e.message);
-                return null;
-            }
+    // 1. Mark the analyze function as async to handle dynamic importing safely
+    async analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
+        try {
+            // 2. Natively import your strategy file asynchronously via browser standards
+            const { BreakoutTrendStrategy } = await import('./strategies/breakout_trend.js');
+            
+            const strategy = new BreakoutTrendStrategy({
+                riskRewardRatio: 2,
+                minTouchesForLevel: 2,
+                minBreakoutSize: 0.3,
+                stopLossMultiplier: 1.2,
+                useATRStop: true,
+                confirmationCandles: 1,
+                requireTrendFilter: true,
+                emaShortPeriod: 20,
+                emaLongPeriod: 50,
+                minVolatilityFilter: 0.7,
+                maxConsecutiveLosses: 3
+            });
+            
+            const signal = strategy.checkEntry(candles, atr, symbol);
+            if (!signal) return null;
+            
+            return {
+                type: signal.type,
+                tpMultiplier: 2.0,
+                slMultiplier: signal.slMultiplier || 1.2,
+                ...signal
+            };
+        } catch (e) {
+            console.error('[backtest-core] Error in breakout strategy:', e.message);
+            return null;
         }
-    };
+    }
+};
+
 
     return strategyWrapper;
 }
