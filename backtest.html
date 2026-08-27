@@ -61,7 +61,6 @@
                                 <option value="BOOM500">Boom 500</option>
                                 <option value="stpRNG">Step Index</option>
                             </optgroup>
-                            </optgroup>
                         </select>
                     </div>
 
@@ -72,29 +71,28 @@
                     </div>
 
                     <div class="bt-field-group">
-    <label class="bt-label">STRATEGY</label>
-    <select id="bt-strategy" class="bt-select" onchange="window.btStrategyChanged(this.value)">
-        <optgroup label="📈 Breakout Strategies">
-            <option value="breakout" selected>BREAKOUT (Trend Breakout)</option>
-        </optgroup>
-    </select>
-</div>
+                        <label class="bt-label">STRATEGY</label>
+                        <select id="bt-strategy" class="bt-select" onchange="window.btStrategyChanged(this.value)">
+                            <option value="breakout" selected>📈 BREAKOUT (Trend Breakout)</option>
+                        </select>
+                    </div>
 
+                    <!-- Compare mode: extra strategy slots (hidden by default) -->
                     <div id="bt-compare-slots" style="display:none;">
-    <div class="bt-compare-slot" id="bt-slot-2">
-        <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
-        <select class="bt-select bt-compare-strategy" data-slot="2">
-            <option value="breakout" selected>📈 BREAKOUT</option>
-        </select>
-    </div>
-    <div class="bt-compare-slot" id="bt-slot-3">
-        <div class="bt-compare-slot-label" style="background:#f59e0b">C</div>
-        <select class="bt-select bt-compare-strategy" data-slot="3">
-            <option value="">— none —</option>
-            <option value="breakout">📈 BREAKOUT</option>
-        </select>
-    </div>
-</div>
+                        <div class="bt-compare-slot" id="bt-slot-2">
+                            <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
+                            <select class="bt-select bt-compare-strategy" data-slot="2">
+                                <option value="breakout">📈 BREAKOUT</option>
+                            </select>
+                        </div>
+                        <div class="bt-compare-slot" id="bt-slot-3">
+                            <div class="bt-compare-slot-label" style="background:#f59e0b">C</div>
+                            <select class="bt-select bt-compare-strategy" data-slot="3">
+                                <option value="">— none —</option>
+                                <option value="breakout">📈 BREAKOUT</option>
+                            </select>
+                        </div>
+                    </div>
 
                     <div class="bt-field-row">
                         <div class="bt-field-group">
@@ -125,7 +123,6 @@
                                     style="font-size:10px;opacity:0.5;white-space:nowrap;min-width:36px;">days</span>
                             </div>
                             <div id="bt-count-hint" style="font-size:9px;opacity:0.35;margin-top:3px;padding:0 2px;"></div>
-                            <!-- hidden select kept for compatibility with _run() which reads bt-count -->
                             <select id="bt-count" style="display:none;"></select>
                         </div>
                     </div>
@@ -141,7 +138,7 @@
                         </div>
                     </div>
 
-                    <!-- Date range filter (optional — filters fetched candles by date) -->
+                    <!-- Date range filter -->
                     <div class="bt-field-group" style="margin-top:4px;">
                         <label class="bt-label" style="display:flex;align-items:center;justify-content:space-between;">
                             DATE RANGE
@@ -183,8 +180,7 @@
                         <span id="bt-run-label">▶  RUN BACKTEST</span>
                         <span id="bt-run-spinner" style="display:none;">⟳  FETCHING...</span>
                     </button>
-                    <div id="bt-extra-btns" style="display:none;margin-top:6px;gap:6px;display:none;flex-direction:column;">
-                    </div>
+
                     <div class="bt-shortcut-hint">Enter / Space — run &nbsp;·&nbsp; C — toggle compare &nbsp;·&nbsp; O — optimizer &nbsp;·&nbsp; Esc — close panels</div>
                     <button id="bt-optimizer-btn" class="bt-ghost-btn" style="margin-top:6px;"
                         data-tip="Grid search SL/TP ranges to find best parameter combination"
@@ -284,7 +280,7 @@
                         </div>
                     </div>
 
-                    <!-- Strategy Comparison Results (hidden until compare mode run) -->
+                    <!-- Strategy Comparison Results -->
                     <div id="bt-compare-wrap" style="display:none;">
                         <div class="bt-panel-label" style="padding:14px 20px 0;">
                             STRATEGY COMPARISON
@@ -293,7 +289,7 @@
                         <div id="bt-compare-results"></div>
                     </div>
 
-                    <!-- Parameter Optimizer Panel (hidden until triggered) -->
+                    <!-- Parameter Optimizer Panel -->
                     <div id="bt-optimizer-wrap" style="display:none;">
                         <div class="bt-panel-label" style="padding:14px 20px 0;display:flex;align-items:center;gap:10px;">
                             PARAMETER OPTIMIZER
@@ -345,10 +341,13 @@
     </div>
 </div>
 
+<!-- ONLY ONE SCRIPT TAG - THE MODULE IMPORT -->
 <script type="module" src="js/nav.js"></script>
 <script type="module">
     import { Backtest } from './js/pages/backtest.js';
     document.addEventListener('DOMContentLoaded', () => Backtest.init());
 </script>
+
+<!-- REMOVED: All other script tags for phantom.js, vortex.js, monitor.js, backtest.js -->
 </body>
 </html>
