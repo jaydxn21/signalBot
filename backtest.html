@@ -72,94 +72,29 @@
                     </div>
 
                     <div class="bt-field-group">
-                        <label class="bt-label">STRATEGY</label>
-                        <select id="bt-strategy" class="bt-select" onchange="window.btStrategyChanged(this.value)">
-                            <optgroup label="👻 PHANTOM">
-                                <option value="phantom">PHANTOM (Multi-TF Scalper)</option>
-                            </optgroup>
-                            <optgroup label="💥 Crash &amp; Boom">
-                                <option value="nova">NOVA (Crash &amp; Boom)</option>
-                                <option value="pulse">PULSE (Compounder)</option>
-                                <option value="kismet">KISMET (Structure)</option>
-                                <option value="vortex">VORTEX (Any Symbol)</option>
-                            </optgroup>
-                            <optgroup label="⚡ Synthetic">
-                                <option value="synthetic_scalp">BB+RSI Synthetic</option>
-                                <option value="ultra_scalp">Ultra Scalper</option>
-                                <option value="candle_speed">Candle Speed</option>
-                                <option value="range_boundary">Range Boundary</option>
-                                <option value="rsi_fade">RSI Fade</option>
-                            </optgroup>
-                            <optgroup label="💱 Forex">
-                                <option value="momentum">Momentum</option>
-                                <option value="h4_kiss">KISS H4</option>
-                                <option value="london_breakout">London Breakout</option>
-                                <option value="vwap_reversion">VWAP Reversion</option>
-                                <option value="swing">Swing</option>
-                                <option value="trend">Trend Follow</option>
-                                <option value="orb">ORB</option>
-                            </optgroup>
-                        </select>
-                    </div>
+    <label class="bt-label">STRATEGY</label>
+    <select id="bt-strategy" class="bt-select" onchange="window.btStrategyChanged(this.value)">
+        <optgroup label="📈 Breakout Strategies">
+            <option value="breakout" selected>BREAKOUT (Trend Breakout)</option>
+        </optgroup>
+    </select>
+</div>
 
-                    <!-- Compare mode: extra strategy slots (hidden by default) -->
                     <div id="bt-compare-slots" style="display:none;">
-                        <div class="bt-compare-slot" id="bt-slot-2">
-                            <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
-                            <select class="bt-select bt-compare-strategy" data-slot="2">
-                                <optgroup label="👻 PHANTOM">
-                                    <option value="phantom">PHANTOM</option>
-                                </optgroup>
-                                <optgroup label="💥 Crash &amp; Boom">
-                                    <option value="nova">NOVA</option>
-                                    <option value="pulse">PULSE</option>
-                                    <option value="kismet">KISMET</option>
-                                    <option value="vortex">VORTEX</option>
-                                </optgroup>
-                                <optgroup label="⚡ Synthetic">
-                                    <option value="synthetic_scalp">BB+RSI Synthetic</option>
-                                    <option value="ultra_scalp">Ultra Scalper</option>
-                                    <option value="range_boundary">Range Boundary</option>
-                                    <option value="rsi_fade">RSI Fade</option>
-                                </optgroup>
-                                <optgroup label="💱 Forex">
-                                    <option value="momentum">Momentum</option>
-                                    <option value="h4_kiss">KISS H4</option>
-                                    <option value="vwap_reversion">VWAP Reversion</option>
-                                    <option value="swing">Swing</option>
-                                    <option value="trend" selected>Trend Follow</option>
-                                </optgroup>
-                            </select>
-                        </div>
-                        <div class="bt-compare-slot" id="bt-slot-3">
-                            <div class="bt-compare-slot-label" style="background:#f59e0b">C</div>
-                            <select class="bt-select bt-compare-strategy" data-slot="3">
-                                <option value="">— none —</option>
-                                <optgroup label="👻 PHANTOM">
-                                    <option value="phantom">PHANTOM</option>
-                                </optgroup>
-                                <optgroup label="💥 Crash &amp; Boom">
-                                    <option value="nova">NOVA</option>
-                                    <option value="pulse">PULSE</option>
-                                    <option value="kismet">KISMET</option>
-                                    <option value="vortex">VORTEX</option>
-                                </optgroup>
-                                <optgroup label="⚡ Synthetic">
-                                    <option value="synthetic_scalp">BB+RSI Synthetic</option>
-                                    <option value="ultra_scalp">Ultra Scalper</option>
-                                    <option value="range_boundary">Range Boundary</option>
-                                    <option value="rsi_fade">RSI Fade</option>
-                                </optgroup>
-                                <optgroup label="💱 Forex">
-                                    <option value="momentum">Momentum</option>
-                                    <option value="h4_kiss">KISS H4</option>
-                                    <option value="vwap_reversion">VWAP Reversion</option>
-                                    <option value="swing">Swing</option>
-                                    <option value="trend">Trend Follow</option>
-                                </optgroup>
-                            </select>
-                        </div>
-                    </div>
+    <div class="bt-compare-slot" id="bt-slot-2">
+        <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
+        <select class="bt-select bt-compare-strategy" data-slot="2">
+            <option value="breakout" selected>📈 BREAKOUT</option>
+        </select>
+    </div>
+    <div class="bt-compare-slot" id="bt-slot-3">
+        <div class="bt-compare-slot-label" style="background:#f59e0b">C</div>
+        <select class="bt-select bt-compare-strategy" data-slot="3">
+            <option value="">— none —</option>
+            <option value="breakout">📈 BREAKOUT</option>
+        </select>
+    </div>
+</div>
 
                     <div class="bt-field-row">
                         <div class="bt-field-group">

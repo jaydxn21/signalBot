@@ -504,6 +504,29 @@ export async function _simulateVortex(candles, stake = 1, commission = 0, symbol
 export function _getBuiltinStrategy(id) {
     const strats = {
 
+
+        // In js/backtest-core.js, inside _getBuiltinStrategy function
+// Add this to the strats object:
+
+breakout: (candles, h4, rsiState, atr, symbol) => {
+    // Simple wrapper that creates a strategy instance and calls checkEntry
+    const { BreakoutTrendStrategy } = await import('./strategies/breakout_trend.js');
+    const strategy = new BreakoutTrendStrategy({
+        riskRewardRatio: 2,
+        minTouchesForLevel: 2,
+        minBreakoutSize: 0.3,
+        stopLossMultiplier: 1.2,
+        useATRStop: true,
+        confirmationCandles: 1,
+        requireTrendFilter: true,
+        emaShortPeriod: 20,
+        emaLongPeriod: 50,
+        minVolatilityFilter: 0.7,
+        maxConsecutiveLosses: 3
+    });
+    return strategy.checkEntry(candles, atr, symbol);
+},
+
         // ── NOVA — redirects to fixed version ────────────────
         nova: (...args) => strats.nova_fixed(...args),
 

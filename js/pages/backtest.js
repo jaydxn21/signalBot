@@ -25,10 +25,10 @@ let _btMode       = 'single';
 let _cachedCandles    = null;
 let _cachedH4Candles  = null;
 let _running      = false;
-const _NON_GENERIC_MULTI_TF_STRATEGIES = new Set(['phantom', 'vortex', 'nova', 'kismet', 'pulse']);
+const _NON_GENERIC_MULTI_TF_STRATEGIES = new Set([]); // Empty since breakout uses generic engine
 
 function _usesGenericBacktestEngine(strategyId) {
-    return !_NON_GENERIC_MULTI_TF_STRATEGIES.has(String(strategyId || '').toLowerCase());
+    return true; // All strategies now use the generic engine
 }
 
 window.btClearDates = function() {
@@ -132,13 +132,16 @@ window._openInBuilder = function() {
 // ─────────────────────────────────────────────────────────────
 window.btStrategyChanged = function(strategy) {
     document.querySelectorAll('.bt-strategy-notice').forEach(n => n.remove());
-    const notices = {
-        phantom: { color: '#a78bfa', icon: '\u{1F47B}', text: 'PHANTOM multi-TF — fetches M1+M5+M15. Takes longer.' },
-        vortex:  { color: '#06b6d4', icon: '\u{1F300}', text: 'VORTEX — works on any symbol. Reads volatility state.' },
-        nova:    { color: '#f59e0b', icon: '💥', text: 'NOVA — Crash & Boom only. Requires a spike within last 10 bars to enter. Use CRASH1000 or BOOM1000.' },
-        kismet:  { color: '#10b981', icon: '🎯', text: 'KISMET — Crash/Boom/Step Index. Spike fade, run fade, drift re-entry. SL=0.5×ATR TP=2×ATR.' },
-        pulse:   { color: '#f472b6', icon: '⚡', text: 'PULSE — Boom/Crash/Step Index. Simple scalper, 1:1 R:R. Needs 50%+ win rate to profit.' },
-    };
+    // In js/pages/backtest.js, update the notices object in btStrategyChanged:
+
+const notices = {
+    breakout: { 
+        color: '#f59e0b', 
+        icon: '📈', 
+        text: 'BREAKOUT — Works on any symbol. Detects support/resistance breakouts with trend confirmation. TP=2x SL.' 
+    },
+    // Remove all other strategy notices
+};
     const n = notices[strategy];
     if (!n) return;
     const el = document.createElement('div');
