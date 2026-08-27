@@ -1,11 +1,8 @@
 // js/pages/backtest.js
-import { _fetchCandles, _simulate, _simulatePhantomMultiTF, _simulateVortex,
-         _walkForward, _calcStats, _detectOverfit,
+import { _fetchCandles, _simulate, _walkForward, _calcStats, _detectOverfit,
          _calcATR, _calcRSI, _tfLabel, _sleep, CHUNK_SIZE, CHUNK_DELAY, WS_URL,
          _getBuiltinStrategy }                                     from '../backtest-core.js';
 import { SessionState }                                            from '../session-state.js';
-import { PhantomStrategy }                                         from '../strategies/phantom.js';
-import { VortexStrategy }                                          from '../strategies/vortex.js';
 
 function _makeStrategy(strategyId) {
     return _getBuiltinStrategy(strategyId);
@@ -25,7 +22,6 @@ let _btMode       = 'single';
 let _cachedCandles    = null;
 let _cachedH4Candles  = null;
 let _running      = false;
-const _NON_GENERIC_MULTI_TF_STRATEGIES = new Set([]); // Empty since breakout uses generic engine
 
 function _usesGenericBacktestEngine(strategyId) {
     return true; // All strategies now use the generic engine
@@ -38,15 +34,10 @@ window.btClearDates = function() {
     if (t) t.value = '';
 };
 
-
 // ─────────────────────────────────────────────────────────────
 // DYNAMIC CANDLE COUNT OPTIONS
-// Calculates bar counts needed to reach each calendar milestone
-// from today, so labels stay accurate regardless of when run.
 // ─────────────────────────────────────────────────────────────
 function _barsForDays(calendarDays, tfSeconds) {
-    // Forex trades ~16hrs/day, 5 days/week
-    // Synthetics trade 24/7 — use 24hrs
     const isSynthetic = ['R_100','R_75','R_50','R_25','R_10',
         '1HZ100V','1HZ75V','1HZ50V','CRASH1000','BOOM1000',
         'CRASH500','BOOM500','stpRNG'].includes(
@@ -56,10 +47,7 @@ function _barsForDays(calendarDays, tfSeconds) {
     return Math.round(calendarDays * barsPerDay);
 }
 
-// ── LOOKBACK INPUT — days or candles ─────────────────────────
-// bt-count-input holds the user value (days or candles)
-// bt-count (hidden select) holds the resolved candle count for _run()
-let _btCountMode = 'days'; // 'days' | 'candles'
+let _btCountMode = 'days';
 
 window.btToggleCountMode = function() {
     const tf    = parseInt(document.getElementById('bt-tf')?.value || '300');
@@ -132,16 +120,15 @@ window._openInBuilder = function() {
 // ─────────────────────────────────────────────────────────────
 window.btStrategyChanged = function(strategy) {
     document.querySelectorAll('.bt-strategy-notice').forEach(n => n.remove());
-    // In js/pages/backtest.js, update the notices object in btStrategyChanged:
-
-const notices = {
-    breakout: { 
-        color: '#f59e0b', 
-        icon: '📈', 
-        text: 'BREAKOUT — Works on any symbol. Detects support/resistance breakouts with trend confirmation. TP=2x SL.' 
-    },
-    // Remove all other strategy notices
-};
+    
+    const notices = {
+        breakout: { 
+            color: '#f59e0b', 
+            icon: '📈', 
+            text: 'BREAKOUT — Works on any symbol. Detects support/resistance breakouts with trend confirmation. TP=2x SL.' 
+        },
+    };
+    
     const n = notices[strategy];
     if (!n) return;
     const el = document.createElement('div');
@@ -158,31 +145,21 @@ window.btSetMode = function(mode) {
     document.getElementById('bt-mode-single').classList.toggle('active', mode === 'single');
     document.getElementById('bt-mode-compare').classList.toggle('active', mode === 'compare');
     document.getElementById('bt-compare-slots').style.display = mode === 'compare' ? 'flex' : 'none';
-    // Update run button label
     document.getElementById('bt-run-label').textContent =
         mode === 'compare' ? '▶  RUN COMPARISON' : '▶  RUN BACKTEST';
 };
 
 // ─────────────────────────────────────────────────────────────
 // STRATEGY COMPARISON
-// Runs all selected strategies on the same candles
 // ─────────────────────────────────────────────────────────────
 async function _runComparison(candles, h4Candles, stake, comm) {
     const COLORS = ['#2563eb', '#8b5cf6', '#f59e0b'];
     const LABELS = ['A', 'B', 'C'];
 
-    // Collect strategies
     const stratIds = [document.getElementById('bt-strategy').value];
     document.querySelectorAll('.bt-compare-strategy').forEach(sel => {
         if (sel.value) stratIds.push(sel.value);
     });
-
-    const unsupported = stratIds.find(id => !_usesGenericBacktestEngine(id));
-    if (unsupported) {
-        alert(`Compare mode does not support ${unsupported.toUpperCase()} yet. Run it in single mode.`);
-        document.getElementById('bt-compare-wrap').style.display = 'none';
-        return;
-    }
 
     const results = stratIds.map((id, i) => {
         const obj    = _makeStrategy(id);
@@ -222,7 +199,6 @@ function _renderComparison(results, totalBars) {
         { key: 'isWR',        label: 'IS Win Rate',      fmt: v => v.toFixed(1)+'%',   better: 'high' },
     ];
 
-    // Find best per metric
     const best = {};
     METRICS.forEach(m => {
         if (!m.better) return;
@@ -230,7 +206,6 @@ function _renderComparison(results, totalBars) {
         best[m.key] = m.better === 'high' ? Math.max(...vals) : Math.min(...vals);
     });
 
-    // Equity canvas
     const canvasId = 'bt-compare-equity';
 
     el.innerHTML = `
@@ -266,7 +241,6 @@ function _renderComparison(results, totalBars) {
         </table>
     </div>`;
 
-    // Draw overlaid equity curves
     requestAnimationFrame(() => {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -283,7 +257,6 @@ function _renderComparison(results, totalBars) {
         const xFn = (i, len) => pad + (i/(len-1)) * (W-pad*2);
         const yFn = v => H - pad - ((v-min)/range)*(H-pad*2);
 
-        // Zero line
         ctx.strokeStyle='rgba(100,116,139,0.15)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
         ctx.beginPath(); ctx.moveTo(0,yFn(0)); ctx.lineTo(W,yFn(0)); ctx.stroke();
         ctx.setLineDash([]);
@@ -294,7 +267,6 @@ function _renderComparison(results, totalBars) {
             ctx.moveTo(xFn(0, r.equity.length), yFn(r.equity[0]));
             r.equity.forEach((v,i) => ctx.lineTo(xFn(i, r.equity.length), yFn(v)));
             ctx.stroke();
-            // Label at end
             const lx = xFn(r.equity.length-1, r.equity.length);
             const ly = yFn(r.equity[r.equity.length-1]);
             ctx.fillStyle = r.color; ctx.font = 'bold 11px DM Mono,monospace';
@@ -305,7 +277,6 @@ function _renderComparison(results, totalBars) {
 
 // ─────────────────────────────────────────────────────────────
 // PARAMETER OPTIMIZER
-// Grid search across SL/TP ranges, rank by OOS confidence
 // ─────────────────────────────────────────────────────────────
 window.btToggleOptimizer = function() {
     const wrap = document.getElementById('bt-optimizer-wrap');
@@ -335,7 +306,6 @@ window.btRunOptimizer = async function() {
     const tpStep = parseFloat(document.getElementById('bt-opt-tp-step').value);
     const maxCombos = parseInt(document.getElementById('bt-opt-max').value) || 30;
 
-    // Build combo list
     const combos = [];
     for (let sl = slMin; sl <= slMax + 0.001; sl += slStep) {
         for (let tp = tpMin; tp <= tpMax + 0.001; tp += tpStep) {
@@ -353,9 +323,8 @@ window.btRunOptimizer = async function() {
     for (let i = 0; i < limited.length; i++) {
         const { sl, tp } = limited[i];
         progEl.textContent = `Testing combo ${i+1}/${limited.length}  SL×${sl}  TP×${tp}...`;
-        await _sleep(8); // yield to browser
+        await _sleep(8);
 
-        // Build a modified strategy with custom sl/tp
         const base = _makeStrategy(strategy);
         const modified = {
             analyze(id, candles, h4, rsiState, atr, sym, rsi) {
@@ -379,7 +348,6 @@ window.btRunOptimizer = async function() {
         });
     }
 
-    // Sort by confidence score desc
     results.sort((a, b) => b.confidence - a.confidence);
 
     btn.disabled = false;
@@ -440,7 +408,6 @@ function _renderOptimizerResults(results, strategy) {
 export const Backtest = {
 
     init() {
-        // btStrategyChanged exposed below after function def
         document.getElementById('bt-run-btn')
             .addEventListener('click', _run);
         document.getElementById('bt-show-signals')
@@ -519,13 +486,11 @@ async function _run() {
     const comm        = parseFloat(document.getElementById('bt-commission').value) || 0;
     const dateFrom    = document.getElementById('bt-date-from')?.value  || '';
     const dateTo      = document.getElementById('bt-date-to')?.value    || '';
-    const newsBlackout= document.getElementById('bt-news-toggle')?.checked ?? true;
-    const fomcBlackout= document.getElementById('bt-fomc-toggle')?.checked ?? false;
 
     _setRunning(true);
     _setProgress(5, 'Connecting to Deriv...');
     document.getElementById('bt-chart-title').textContent =
-        `${symbol.replace('frx','').replace('cry','')}  ·  ${_tfLabel(tf)}  ·  ${strategy.toUpperCase()}`;
+        `${symbol.replace('frx','').replace('cry','')}  ·  ${_tfLabel(tf)}  ·  BREAKOUT`;
 
     try {
         _setProgress(10, `Fetching ${count} candles...`);
@@ -533,12 +498,8 @@ async function _run() {
             _setProgress(10 + Math.round((done/total)*35), `Fetching candles ${done}/${total}...`);
         });
 
-        // ── DATE RANGE FILTER ────────────────────────────────
-        // Applied post-fetch — candles are still pulled by count up to now,
-        // then sliced to the requested window. HTF candles filtered separately.
         let filteredCandles = candles;
         if (dateFrom || dateTo) {
-            // Force UTC — without Z suffix, browsers may parse as local midnight
             const fromTs = dateFrom ? new Date(dateFrom + 'T00:00:00Z').getTime() / 1000 : 0;
             const toTs   = dateTo   ? new Date(dateTo   + 'T23:59:59Z').getTime() / 1000 : Infinity;
             filteredCandles = candles.filter(c => c.time >= fromTs && c.time <= toTs);
@@ -551,188 +512,56 @@ async function _run() {
 
         let result, wf;
 
-        // ── VORTEX ────────────────────────────────────────────
-        if (strategy === 'vortex') {
-            // Fetch real HTF candles for the trend filter
-            // HTF granularity: M1→M30, M5→H1, M15→H4, H1→D1 etc.
-            const HTF_MAP  = {60:1800, 120:3600, 180:3600, 300:3600, 600:7200, 900:14400, 1800:14400, 3600:86400, 14400:604800};
-            const htfGran  = HTF_MAP[tf] || 3600; // default H1
-            const htfCount = Math.min(500, Math.ceil(count * tf / htfGran) + 50);
-            const symType  = VortexStrategy.getSymbolType(symbol);
-
-            let htfCandles = [];
-            if (symType === 'real') {
-                _setProgress(45, `Fetching HTF candles (${_tfLabel(htfGran)})...`);
-                try {
-                    htfCandles = await _fetchCandles(symbol, htfGran, htfCount, (d,t) => {
-                        _setProgress(45 + Math.round((d/t)*8), `HTF ${d}/${t}...`);
-                    });
-                } catch(e) {
-                    console.warn('[Backtest] HTF fetch failed, skipping HTF filter:', e.message);
-                }
-            }
-
-            _setProgress(54, `Running VORTEX on ${filteredCandles.length} bars...`);
-            result = await _simulateVortex(filteredCandles, stake, comm, symbol, (done, total) => {
-                _setProgress(54 + Math.round((done/total)*30), `Simulating bar ${done}/${total}...`);
-            }, VortexStrategy, tf, htfCandles, newsBlackout, fomcBlackout);
-
-            _setProgress(87, 'Running walk-forward...');
-            const splitIdx  = Math.floor(filteredCandles.length * 0.6);
-            const splitTime = filteredCandles[splitIdx].time;
-            const isC       = filteredCandles.slice(0, splitIdx);
-            const oosC      = filteredCandles.slice(splitIdx);
-            const isHtf     = htfCandles.filter(c => c.time <= splitTime);
-            const oosHtf    = htfCandles.filter(c => c.time >  splitTime);
-            const isRes     = await _simulateVortex(isC,  stake, comm, symbol, null, VortexStrategy, tf, isHtf, newsBlackout, fomcBlackout);
-            const oosRes    = await _simulateVortex(oosC, stake, comm, symbol, null, VortexStrategy, tf, oosHtf, newsBlackout, fomcBlackout);
-            const overfit   = _detectOverfit(isRes.stats, oosRes.stats);
-            wf = {
-                splitIdx, splitTime,
-                is:  { trades: isRes.trades,  equity: isRes.equity,  stats: isRes.stats  },
-                oos: { trades: oosRes.trades, equity: oosRes.equity, stats: oosRes.stats },
-                overfit, confidence: overfit,
-            };
-
-        // ── PHANTOM multi-TF ──────────────────────────────────
-        } else if (strategy === 'phantom') {
-            PhantomStrategy.resetDirState('_bt');
-            _setProgress(45, 'Fetching M1 candles...');
-            const m1Candles = await _fetchCandles(symbol, 60, Math.min(5000, count*5), (d,t) => {
-                _setProgress(45 + Math.round((d/t)*6), `M1 ${d}/${t}...`);
-            });
-            _setProgress(52, 'Fetching M15 candles...');
-            const m15Candles = await _fetchCandles(symbol, 900, Math.max(200, Math.ceil(count/3)), (d,t) => {
-                _setProgress(52 + Math.round((d/t)*5), `M15 ${d}/${t}...`);
-            });
-            const m5Candles = tf === 300 ? filteredCandles : await _fetchCandles(symbol, 300, count, null);
-
-            // HTF candles for trend filter (M5→H1, M15→H4)
-            // Synthetics also benefit — V75 H1 trend is meaningful
-            const htfGran  = tf <= 300 ? 3600 : 14400; // M5 → H1, M15 → H4
-            const htfCount = Math.min(500, Math.ceil(count * (tf || 300) / htfGran) + 50);
-            let phantomHtf = [];
-            _setProgress(58, `Fetching HTF candles (${_tfLabel(htfGran)})...`);
-            try {
-                phantomHtf = await _fetchCandles(symbol, htfGran, htfCount, (d,t) => {
-                    _setProgress(58 + Math.round((d/t)*5), `HTF ${d}/${t}...`);
-                });
-            } catch(e) {
-                console.warn('[PHANTOM BT] HTF fetch failed, skipping HTF filter:', e.message);
-            }
-
-            _setProgress(65, `Running PHANTOM M1(${m1Candles.length}) M5(${m5Candles.length}) M15(${m15Candles.length}) HTF(${phantomHtf.length})...`);
-            result = await _simulatePhantomMultiTF(m1Candles, m5Candles, m15Candles, stake, comm, PhantomStrategy, (d,t) => {
-                _setProgress(65 + Math.round((d/t)*20), `Bar ${d}/${t}...`);
-            }, phantomHtf);
-            result._chartCandles = m5Candles;
-
-            _setProgress(87, 'Running walk-forward...');
-            const splitIdx  = Math.floor(m5Candles.length / 2);
-            const splitTime = m5Candles[splitIdx].time;
-            const isM5  = m5Candles.slice(0, splitIdx), oosM5  = m5Candles.slice(splitIdx);
-            const isM1  = m1Candles.filter(c => c.time <= splitTime), oosM1  = m1Candles.filter(c => c.time > splitTime);
-            const isM15 = m15Candles.filter(c => c.time <= splitTime), oosM15 = m15Candles.filter(c => c.time > splitTime);
-            const isHtf = phantomHtf.filter(c => c.time <= splitTime), oosHtf = phantomHtf.filter(c => c.time > splitTime);
-            PhantomStrategy.resetDirState('_bt');
-            const isRes  = await _simulatePhantomMultiTF(isM1,  isM5,  isM15,  stake, comm, PhantomStrategy, null, isHtf);
-            PhantomStrategy.resetDirState('_bt');
-            const oosRes = await _simulatePhantomMultiTF(oosM1, oosM5, oosM15, stake, comm, PhantomStrategy, null, oosHtf);
-            const overfit = _detectOverfit(isRes.stats, oosRes.stats);
-            wf = {
-                splitIdx, splitTime,
-                is:  { trades: isRes.trades,  equity: isRes.equity,  stats: isRes.stats  },
-                oos: { trades: oosRes.trades, equity: oosRes.equity, stats: oosRes.stats },
-                overfit, confidence: overfit,
-            };
-
-        // ── NOVA / KISMET / PULSE — force M1 candles ─────────
-        } else if (['nova','kismet','pulse'].includes(strategy)) {
-            // These strategies need M1 resolution to detect spikes and short runs.
-            // Ignore the selected TF — always run on M1.
-            console.log(`[BT] ${strategy.toUpperCase()} branch reached — fetching M1 candles for ${symbol}`);
-            _setProgress(45, `Fetching M1 candles for ${strategy.toUpperCase()}...`);
-            const m1Count   = Math.max(count, 5000); // at least 5k M1 bars
-            const m1Candles = await _fetchCandles(symbol, 60, m1Count, (d,t) => {
-                _setProgress(45 + Math.round((d/t)*20), `M1 ${d}/${t}...`);
-            });
-            console.log(`[BT] M1 fetch complete — ${m1Candles.length} candles`);
-
-            // Apply date filter to M1 candles if set
-            let m1Filtered = m1Candles;
-            if (dateFrom || dateTo) {
-                const fromTs = dateFrom ? new Date(dateFrom + 'T00:00:00Z').getTime()/1000 : 0;
-                const toTs   = dateTo   ? new Date(dateTo   + 'T23:59:59Z').getTime()/1000 : Infinity;
-                m1Filtered = m1Candles.filter(c => c.time >= fromTs && c.time <= toTs);
-            }
-
-            _setProgress(68, `Running ${strategy.toUpperCase()} on ${m1Filtered.length} M1 bars...`);
-            await _sleep(30);
-            const stratObj = _makeStrategy(strategy);
-            if (!stratObj) {
-                _setProgress(0, `Error: "${strategy}" is not implemented in the backtest engine yet.`);
-                _setRunning(false);
-                _running = false;
-                return;
-            }
-            result = _simulate(m1Filtered, [], stratObj, stake, comm, symbol);
-            result._chartCandles = m1Filtered;
-
-            _setProgress(85, 'Walk-forward...');
-            await _sleep(30);
-            wf = _walkForward(m1Filtered, [], stratObj, stake, comm, symbol);
-
-        // ── ALL OTHER STRATEGIES ──────────────────────────────
-        } else {
-            _setProgress(50, `Fetching H4 candles...`);
-            const h4Count   = Math.min(1000, Math.ceil(count * tf / H4_GRAN) + 100);
-            const h4Candles = await _fetchCandles(symbol, H4_GRAN, h4Count, (d,t) => {
-                _setProgress(50 + Math.round((d/t)*12), `H4 ${d}/${t}...`);
-            });
-            _setProgress(65, `Running ${strategy}...`);
-            await _sleep(30);
-            const stratObj = _makeStrategy(strategy);
-            if (!stratObj) {
-                _setProgress(0, `Error: "${strategy}" is not implemented in the backtest engine yet.`);
-                _setRunning(false);
-                _running = false;
-                return;
-            }
-            result = _simulate(candles, h4Candles, stratObj, stake, comm, symbol);
-            _setProgress(80, 'Walk-forward...');
-            await _sleep(30);
-            wf     = _walkForward(candles, h4Candles, stratObj, stake, comm, symbol);
-            _cachedH4Candles = h4Candles;
+        // Fetch H4 candles for context
+        _setProgress(50, `Fetching H4 candles...`);
+        const h4Count   = Math.min(1000, Math.ceil(count * tf / H4_GRAN) + 100);
+        const h4Candles = await _fetchCandles(symbol, H4_GRAN, h4Count, (d,t) => {
+            _setProgress(50 + Math.round((d/t)*12), `H4 ${d}/${t}...`);
+        });
+        
+        _setProgress(65, `Running BREAKOUT strategy...`);
+        await _sleep(30);
+        
+        const stratObj = _makeStrategy(strategy);
+        if (!stratObj) {
+            _setProgress(0, `Error: "${strategy}" is not implemented in the backtest engine yet.`);
+            _setRunning(false);
+            _running = false;
+            return;
         }
+        
+        result = _simulate(filteredCandles, h4Candles, stratObj, stake, comm, symbol);
+        _setProgress(80, 'Walk-forward...');
+        await _sleep(30);
+        wf = _walkForward(filteredCandles, h4Candles, stratObj, stake, comm, symbol);
+        _cachedH4Candles = h4Candles;
 
         _setProgress(93, 'Rendering...');
         await _sleep(30);
 
-        const renderCandles = (strategy==='phantom' && result._chartCandles) ? result._chartCandles : filteredCandles;
-        _renderChart(renderCandles, result.trades, wf.splitTime);
+        _renderChart(filteredCandles, result.trades, wf.splitTime);
         _renderEquity(result.equity, wf);
         _renderKPIs(result, wf);
         _renderWalkForward(wf);
         _renderTradeLog(result.trades);
 
-        // OVERFIT WARNING — block if severe
         if (wf.overfit?.isOverfit) {
             _showOverfitWarning(wf.overfit);
         }
 
         if (_btMode === 'compare') {
             const h4C = _cachedH4Candles || [];
-            await _runComparison(candles, h4C, stake, comm);
+            await _runComparison(filteredCandles, h4C, stake, comm);
         } else {
             document.getElementById('bt-compare-wrap').style.display = 'none';
         }
 
         document.getElementById('bt-chart-count').textContent =
-            `${renderCandles.length} candles · ${result.trades.length} signals · WF split @ bar ${wf.splitIdx || '—'}`;
+            `${filteredCandles.length} candles · ${result.trades.length} signals · WF split @ bar ${wf.splitIdx || '—'}`;
 
         _trades          = result.trades;
         _wfResult        = wf;
-        _cachedCandles   = candles;
+        _cachedCandles   = filteredCandles;
 
         _setProgress(100, 'Complete');
         _sfx.play('complete');
@@ -780,9 +609,6 @@ function _showOverfitWarning(overfit) {
     el.style.display = '';
 }
 
-
-// _simulate imported from backtest-core.js
-
 // ─────────────────────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────────────────────
@@ -826,14 +652,12 @@ function _renderEquity(equity, wf) {
     const x = i => pad + (i / (equity.length - 1)) * (W - pad * 2);
     const y = v => H - pad - ((v - min) / range) * (H - pad * 2);
 
-    // Zero line
     ctx.strokeStyle = 'rgba(100,116,139,0.2)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.moveTo(0, y(0)); ctx.lineTo(W, y(0)); ctx.stroke();
     ctx.setLineDash([]);
 
-    // IS/OOS split shading
     if (wf && wf.splitIdx) {
         const splitX = x(wf.splitIdx);
         ctx.fillStyle = 'rgba(245,158,11,0.06)';
@@ -849,7 +673,6 @@ function _renderEquity(equity, wf) {
         ctx.fillText('OOS', splitX + 4, 10);
     }
 
-    // IS equity (blue)
     const isEq  = wf ? wf.is.equity  : equity;
     const oosEq = wf ? wf.oos.equity : [];
 
@@ -900,7 +723,6 @@ function _renderKPIs(result, wf) {
     _kpi('bt-max-streak', String(s.maxStreak),                                s.maxStreak>=5?'#ef4444':'#64748b');
     _kpi('bt-expectancy', `$${s.expectancy.toFixed(3)}`,                      s.expectancy>0?'#10b981':'#ef4444');
 
-    // $10 → $50 projection
     const stake  = parseFloat(document.getElementById('bt-stake')?.value) || 1;
     const projEl = document.getElementById('bt-projection');
     if (projEl) {
@@ -998,7 +820,6 @@ function _wfRow(label, isVal, oosVal, delta) {
     </tr>`;
 }
 
-
 function _renderTradeLog(trades) {
     const el = document.getElementById('bt-trade-log');
     if (!el) return;
@@ -1037,7 +858,6 @@ function _renderTradeLog(trades) {
 }
 
 function _renderEmpty() {
-    // Show placeholder overlay inside chart wrap, not inside the chart div
     const wrap = document.getElementById('bt-chart-wrap');
     if (!wrap) return;
     let placeholder = document.getElementById('bt-placeholder');
@@ -1097,10 +917,9 @@ function _exportToJournal() {
         return;
     }
 
-    // Map backtest trade shape → SessionState trade shape
     closed.forEach(t => {
         SessionState.pushTrade({
-            time:     t.time * 1000,  // backtest uses unix seconds, journal uses ms
+            time:     t.time * 1000,
             symbol,
             strategy,
             type:     t.type,
@@ -1110,7 +929,7 @@ function _exportToJournal() {
             tp:       t.tp,
             outcome:  t.outcome,
             pnl:      Math.abs(t.pnl ?? 0),
-            source:   'backtest',     // tag so journal can show BT badge
+            source:   'backtest',
         });
     });
 
@@ -1134,10 +953,8 @@ function _setProgress(pct, label) {
     if (lbl)  lbl.textContent  = label;
 }
 
-// _sleep imported from backtest-core.js
-
 // ─────────────────────────────────────────────────────────────
-// SOUND ALERTS  (Web Audio API — no files needed)
+// SOUND ALERTS
 // ─────────────────────────────────────────────────────────────
 const _sfx = {
     _ctx: null,

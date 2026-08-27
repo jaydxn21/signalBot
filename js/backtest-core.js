@@ -312,482 +312,56 @@ export function _walkForward(candles, h4Candles, strategyObj, stake, commission,
 }
 
 // ─────────────────────────────────────────────────────────────
-// MULTI-TF PHANTOM SIMULATION  (unchanged logic, correct PnL)
-// ─────────────────────────────────────────────────────────────
-export async function _simulatePhantomMultiTF(
-    m1Candles, m5Candles, m15Candles,
-    stake = 1, commission = 0,
-    phantomStrategy = null,
-    onProgress = null,
-    htfCandles = []
-) {
-    const trades  = [];
-    const equity  = [0];
-    let   running = 0;
-    let   open    = null;
-    let   lastFired = 0;
-    const WARMUP  = 90;
-
-    // Reset direction block state for clean backtest run
-    if (phantomStrategy?.recordOutcome) {
-        phantomStrategy.recordOutcome('_bt', 'BUY',  'TP');
-        phantomStrategy.recordOutcome('_bt', 'SELL', 'TP');
-    }
-
-    const m1s  = [...m1Candles].sort((a, b) => a.time - b.time);
-    const m15s = [...m15Candles].sort((a, b) => a.time - b.time);
-
-    function _upperIdx(arr, t) {
-        let lo = 0, hi = arr.length - 1, res = -1;
-        while (lo <= hi) {
-            const mid = (lo + hi) >> 1;
-            if (arr[mid].time <= t) { res = mid; lo = mid + 1; } else hi = mid - 1;
-        }
-        return res;
-    }
-
-    for (let i = WARMUP; i < m5Candles.length; i++) {
-        const bar   = m5Candles[i];
-        const m5s   = m5Candles.slice(0, i + 1);
-        const m1sl  = m1s.slice(0, _upperIdx(m1s, bar.time) + 1);
-        const m15sl = m15s.slice(0, _upperIdx(m15s, bar.time) + 1);
-
-        if (onProgress && i % 100 === 0) { onProgress(i, m5Candles.length); await _sleep(4); }
-
-        if (open) {
-            const { type, sl, tp, slMult, tpMult } = open;
-            let hit = null;
-            if (type === 'BUY') { if (bar.low <= sl) hit = 'SL'; else if (bar.high >= tp) hit = 'TP'; }
-            else                { if (bar.high >= sl) hit = 'SL'; else if (bar.low  <= tp) hit = 'TP'; }
-            if (hit) {
-                const pnl = hit === 'TP' ? stake * tpMult - commission : -(stake * slMult) - commission;
-                running += pnl;
-                const t = trades[trades.length - 1];
-                t.outcome = hit; t.exit = bar.close; t.pnl = pnl; t.tpMult = tpMult; t.slMult = slMult;
-                if (phantomStrategy?.recordOutcome) phantomStrategy.recordOutcome('_bt', t.type, hit);
-                equity.push(running); open = null; continue;
-            }
-            equity.push(running); continue;
-        }
-
-        if (i - lastFired < 2) { equity.push(running); continue; }
-
-        let signal = null;
-        try {
-            if (phantomStrategy) signal = phantomStrategy.checkEntryRaw(m1sl, m5s, m15sl, '_bt', htfCandles, bar.time);
-        } catch(e) { console.warn('[PHANTOM BT] bar', i, e.message); }
-
-        if (!signal) { equity.push(running); continue; }
-
-        const atr    = _calcATR(m5s, 14);
-        const slMult = signal.slMultiplier || 1.0;
-        const tpMult = signal.tpMultiplier || 2.0;
-        const slDist = atr ? atr * slMult : bar.close * 0.001;
-        const tpDist = atr ? atr * tpMult : bar.close * 0.002;
-        const sl     = signal.type === 'BUY' ? bar.close - slDist : bar.close + slDist;
-        const tp     = signal.type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
-
-        open = { type: signal.type, entry: bar.close, sl, tp, slMult, tpMult };
-        lastFired = i;
-        trades.push({ time: bar.time, barIdx: i, type: signal.type, entry: bar.close, sl, tp, outcome: null, exit: null, pnl: null, tpMult, slMult, factors: signal.factors, score: signal.score });
-        equity.push(running);
-    }
-
-    if (open) {
-        const last = m5Candles[m5Candles.length - 1];
-        const move = open.type === 'BUY' ? last.close - open.entry : open.entry - last.close;
-        const slD  = Math.abs(open.entry - open.sl);
-        const pnl  = slD > 0 ? (move / slD) * open.slMult * stake - commission : 0;
-        running += pnl;
-        const t = trades[trades.length - 1];
-        t.outcome = 'OPEN'; t.exit = last.close; t.pnl = pnl; t.tpMult = open.tpMult; t.slMult = open.slMult;
-        equity.push(running);
-    }
-
-    return { trades, equity, stats: _calcStats(trades, equity) };
-}
-
-// ─────────────────────────────────────────────────────────────
-// VORTEX SIMULATION  (volatility-aware, any symbol)
-// ─────────────────────────────────────────────────────────────
-export async function _simulateVortex(candles, stake = 1, commission = 0, symbol = '', onProgress = null, VortexStrategy = null, tfMinutes = null, htfCandles = [], newsBlackout = true, fomcBlackout = false) {
-    if (!VortexStrategy) throw new Error('VortexStrategy must be passed to _simulateVortex');
-
-    const trades   = [];
-    const equity   = [0];
-    let   running  = 0;
-    let   open     = null;
-    let   lastFired= 0;
-    const WARMUP   = 35; // need 35 bars for ATR baseline
-
-    // Simulate direction block (mirrors live bot VortexStrategy state)
-    const _ds = { losses:{ BUY:0, SELL:0 }, blockedDir:null, blockedCount:0 };
-    function _dirBlocked(dir) {
-        if (_ds.blockedDir !== dir) return false;
-        if (_ds.blockedCount >= 3) { _ds.blockedDir=null; _ds.blockedCount=0; return false; }
-        _ds.blockedCount++; return true;
-    }
-    function _dirRecord(dir, outcome) {
-        if (outcome === 'TP') {
-            _ds.losses[dir]=0;
-            if (_ds.blockedDir===dir) { _ds.blockedDir=null; _ds.blockedCount=0; }
-        } else {
-            _ds.losses[dir]++;
-            if (_ds.losses[dir] >= 3) { _ds.blockedDir=dir; _ds.blockedCount=0; }
-        }
-    }
-
-    for (let i = WARMUP; i < candles.length; i++) {
-        const slice = candles.slice(0, i + 1);
-        const bar   = slice[slice.length - 1];
-
-        if (onProgress && i % 100 === 0) { onProgress(i, candles.length); await _sleep(4); }
-
-        if (open) {
-            const { type, sl, tp, slMult, tpMult } = open;
-            let hit = null;
-            if (type === 'BUY') { if (bar.low <= sl) hit = 'SL'; else if (bar.high >= tp) hit = 'TP'; }
-            else                { if (bar.high >= sl) hit = 'SL'; else if (bar.low  <= tp) hit = 'TP'; }
-            if (hit) {
-                const pnl = hit === 'TP' ? stake * tpMult - commission : -(stake * slMult) - commission;
-                running += pnl;
-                const t = trades[trades.length - 1];
-                t.outcome = hit; t.exit = bar.close; t.pnl = pnl; t.tpMult = tpMult; t.slMult = slMult;
-                _dirRecord(t.type, hit);
-                equity.push(running); open = null; continue;
-            }
-            equity.push(running); continue;
-        }
-
-        if (i - lastFired < 2) { equity.push(running); continue; }
-
-        let signal = null;
-        try {
-            signal = VortexStrategy.checkEntryRaw(symbol, slice, tfMinutes, htfCandles, bar.time, null, { newsBlackout, fomcBlackout });
-        } catch(e) {}
-
-        if (!signal) { equity.push(running); continue; }
-        if (_dirBlocked(signal.type)) { equity.push(running); continue; }
-
-        const atr    = _calcATR(slice, 10);
-        const slMult = signal.slMultiplier || 0.4;
-        const tpMult = signal.tpMultiplier || 2.0;
-        const slDist = atr ? atr * slMult : bar.close * 0.001;
-        const tpDist = atr ? atr * tpMult : bar.close * 0.002;
-        const sl     = signal.type === 'BUY' ? bar.close - slDist : bar.close + slDist;
-        const tp     = signal.type === 'BUY' ? bar.close + tpDist : bar.close - tpDist;
-
-        open = { type: signal.type, entry: bar.close, sl, tp, slMult, tpMult };
-        lastFired = i;
-        trades.push({ time: bar.time, barIdx: i, type: signal.type, entry: bar.close, sl, tp, outcome: null, exit: null, pnl: null, tpMult, slMult, mode: signal.mode, volRatio: signal.volRatio });
-        equity.push(running);
-    }
-
-    if (open) {
-        const last = candles[candles.length - 1];
-        const move = open.type === 'BUY' ? last.close - open.entry : open.entry - last.close;
-        const slD  = Math.abs(open.entry - open.sl);
-        const pnl  = slD > 0 ? (move / slD) * open.slMult * stake - commission : 0;
-        running += pnl;
-        const t = trades[trades.length - 1];
-        t.outcome = 'OPEN'; t.exit = last.close; t.pnl = pnl;
-        equity.push(running);
-    }
-
-    return { trades, equity, stats: _calcStats(trades, equity) };
-}
-
-// ─────────────────────────────────────────────────────────────
-// BUILT-IN STRATEGIES  (only the 2 we're keeping: nova + vortex)
-// Others kept for backwards compat but marked legacy.
+// BUILT-IN STRATEGIES
+// Only BREAKOUT strategy is supported now.
 // ─────────────────────────────────────────────────────────────
 export function _getBuiltinStrategy(id) {
-    const strats = {
-
-
-        // In js/backtest-core.js, inside _getBuiltinStrategy function
-// Add this to the strats object:
-
-breakout: (candles, h4, rsiState, atr, symbol) => {
-    // Simple wrapper that creates a strategy instance and calls checkEntry
-    const { BreakoutTrendStrategy } = await import('./strategies/breakout_trend.js');
-    const strategy = new BreakoutTrendStrategy({
-        riskRewardRatio: 2,
-        minTouchesForLevel: 2,
-        minBreakoutSize: 0.3,
-        stopLossMultiplier: 1.2,
-        useATRStop: true,
-        confirmationCandles: 1,
-        requireTrendFilter: true,
-        emaShortPeriod: 20,
-        emaLongPeriod: 50,
-        minVolatilityFilter: 0.7,
-        maxConsecutiveLosses: 3
-    });
-    return strategy.checkEntry(candles, atr, symbol);
-},
-
-        // ── NOVA — redirects to fixed version ────────────────
-        nova: (...args) => strats.nova_fixed(...args),
-
-        // ── KISMET ────────────────────────────────────────────
-        // Structure-first: spike_fade → run_fade → drift_reentry
-        // SL=0.5×ATR, TP=2.0×ATR (spike_fade=3.0×ATR)
-        kismet: (candles, h4, rsiState, atr, symbol, _lastSpike) => {
-            if (candles.length < 20 || !atr) return null;
-            const isCrash = symbol?.toUpperCase().includes('CRASH');
-            const isBoom  = symbol?.toUpperCase().includes('BOOM');
-            const isStep  = symbol?.toUpperCase().includes('STEP') || symbol === 'stpRNG';
-            if (!isCrash && !isBoom && !isStep) return null;
-
-            const bias     = isCrash ? 'BUY' : isBoom ? 'SELL' : 'BOTH';
-            const spikeDir = isCrash ? 'down' : isBoom ? 'up' : null;
-            const cl       = candles.slice(0, -1);
-            const c0       = cl[cl.length - 1];
-            const c1       = cl[cl.length - 2];
-
-            // ── Spike detection (last closed candle) ──────────
-            // Crash/Boom spikes are full body candles on M1, not wicks
-            const wickUp   = c1.high - Math.max(c1.open, c1.close);
-            const wickDown = Math.min(c1.open, c1.close) - c1.low;
-            const body1    = Math.abs(c1.close - c1.open);
-            const spikeUp   = (c1.close > c1.open && body1 >= atr * 3.5) ||
-                              (wickUp >= atr * 3.5 && wickUp > body1 * 1.5);
-            const spikeDown = (c1.close < c1.open && body1 >= atr * 3.5) ||
-                              (wickDown >= atr * 3.5 && wickDown > body1 * 1.5);
-
-            // ── MODE 1: Spike fade ────────────────────────────
-            if (spikeUp && spikeDir === 'up') {
-                const confirmed = c0.close < c1.close;
-                return { type: 'SELL', tpMultiplier: 3.0, slMultiplier: 0.5,
-                         _mode: 'spike_fade', score: confirmed ? 90 : 75 };
-            }
-            if (spikeDown && spikeDir === 'down') {
-                const confirmed = c0.close > c1.close;
-                return { type: 'BUY', tpMultiplier: 3.0, slMultiplier: 0.5,
-                         _mode: 'spike_fade', score: confirmed ? 90 : 75 };
-            }
-
-            // ── MODE 2: Run-length fade ───────────────────────
-            if (cl.length >= 7) {
-                const threshold = isStep ? 5 : 6;
-                let runDir = cl[cl.length-1].close > cl[cl.length-2].close ? 'up' : 'down';
-                let runLen = 1;
-                for (let i = cl.length - 2; i >= 1; i--) {
-                    const d = cl[i].close > cl[i-1].close ? 'up' : 'down';
-                    if (d !== runDir) break;
-                    runLen++;
-                }
-                if (runLen >= threshold) {
-                    const fadeDir = runDir === 'up' ? 'SELL' : 'BUY';
-                    // For Crash/Boom run fade must align with bias
-                    if (isStep || fadeDir === bias) {
-                        return { type: fadeDir, tpMultiplier: isStep ? 1.5 : 2.0,
-                                 slMultiplier: 0.5, _mode: 'run_fade',
-                                 score: 55 + Math.min(runLen - threshold, 5) * 5 };
-                    }
-                }
-            }
-
-            // ── MODE 3: Drift re-entry ────────────────────────
-            if (!isStep && cl.length >= 5) {
-                const c2 = cl[cl.length - 3];
-                const c3 = cl[cl.length - 4];
-                if (bias === 'SELL') {
-                    const pulledBack = c2.close > c3.close || c1.close > c2.close;
-                    const reverting  = c0.close < c1.close;
-                    if (pulledBack && reverting) {
-                        // ATR volatility gate
-                        const avgAtr = cl.slice(-20).reduce((s, c, i, a) => {
-                            if (i === 0) return s;
-                            return s + Math.max(c.high-c.low, Math.abs(c.high-a[i-1].close), Math.abs(c.low-a[i-1].close));
-                        }, 0) / 19;
-                        if (atr >= avgAtr * 0.4) {
-                            return { type: 'SELL', tpMultiplier: 2.0, slMultiplier: 0.5, _mode: 'drift_reentry', score: 62 };
-                        }
-                    }
-                } else if (bias === 'BUY') {
-                    const pulledBack = c2.close < c3.close || c1.close < c2.close;
-                    const reverting  = c0.close > c1.close;
-                    if (pulledBack && reverting) {
-                        const avgAtr = cl.slice(-20).reduce((s, c, i, a) => {
-                            if (i === 0) return s;
-                            return s + Math.max(c.high-c.low, Math.abs(c.high-a[i-1].close), Math.abs(c.low-a[i-1].close));
-                        }, 0) / 19;
-                        if (atr >= avgAtr * 0.4) {
-                            return { type: 'BUY', tpMultiplier: 2.0, slMultiplier: 0.5, _mode: 'drift_reentry', score: 62 };
-                        }
-                    }
-                }
-            }
-            return null;
-        },
-
-        // ── NOVA v2 FIX ───────────────────────────────────────
-        // Requires a recent spike within last 10 bars before voting.
-        // Without this gate the vote system fires on every bar.
-        nova_fixed: (candles, h4, rsiState, atr, symbol) => {
-            if (candles.length < 25 || !atr) return null;
-            const isCrash = symbol?.toUpperCase().includes('CRASH');
-            const isBoom  = symbol?.toUpperCase().includes('BOOM');
-            const bias    = isCrash ? 'BUY' : isBoom ? 'SELL' : null;
-            if (!bias) { if(candles.length===26) console.log('[NOVA] no bias for symbol:', symbol); return null; }
-
-            const cl = candles.slice(0, -1);
-            const c0 = cl[cl.length-1], c1 = cl[cl.length-2], c2 = cl[cl.length-3];
-            if (!c0 || !c1 || !c2) return null;
-
-            // ── Debug: log once at bar 100 ────────────────────
-            if (candles.length === 100) {
-                const body = Math.abs(c0.close - c0.open);
-                const wu = c0.high - Math.max(c0.open, c0.close);
-                const wd = Math.min(c0.open, c0.close) - c0.low;
-                console.log(`[NOVA] bar 100 | ATR=${atr?.toFixed(4)} | body=${body.toFixed(4)} wick_up=${wu.toFixed(4)} wick_down=${wd.toFixed(4)} | thresh=${(atr*4).toFixed(4)}`);
-            }
-
-            // ── SPIKE GATE: must have spike within last 10 bars ──
-            // On Crash/Boom indices spikes are FULL BODY candles (not wicks).
-            // A spike = large body move in the spike direction.
-            // Crash spike = large bearish candle (close << open)
-            // Boom  spike = large bullish candle (close >> open)
-            const spikeThresh = (symbol?.includes('500')) ? 3 : 4;
-            let recentSpike = null;
-            for (let i = Math.max(0, cl.length - 10); i < cl.length; i++) {
-                const c    = cl[i];
-                const body = Math.abs(c.close - c.open);
-                const isBearBody = c.close < c.open && body >= atr * spikeThresh;
-                const isBullBody = c.close > c.open && body >= atr * spikeThresh;
-                // Also check wicks as fallback (some brokers do show wick spikes)
-                const wu = c.high - Math.max(c.open, c.close);
-                const wd = Math.min(c.open, c.close) - c.low;
-                const wickUp   = wu >= atr * spikeThresh && wu > body * 2;
-                const wickDown = wd >= atr * spikeThresh && wd > body * 2;
-
-                if (isBullBody || wickUp)  { recentSpike = { direction: 'up',   bar: i }; break; }
-                if (isBearBody || wickDown){ recentSpike = { direction: 'down', bar: i }; break; }
-            }
-            // No spike in last 10 bars → no entry
-            if (!recentSpike) return null;
-
-            const ema = (arr, p) => { if(arr.length<p)return null; const k=2/(p+1); let v=arr.slice(0,p).reduce((s,x)=>s+x.close,0)/p; for(let i=p;i<arr.length;i++) v=arr[i].close*k+v*(1-k); return v; };
-            const rsi = _calcRSI(cl, rsiState);
-            const e8  = ema(cl,8), e21 = ema(cl,21), e50 = ema(cl,50);
-            if (!rsi || !e8 || !e21) return null;
-            if (e50) { if(bias==='BUY'&&c0.close<e50*0.998) return null; if(bias==='SELL'&&c0.close>e50*1.002) return null; }
-
-            const pBull=c1.close>c1.open, cBull=c0.close>c0.open;
-            const engBull=!pBull&&cBull&&c0.close>c1.open&&c0.open<c1.close;
-            const engBear= pBull&&!cBull&&c0.close<c1.open&&c0.open>c1.close;
-
-            const hasSpike = (bias==='BUY' && recentSpike.direction==='down')
-                          || (bias==='SELL'&& recentSpike.direction==='up');
-            const tpMult  = hasSpike ? 2.5 : 1.5;
-            const slMult  = 0.8;
-
-            if (bias === 'BUY') {
-                let votes = 1;
-                if(e8>e21&&c0.close>e8) votes++;
-                if(rsi>40&&rsi<65) votes++;
-                if(engBull) votes+=2;
-                if(c0.close>c1.close&&c1.close>c2.close) votes++;
-                if(votes>=3) return { type:'BUY', tpMultiplier:tpMult, slMultiplier:slMult };
-            } else {
-                let votes = 1;
-                if(e8<e21&&c0.close<e8) votes++;
-                if(rsi<60&&rsi>35) votes++;
-                if(engBear) votes+=2;
-                if(c0.close<c1.close&&c1.close<c2.close) votes++;
-                if(votes>=3) return { type:'SELL', tpMultiplier:tpMult, slMultiplier:slMult };
-            }
-            return null;
-        },
-
-        // ── PULSE ─────────────────────────────────────────────
-        // Simple EMA+RSI scalper. 1:1 R:R. Requires 50%+ WR.
-        // Step Index: run-length fade. Boom/Crash: drift fade.
-        pulse: (candles, h4, rsiState, atr, symbol) => {
-            if (candles.length < 20 || !atr) return null;
-            const isBoom  = symbol?.toUpperCase().includes('BOOM');
-            const isCrash = symbol?.toUpperCase().includes('CRASH');
-            const isStep  = symbol?.toUpperCase().includes('STEP') || symbol === 'stpRNG';
-            if (!isBoom && !isCrash && !isStep) return null;
-
-            const bias = isCrash ? 'BUY' : isBoom ? 'SELL' : 'BOTH';
-            const cl   = candles.slice(0, -1);
-            const c0   = cl[cl.length-1], c1 = cl[cl.length-2], c2 = cl[cl.length-3];
-            if (!c0 || !c1 || !c2) return null;
-
-            // ── Step Index: 4-bar run fade ──────────────────
-            if (isStep) {
-                if (cl.length < 6) return null;
-                const c3 = cl[cl.length-4], c4 = cl[cl.length-5];
-                if (!c3 || !c4) return null;
-                const run4Down = c0.close<c1.close&&c1.close<c2.close&&c2.close<c3.close&&c3.close<c4.close;
-                const run4Up   = c0.close>c1.close&&c1.close>c2.close&&c2.close>c3.close&&c3.close>c4.close;
-                if (run4Down) return { type:'BUY',  tpMultiplier:1.0, slMultiplier:1.0 };
-                if (run4Up)   return { type:'SELL', tpMultiplier:1.0, slMultiplier:1.0 };
-                return null;
-            }
-
-            // ── Crash/Boom: EMA + RSI drift fade ─────────────
-            const ema = (arr, p) => { if(arr.length<p)return null; const k=2/(p+1); let v=arr.slice(0,p).reduce((s,x)=>s+x.close,0)/p; for(let i=p;i<arr.length;i++) v=arr[i].close*k+v*(1-k); return v; };
-            const e8  = ema(cl,8), e21 = ema(cl,21);
-            const rsi = _calcRSI(cl, rsiState);
-            if (!e8 || !e21 || !rsi) return null;
-
-            const pBull=c1.close>c1.open, cBull=c0.close>c0.open;
-            const engBull=!pBull&&cBull&&c0.close>c1.open&&c0.open<c1.close;
-            const engBear= pBull&&!cBull&&c0.close<c1.open&&c0.open>c1.close;
-
-            if (bias === 'SELL') {
-                const emaOk = e8<e21||c0.close<e8;
-                const rsiOk = rsi<60&&rsi>30;
-                if (!emaOk||!rsiOk) return null;
-                const factors = [emaOk, engBear, c0.close<c1.close&&c1.close<c2.close].filter(Boolean).length;
-                if (factors < 1) return null;
-                return { type:'SELL', tpMultiplier:1.0, slMultiplier:1.0 };
-            } else {
-                const emaOk = e8>e21||c0.close>e8;
-                const rsiOk = rsi>40&&rsi<70;
-                if (!emaOk||!rsiOk) return null;
-                const factors = [emaOk, engBull, c0.close>c1.close&&c1.close>c2.close].filter(Boolean).length;
-                if (factors < 1) return null;
-                return { type:'BUY', tpMultiplier:1.0, slMultiplier:1.0 };
-            }
-        },
-
-        // ── Legacy strategies kept for compare mode ───────────
-        phantom: (candles, h4, rsiState, atr) => {
-            const c=candles; if(c.length<30)return null;
-            const cl=c.slice(0,-1); const c0=cl[cl.length-1],c1=cl[cl.length-2],c2=cl[cl.length-3]; if(!c0||!c1||!c2)return null;
-            const ema=(arr,p)=>{if(arr.length<p)return null;const k=2/(p+1);let v=arr.slice(0,p).reduce((a,x)=>a+x.close,0)/p;for(let i=p;i<arr.length;i++)v=arr[i].close*k+v*(1-k);return v;};
-            const rsi=_calcRSI(cl,rsiState); const e8=ema(cl,8),e21=ema(cl,21),e50=ema(cl,50);
-            const sl20=cl.slice(-20);const mean=sl20.reduce((a,c)=>a+c.close,0)/20;
-            const std=Math.sqrt(sl20.reduce((s,v)=>s+(v.close-mean)**2,0)/20);
-            const bbU=mean+2*std,bbL=mean-2*std;
-            if(!rsi||!e8||!e21||!e50)return null;
-            const pBull=c1.close>c1.open,cBull=c0.close>c0.open;
-            const engBull=!pBull&&cBull&&c0.close>c1.open&&c0.open<c1.close;
-            const engBear=pBull&&!cBull&&c0.close<c1.open&&c0.open>c1.close;
-            const trendBuy=e8>e21&&e21>e50&&c0.close>e8&&rsi>50&&rsi<75&&c0.high<bbU&&(engBull||(c0.close>c1.close&&c1.close>c2.close));
-            const trendSell=e8<e21&&e21<e50&&c0.close<e8&&rsi<50&&rsi>25&&c0.low>bbL&&(engBear||(c0.close<c1.close&&c1.close<c2.close));
-            const pbBuy=e8>e21&&e21>e50&&c0.close>e8&&c1.close<=e8*1.001&&rsi>45&&rsi<65&&c0.high<bbU&&engBull;
-            const pbSell=e8<e21&&e21<e50&&c0.close<e8&&c1.close>=e8*0.999&&rsi<55&&rsi>35&&c0.low>bbL&&engBear;
-            const tpMult=(pbBuy||pbSell)?2.5:2.0;
-            if(trendBuy||pbBuy)  return{type:'BUY', tpMultiplier:tpMult,slMultiplier:1.0};
-            if(trendSell||pbSell)return{type:'SELL',tpMultiplier:tpMult,slMultiplier:1.0};
-            return null;
-        },
-    };
-
-    const fn = strats[id];
-    if (!fn) {
-        console.warn(`[backtest-core] No implementation for strategy "${id}"`);
+    // Only support 'breakout' strategy
+    if (id !== 'breakout') {
+        console.warn(`[backtest-core] Strategy "${id}" is not supported. Only "breakout" is available.`);
         return null;
     }
-    return {
-        analyze(stratId, candles, h4, rsiState, atr, symbol) {
-            return fn(candles, h4, rsiState, atr, symbol);
+
+    // Create a strategy object with the analyze method
+    // We use a wrapper that creates the BreakoutTrendStrategy instance
+    // and calls its checkEntry method
+    const strategyWrapper = {
+        analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
+            try {
+                // Dynamically import the breakout strategy
+                // Note: This uses a synchronous require-style import since we're in a module
+                // We'll use the class directly
+                const { BreakoutTrendStrategy } = require('./strategies/breakout_trend.js');
+                const strategy = new BreakoutTrendStrategy({
+                    riskRewardRatio: 2,
+                    minTouchesForLevel: 2,
+                    minBreakoutSize: 0.3,
+                    stopLossMultiplier: 1.2,
+                    useATRStop: true,
+                    confirmationCandles: 1,
+                    requireTrendFilter: true,
+                    emaShortPeriod: 20,
+                    emaLongPeriod: 50,
+                    minVolatilityFilter: 0.7,
+                    maxConsecutiveLosses: 3
+                });
+                
+                const signal = strategy.checkEntry(candles, atr, symbol);
+                if (!signal) return null;
+                
+                // Map the signal to the format expected by the simulation engine
+                return {
+                    type: signal.type,
+                    tpMultiplier: 2.0,
+                    slMultiplier: signal.slMultiplier || 1.2,
+                    ...signal
+                };
+            } catch (e) {
+                console.error('[backtest-core] Error in breakout strategy:', e.message);
+                return null;
+            }
         }
     };
+
+    return strategyWrapper;
 }
