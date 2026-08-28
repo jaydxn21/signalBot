@@ -4,9 +4,7 @@ import { _fetchCandles, _simulate, _walkForward, _calcStats, _detectOverfit,
          _getBuiltinStrategy }                                     from '../backtest-core.js';
 import { SessionState }                                            from '../session-state.js';
 
-   import { _fetchCandles, _simulate, _walkForward, _calcStats, _detectOverfit,
-            _calcATR, _calcRSI, _tfLabel, _sleep, CHUNK_SIZE, CHUNK_DELAY, WS_URL,
-            _getBuiltinStrategy } from '../backtest-core.js?v=2';
+   import {} from '../backtest-core.js?v=2';
 
 function _makeStrategy(strategyId) {
     return _getBuiltinStrategy(strategyId);
