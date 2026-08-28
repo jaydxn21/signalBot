@@ -10,6 +10,7 @@
 const WS_URL    = 'wss://ws.binaryws.com/websockets/v3?app_id=1089';
 const CHUNK_SIZE  = 1500;
 const CHUNK_DELAY = 800;
+import { BreakoutTrendStrategy } from './strategies/breakout_trend.js';
 export { WS_URL, CHUNK_SIZE, CHUNK_DELAY };
 
 

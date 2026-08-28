@@ -534,7 +534,7 @@ async function _run() {
         result = _simulate(filteredCandles, h4Candles, stratObj, stake, comm, symbol);
         _setProgress(80, 'Walk-forward...');
         await _sleep(30);
-        wf = _walkForward(filteredCandles, h4Candles, stratObj, stake, comm, symbol);
+        wf = await _walkForward(filteredCandles, h4Candles, stratObj, stake, comm, symbol);
         _cachedH4Candles = h4Candles;
 
         _setProgress(93, 'Rendering...');
