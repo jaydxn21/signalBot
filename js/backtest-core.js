@@ -12,7 +12,7 @@ const CHUNK_SIZE  = 1500;
 const CHUNK_DELAY = 800;
 export { WS_URL, CHUNK_SIZE, CHUNK_DELAY };
 
-import { BreakoutTrendStrategy } from './strategies/breakout_trend.js';
+import { BreakoutTrendStrategy } from '/Users/atomic/Documents/signalBot/js/strategies/breakout_trend.js';
 
 
 // ─────────────────────────────────────────────────────────────
