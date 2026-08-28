@@ -318,32 +318,21 @@ export async function _walkForward(candles, h4Candles, strategyObj, stake, commi
 // BUILT-IN STRATEGIES
 // Only BREAKOUT strategy is supported now.
 // ─────────────────────────────────────────────────────────────
+// 📄 Location: js/backtest-core.js
 export function _getBuiltinStrategy(id) {
-    // Only support 'breakout' strategy
     if (id !== 'breakout') {
         console.warn(`[backtest-core] Strategy "${id}" is not supported. Only "breakout" is available.`);
         return null;
     }
 
-    // Create a strategy object with the analyze method
     const strategyWrapper = {
         analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
             try {
-                const strategy = new BreakoutTrendStrategy({
-                    riskRewardRatio: 2,
-                    minTouchesForLevel: 2,
-                    minBreakoutSize: 0.3,
-                    stopLossMultiplier: 1.2,
-                    useATRStop: true,
-                    confirmationCandles: 1,
-                    requireTrendFilter: true,
-                    emaShortPeriod: 20,
-                    emaLongPeriod: 50,
-                    minVolatilityFilter: 0.7,
-                    maxConsecutiveLosses: 3
-                });
+                // 1. You don't even need 'new BreakoutTrendStrategy()' if everything is static!
+                // But if the class constructor initializes tracking properties, you can leave it.
                 
-                const signal = strategy.checkEntry(candles, atr, symbol);
+                // 2. FIX: Call checkEntry on the Class Name directly, not 'strategy'
+                const signal = BreakoutTrendStrategy.checkEntry(candles, atr, symbol);
                 if (!signal) return null;
                 
                 return {
