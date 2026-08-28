@@ -162,11 +162,11 @@ async function _runComparison(candles, h4Candles, stake, comm) {
         if (sel.value) stratIds.push(sel.value);
     });
 
-    const results = stratIds.map((id, i) => {
+    const results = await Promise.all(stratIds.map(async (id, i) => {
         const obj    = _makeStrategy(id);
         const sym    = document.getElementById('bt-symbol')?.value || '';
         const result = _simulate(candles, h4Candles, obj, stake, comm, sym);
-        const wf     = _walkForward(candles, h4Candles, obj, stake, comm, sym);
+        const wf     = await _walkForward(candles, h4Candles, obj, stake, comm, sym);
         const s      = wf.oos.stats;
         return {
             id, label: LABELS[i], color: COLORS[i],
@@ -179,7 +179,7 @@ async function _runComparison(candles, h4Candles, stake, comm) {
             gradeColor: wf.overfit.color,
             isWR: wf.is.stats.winRate,
         };
-    });
+    }));
 
     _renderComparison(results, candles.length);
 }
