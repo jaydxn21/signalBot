@@ -182,6 +182,24 @@ export function _detectOverfit(isStats, oosStats) {
     // 5. IS win rate suspiciously high
     if (isStats.winRate > 0.85 && isStats.total > 20) { warnings.push(`IS win rate ${(isStats.winRate*100).toFixed(0)}% is suspiciously high — possible overfit`); score -= 15; }
 
+    // 6. ABSOLUTE PROFITABILITY GATE
+    // A strategy can be perfectly "consistent" between IS and OOS while
+    // simply losing money in both. That is not a stable edge — it's a
+    // losing strategy that happens not to degrade further. Cap the score
+    // hard regardless of how consistent it looks.
+    if (isStats.netPnL <= 0 && oosStats.netPnL <= 0) {
+        warnings.push(`Strategy is unprofitable in both IS ($${isStats.netPnL.toFixed(2)}) and OOS ($${oosStats.netPnL.toFixed(2)}) — consistently losing, not a stable edge`);
+        score = Math.min(score, 30);
+    }
+    if (oosStats.profitFactor < 1) {
+        warnings.push(`OOS profit factor ${oosStats.profitFactor.toFixed(2)} is below 1.0 — losing money on average out of sample`);
+        score = Math.min(score, 40);
+    }
+    if (oosStats.expectancy < 0) {
+        warnings.push(`OOS expectancy is negative ($${oosStats.expectancy.toFixed(3)}/trade) — do not go live regardless of consistency`);
+        score = Math.min(score, 40);
+    }
+
     const grade = score >= 80 ? 'A' : score >= 65 ? 'B' : score >= 50 ? 'C' : score >= 35 ? 'D' : 'F';
 
     return {
