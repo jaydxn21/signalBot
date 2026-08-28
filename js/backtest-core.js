@@ -204,7 +204,7 @@ export function _detectOverfit(isStats, oosStats) {
 // strategyFn: function(candles, atr, symbol) → signal | null
 // signal = { type:'BUY'|'SELL', tpMultiplier, slMultiplier }
 // ─────────────────────────────────────────────────────────────
-export async function _simulate(candles, h4Candles, strategyObj, stake = 1, commission = 0, symbol = '') {
+export function _simulate(candles, h4Candles, strategyObj, stake = 1, commission = 0, symbol = '') {
     const trades   = [];
     const equity   = [0];
     let   running  = 0;
@@ -254,7 +254,7 @@ export async function _simulate(candles, h4Candles, strategyObj, stake = 1, comm
 
         let signal = null;
         try {
-signal = await strategyObj.analyze('__bt__', slice, h4s, rsiState, atr, symbol, rsi);
+signal = strategyObj.analyze('__bt__', slice, h4s, rsiState, atr, symbol, rsi);
         } catch(e) { /* skip */ }
 
         if (!signal) { equity.push(running); continue; }
