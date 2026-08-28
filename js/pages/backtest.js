@@ -540,7 +540,7 @@ async function _run() {
         await _sleep(30);
 
         _renderChart(filteredCandles, result.trades, wf.splitTime);
-        _renderEquity(result.equity, wf);
+        _renderEquity(result?.equity || [], wf);
         _renderKPIs(result, wf);
         _renderWalkForward(wf);
         _renderTradeLog(result.trades);
@@ -639,7 +639,11 @@ function _toggleMarkers() {
 
 function _renderEquity(equity, wf) {
     const canvas = document.getElementById('bt-equity-canvas');
-    if (!canvas || equity.length < 2) return;
+    if (!canvas) return;
+    
+    // 👇 ADD THIS LINE: Safety fallback if equity data is missing or empty
+    if (!equity || !Array.isArray(equity) || equity.length < 2) return;
+    
     const ctx = canvas.getContext('2d');
     const W   = canvas.width  = canvas.offsetWidth  || canvas.parentElement.offsetWidth;
     const H   = canvas.height = canvas.offsetHeight || 90;
