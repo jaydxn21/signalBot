@@ -193,7 +193,7 @@ export class BreakoutTrendStrategy {
         }
 
         // Apply trend filter
-        if (isBreakoutUp && this.requireTrendFilter && trend === 'DOWN') {
+        if (isBreakoutUp && this.requireTrendFilter && trend !== 'UP') {
             console.log(`[${symbol}] 🚫 Breakout up rejected: Downtrend detected`);
             isBreakoutUp = false;
         }
@@ -255,7 +255,7 @@ export class BreakoutTrendStrategy {
             isBreakoutDown = false;
         }
 
-        if (isBreakoutDown && this.requireTrendFilter && trend === 'UP') {
+        if (isBreakoutDown && this.requireTrendFilter && trend !== 'DOWN') {
             console.log(`[${symbol}] 🚫 Breakout down rejected: Uptrend detected`);
             isBreakoutDown = false;
         }
