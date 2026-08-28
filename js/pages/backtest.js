@@ -335,7 +335,7 @@ window.btRunOptimizer = async function() {
             }
         };
 
-        const wf = _walkForward(_cachedCandles, _cachedH4Candles, modified, stake, comm, document.getElementById('bt-symbol')?.value || '');
+        const wf = await _walkForward(_cachedCandles, _cachedH4Candles, modified, stake, comm, document.getElementById('bt-symbol')?.value || '');
         results.push({
             sl, tp,
             confidence: wf.overfit.score,
