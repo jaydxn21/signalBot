@@ -11,7 +11,7 @@ export class BreakoutTrendStrategy {
         this.minBreakoutSize = options.minBreakoutSize || 0.3; // Minimum breakout size as % of range
         this.stopLossMultiplier = options.stopLossMultiplier || 1.2;
         this.useATRStop = options.useATRStop ?? true;
-        this.confirmationCandles = options.confirmationCandles || 1; // Number of candles to confirm breakout
+        this.confirmationCandles = options.confirmationCandles || 2; // Number of candles to confirm breakout (2 = require breakout to hold, filters single-bar fakeouts)
         this.requireTrendFilter = options.requireTrendFilter ?? true;
         this.emaShortPeriod = options.emaShortPeriod || 20;
         this.emaLongPeriod = options.emaLongPeriod || 50;
@@ -113,7 +113,17 @@ export class BreakoutTrendStrategy {
     }
 
     // Main entry check method
-    static checkEntry(candles, atr, symbol) {
+    // options lets callers configure behavior since this is called statically
+    // (no instance is created, so constructor options were previously ignored).
+    static checkEntry(candles, atr, symbol, options = {}) {
+        const confirmationCandles = options.confirmationCandles ?? 2;
+        const minBreakoutSize     = options.minBreakoutSize     ?? 0.3;
+        const stopLossMultiplier  = options.stopLossMultiplier  ?? 1.2;
+        const useATRStop          = options.useATRStop          ?? true;
+        const requireTrendFilter  = options.requireTrendFilter  ?? true;
+        const minVolatilityFilter = options.minVolatilityFilter ?? 0.7;
+        const maxConsecutiveLosses= options.maxConsecutiveLosses ?? 3;
+
         if (candles.length < 21) {
             console.log(`[${symbol}] Waiting for more candles (${candles.length}/21)`);
             return null;
@@ -121,9 +131,8 @@ export class BreakoutTrendStrategy {
 
         // Check for consecutive losses
         const losses = this.getConsecutiveLosses(symbol);
-        const maxLosses = this.maxConsecutiveLosses || 3;
-        if (losses >= maxLosses) {
-            console.log(`[${symbol}] ⚠️ PAUSING: ${losses} consecutive losses reached (max: ${maxLosses})`);
+        if (losses >= maxConsecutiveLosses) {
+            console.log(`[${symbol}] ⚠️ PAUSING: ${losses} consecutive losses reached (max: ${maxConsecutiveLosses})`);
             return null;
         }
 
@@ -150,7 +159,7 @@ export class BreakoutTrendStrategy {
         if (range === 0) return null;
         
         const avgRange = this.calculateAverageRange(candles.slice(-10));
-        const volatilityFilter = this.minVolatilityFilter || 0.7;
+        const volatilityFilter = minVolatilityFilter;
         
         // Don't trade in low volatility
         if (range < avgRange * volatilityFilter) {
@@ -168,19 +177,18 @@ export class BreakoutTrendStrategy {
         // Calculate breakout sizes
         const breakoutUpSize = close - resistance;
         const breakoutDownSize = support - close;
-        const minBreakoutSize = this.minBreakoutSize || 0.3;
         const minSizeThreshold = range * minBreakoutSize;
 
         // --- BUY SIGNAL ---
         // Check breakout up with confirmation
         let isBreakoutUp = false;
         
-        if (this.confirmationCandles === 1) {
+        if (confirmationCandles === 1) {
             // Simple breakout: current candle breaks resistance
             isBreakoutUp = close > resistance && prevClose <= resistance;
-        } else if (this.confirmationCandles === 2) {
+        } else if (confirmationCandles === 2) {
             // Two-candle confirmation: current and previous candle both above resistance
-            isBreakoutUp = close > resistance && prevClose > resistance && secondPrevClose <= resistance;
+            isBreakoutUp = close > resistance && prevClose > resistance && secondPrevCandle && secondPrevCandle.close <= resistance;
         } else {
             // Default to simple breakout
             isBreakoutUp = close > resistance && prevClose <= resistance;
@@ -193,7 +201,7 @@ export class BreakoutTrendStrategy {
         }
 
         // Apply trend filter
-        if (isBreakoutUp && this.requireTrendFilter && trend !== 'UP') {
+        if (isBreakoutUp && requireTrendFilter && trend !== 'UP') {
             console.log(`[${symbol}] 🚫 Breakout up rejected: Downtrend detected`);
             isBreakoutUp = false;
         }
@@ -203,14 +211,14 @@ export class BreakoutTrendStrategy {
             
             // Calculate stop loss distance
             let slDistance;
-            if (this.useATRStop && atr) {
+            if (useATRStop && atr) {
                 slDistance = Math.max(range * 0.6, atr * 1.2);
             } else {
                 slDistance = range * 0.6;
             }
             
             // Apply stop loss multiplier
-            slDistance *= this.stopLossMultiplier;
+            slDistance *= stopLossMultiplier;
             
             return {
                 type: 'BUY',
@@ -225,7 +233,7 @@ export class BreakoutTrendStrategy {
                     `Breakout size: ${(breakoutUpSize / range * 100).toFixed(1)}% of range`
                 ],
                 tpMultiplier: 2,
-                slMultiplier: this.stopLossMultiplier,
+                slMultiplier: stopLossMultiplier,
                 reason: `Resistance breakout above ${resistance.toFixed(5)} with ${trend} trend`,
                 // Metadata for tracking
                 _meta: {
@@ -242,10 +250,10 @@ export class BreakoutTrendStrategy {
         // Check breakout down with confirmation
         let isBreakoutDown = false;
         
-        if (this.confirmationCandles === 1) {
+        if (confirmationCandles === 1) {
             isBreakoutDown = close < support && prevClose >= support;
-        } else if (this.confirmationCandles === 2) {
-            isBreakoutDown = close < support && prevClose < support && secondPrevClose >= support;
+        } else if (confirmationCandles === 2) {
+            isBreakoutDown = close < support && prevClose < support && secondPrevCandle && secondPrevCandle.close >= support;
         } else {
             isBreakoutDown = close < support && prevClose >= support;
         }
@@ -255,7 +263,7 @@ export class BreakoutTrendStrategy {
             isBreakoutDown = false;
         }
 
-        if (isBreakoutDown && this.requireTrendFilter && trend !== 'DOWN') {
+        if (isBreakoutDown && requireTrendFilter && trend !== 'DOWN') {
             console.log(`[${symbol}] 🚫 Breakout down rejected: Uptrend detected`);
             isBreakoutDown = false;
         }
@@ -264,13 +272,13 @@ export class BreakoutTrendStrategy {
             console.log(`[${symbol}] 🔥 BREAKOUT DOWN detected! Support: ${support.toFixed(5)} → Current: ${close.toFixed(5)}`);
             
             let slDistance;
-            if (this.useATRStop && atr) {
+            if (useATRStop && atr) {
                 slDistance = Math.max(range * 0.6, atr * 1.2);
             } else {
                 slDistance = range * 0.6;
             }
             
-            slDistance *= this.stopLossMultiplier;
+            slDistance *= stopLossMultiplier;
             
             return {
                 type: 'SELL',
@@ -285,7 +293,7 @@ export class BreakoutTrendStrategy {
                     `Breakout size: ${(breakoutDownSize / range * 100).toFixed(1)}% of range`
                 ],
                 tpMultiplier: 2,
-                slMultiplier: this.stopLossMultiplier,
+                slMultiplier: stopLossMultiplier,
                 reason: `Support breakdown below ${support.toFixed(5)} with ${trend} trend`,
                 _meta: {
                     trend: trend,
