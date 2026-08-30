@@ -142,6 +142,14 @@ export class BreakoutTrendStrategy {
         const lows = recentCandles.map(c => c.low);
         const high = Math.max(...highs);
         const low = Math.min(...lows);
+
+        // STABLE LEVEL for 2-candle confirmation: excludes the last 2 candles
+        // so the resistance/support being tested doesn't shift as the breakout
+        // itself rolls into the rolling window (previously made 2-candle
+        // confirmation almost impossible to satisfy — the level chased the price).
+        const stableCandles = candles.slice(-22, -2);
+        const stableHigh = stableCandles.length ? Math.max(...stableCandles.map(c => c.high)) : high;
+        const stableLow  = stableCandles.length ? Math.min(...stableCandles.map(c => c.low))  : low;
         
         const currentCandle = candles[candles.length - 1];
         const prevCandle = candles[candles.length - 2];
@@ -173,6 +181,8 @@ export class BreakoutTrendStrategy {
 
         const resistance = high;
         const support = low;
+        const stableResistance = stableHigh;
+        const stableSupport    = stableLow;
 
         // Calculate breakout sizes
         const breakoutUpSize = close - resistance;
@@ -187,8 +197,10 @@ export class BreakoutTrendStrategy {
             // Simple breakout: current candle breaks resistance
             isBreakoutUp = close > resistance && prevClose <= resistance;
         } else if (confirmationCandles === 2) {
-            // Two-candle confirmation: current and previous candle both above resistance
-            isBreakoutUp = close > resistance && prevClose > resistance && secondPrevCandle && secondPrevCandle.close <= resistance;
+            // Two-candle confirmation: use the STABLE level (calculated before
+            // the breakout began) so the level doesn't shift as the breakout
+            // candles themselves roll into the resistance window.
+            isBreakoutUp = close > stableResistance && prevClose > stableResistance && secondPrevCandle && secondPrevCandle.close <= stableResistance;
         } else {
             // Default to simple breakout
             isBreakoutUp = close > resistance && prevClose <= resistance;
@@ -253,7 +265,7 @@ export class BreakoutTrendStrategy {
         if (confirmationCandles === 1) {
             isBreakoutDown = close < support && prevClose >= support;
         } else if (confirmationCandles === 2) {
-            isBreakoutDown = close < support && prevClose < support && secondPrevCandle && secondPrevCandle.close >= support;
+            isBreakoutDown = close < stableSupport && prevClose < stableSupport && secondPrevCandle && secondPrevCandle.close >= stableSupport;
         } else {
             isBreakoutDown = close < support && prevClose >= support;
         }
