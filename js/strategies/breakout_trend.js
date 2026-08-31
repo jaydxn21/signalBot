@@ -71,7 +71,13 @@ export class BreakoutTrendStrategy {
     }
 
     // Helper: Detect Trend
-    static detectTrend(candles, shortPeriod = 20, longPeriod = 50) {
+    // atr (optional): scales the UP/DOWN threshold to the instrument's own
+    // volatility. A fixed 0.5% EMA-gap threshold works for higher-volatility
+    // instruments but is nearly unreachable on low-volatility ones (Vol10,
+    // Vol25), which classified as RANGING on almost every bar and got every
+    // breakout rejected by the trend filter. Expressing the threshold as a
+    // multiple of ATR (relative to price) scales correctly across instruments.
+    static detectTrend(candles, shortPeriod = 20, longPeriod = 50, atr = null) {
         if (candles.length < longPeriod) return 'NEUTRAL';
         
         const emaShort = this.calculateEMA(candles, shortPeriod);
@@ -81,9 +87,14 @@ export class BreakoutTrendStrategy {
         
         const diff = emaShort - emaLong;
         const diffPercent = (diff / emaLong) * 100;
-        
-        if (diffPercent > 0.5) return 'UP';
-        if (diffPercent < -0.5) return 'DOWN';
+
+        // ATR-relative threshold: require the EMA gap to exceed roughly
+        // 0.5 ATR (converted to a percentage of price) instead of a flat
+        // 0.5%. Falls back to the fixed 0.5% if ATR is unavailable.
+        const thresholdPercent = atr ? (atr * 0.5 / emaLong) * 100 : 0.5;
+
+        if (diffPercent > thresholdPercent) return 'UP';
+        if (diffPercent < -thresholdPercent) return 'DOWN';
         return 'RANGING';
     }
 
@@ -176,7 +187,7 @@ export class BreakoutTrendStrategy {
         }
 
         // Detect trend
-        const trend = this.detectTrend(candles, 20, 50);
+        const trend = this.detectTrend(candles, 20, 50, atr);
         console.log(`[${symbol}] 📈 Trend: ${trend} | Range: ${low.toFixed(5)} - ${high.toFixed(5)} | Current: ${close.toFixed(5)}`);
 
         const resistance = high;
