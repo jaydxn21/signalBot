@@ -187,7 +187,13 @@ export class BreakoutTrendStrategy {
         // Calculate breakout sizes
         const breakoutUpSize = close - resistance;
         const breakoutDownSize = support - close;
-        const minSizeThreshold = range * minBreakoutSize;
+        // Scale the breakout-size threshold off ATR instead of the 20-bar
+        // range. Range-based scaling made this threshold nearly impossible
+        // to clear on low-volatility instruments (Vol10/Vol25), since their
+        // entire 20-bar range is tiny — but ATR-based scaling reflects each
+        // instrument's actual typical bar movement, so it scales correctly
+        // across both fast and slow synthetic indices.
+        const minSizeThreshold = atr ? atr * minBreakoutSize : range * minBreakoutSize;
 
         // --- BUY SIGNAL ---
         // Check breakout up with confirmation
