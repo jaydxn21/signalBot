@@ -337,9 +337,30 @@ export async function _walkForward(candles, h4Candles, strategyObj, stake, commi
 // Only BREAKOUT strategy is supported now.
 // ─────────────────────────────────────────────────────────────
 // 📄 Location: js/backtest-core.js
+import { VwapReversionStrategy } from './strategies/vwap_reversion.js';
+
 export function _getBuiltinStrategy(id) {
+    if (id === 'vwap_reversion') {
+        return {
+            analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
+                try {
+                    const signal = VwapReversionStrategy.checkEntry(candles, atr, symbol);
+                    if (!signal) return null;
+                    return {
+                        type: signal.type,
+                        tpMultiplier: signal.tpMultiplier,
+                        slMultiplier: signal.slMultiplier,
+                        ...signal
+                    };
+                } catch (e) {
+                    console.error('[backtest-core] Error in vwap_reversion strategy:', e.message);
+                    return null;
+                }
+            }
+        };
+    }
     if (id !== 'breakout') {
-        console.warn(`[backtest-core] Strategy "${id}" is not supported. Only "breakout" is available.`);
+        console.warn(`[backtest-core] Strategy "${id}" is not supported. Only "breakout" and "vwap_reversion" are available.`);
         return null;
     }
 

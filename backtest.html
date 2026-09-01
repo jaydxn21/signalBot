@@ -74,6 +74,7 @@
                         <label class="bt-label">STRATEGY</label>
                         <select id="bt-strategy" class="bt-select" onchange="window.btStrategyChanged(this.value)">
                             <option value="breakout" selected>📈 BREAKOUT (Trend Breakout)</option>
+                            <option value="vwap_reversion">📉 VWAP REVERSION</option>
                         </select>
                     </div>
 
@@ -83,6 +84,7 @@
                             <div class="bt-compare-slot-label" style="background:#8b5cf6">B</div>
                             <select class="bt-select bt-compare-strategy" data-slot="2">
                                 <option value="breakout">📈 BREAKOUT</option>
+                                <option value="vwap_reversion">📉 VWAP REVERSION</option>
                             </select>
                         </div>
                         <div class="bt-compare-slot" id="bt-slot-3">
@@ -90,6 +92,7 @@
                             <select class="bt-select bt-compare-strategy" data-slot="3">
                                 <option value="">— none —</option>
                                 <option value="breakout">📈 BREAKOUT</option>
+                                <option value="vwap_reversion">📉 VWAP REVERSION</option>
                             </select>
                         </div>
                     </div>
