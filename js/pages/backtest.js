@@ -171,13 +171,13 @@ async function _runComparison(candles, h4Candles, stake, comm) {
         return {
             id, label: LABELS[i], color: COLORS[i],
             equity: result.equity,
-            winRate: s.winRate, pf: s.profitFactor,
+            winRate: s.winRate * 100, pf: s.profitFactor,
             netPnL: s.netPnL, maxDD: s.maxDD,
             trades: s.total, rr: s.avgRR,
             confidence: wf.overfit.score,
             grade: wf.overfit.grade,
             gradeColor: wf.overfit.color,
-            isWR: wf.is.stats.winRate,
+            isWR: wf.is.stats.winRate * 100,
         };
     }));
 
