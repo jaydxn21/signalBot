@@ -78,6 +78,16 @@
                         </select>
                     </div>
 
+                    <div class="bt-field-group">
+                        <label class="bt-label">SAVED CONFIGS</label>
+                        <div style="display:flex; gap:8px;">
+                            <select id="bt-saved-strategy" class="bt-select" style="flex:1;" onchange="window.btLoadStrategy(this.value)">
+                                <option value="">— load saved config —</option>
+                            </select>
+                            <button type="button" class="bt-ghost-btn" onclick="window.btSaveStrategy()" style="white-space:nowrap;">💾 SAVE</button>
+                        </div>
+                    </div>
+
                     <!-- Compare mode: extra strategy slots (hidden by default) -->
                     <div id="bt-compare-slots" style="display:none;">
                         <div class="bt-compare-slot" id="bt-slot-2">

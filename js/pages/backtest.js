@@ -3,6 +3,7 @@ import { _fetchCandles, _simulate, _walkForward, _calcStats, _detectOverfit,
          _calcATR, _calcRSI, _tfLabel, _sleep, CHUNK_SIZE, CHUNK_DELAY, WS_URL,
          _getBuiltinStrategy }                                     from '../backtest-core.js';
 import { SessionState }                                            from '../session-state.js';
+import { Auth }                                                    from '../auth.js';
 
 
 function _makeStrategy(strategyId, options = {}) {
@@ -406,9 +407,93 @@ function _renderOptimizerResults(results, strategy) {
     </div>`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// SAVED STRATEGY CONFIGS (Supabase-backed, shared with Strategy Builder)
+// ─────────────────────────────────────────────────────────────
+async function _fetchSavedStrategies() {
+    try {
+        const res = await fetch('/api/user/strategies', { headers: Auth.headers() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { strategies } = await res.json();
+        return strategies || {};
+    } catch (e) {
+        console.error('[Backtest] Failed to load saved strategies:', e.message);
+        return {};
+    }
+}
+
+async function _populateSavedStrategies() {
+    const sel = document.getElementById('bt-saved-strategy');
+    if (!sel) return;
+    const strategies = await _fetchSavedStrategies();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— load saved config —</option>';
+    Object.keys(strategies).sort().forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+    });
+    if (strategies[current]) sel.value = current;
+}
+
+window.btSaveStrategy = async function() {
+    const name = prompt('Save this configuration as:');
+    if (!name) return;
+
+    const type = document.getElementById('bt-strategy')?.value || 'breakout';
+    const payload = {
+        type,
+        options: window._currentStrategyOptions || {},
+        notes: '',
+        saved_at: new Date().toISOString(),
+    };
+
+    try {
+        const res = await fetch('/api/user/strategies', {
+            method: 'POST',
+            headers: Auth.headers(),
+            body: JSON.stringify({ name, strategy: payload }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await _populateSavedStrategies();
+        const sel = document.getElementById('bt-saved-strategy');
+        if (sel) sel.value = name;
+        alert(`Saved "${name}"`);
+    } catch (e) {
+        console.error('[Backtest] Save failed:', e.message);
+        alert('Failed to save strategy: ' + e.message);
+    }
+};
+
+window.btLoadStrategy = async function(name) {
+    if (!name) {
+        window._currentStrategyOptions = {};
+        return;
+    }
+    const strategies = await _fetchSavedStrategies();
+    const strat = strategies[name];
+    if (!strat) {
+        alert(`Strategy "${name}" not found`);
+        return;
+    }
+
+    window._currentStrategyOptions = strat.options || {};
+
+    const stratSelect = document.getElementById('bt-strategy');
+    if (stratSelect && strat.type) {
+        stratSelect.value = strat.type;
+        window.btStrategyChanged?.(strat.type);
+    }
+
+    console.log(`[Backtest] Loaded "${name}" (${strat.type}):`, strat.options);
+};
+
 export const Backtest = {
 
     init() {
+        _populateSavedStrategies();
+
         document.getElementById('bt-run-btn')
             .addEventListener('click', _run);
         document.getElementById('bt-show-signals')
