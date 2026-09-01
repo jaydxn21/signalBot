@@ -5,8 +5,8 @@ import { _fetchCandles, _simulate, _walkForward, _calcStats, _detectOverfit,
 import { SessionState }                                            from '../session-state.js';
 
 
-function _makeStrategy(strategyId) {
-    return _getBuiltinStrategy(strategyId);
+function _makeStrategy(strategyId, options = {}) {
+    return _getBuiltinStrategy(strategyId, options);
 }
 
 const H4_GRAN = 14400;
@@ -163,7 +163,7 @@ async function _runComparison(candles, h4Candles, stake, comm) {
     });
 
     const results = await Promise.all(stratIds.map(async (id, i) => {
-        const obj    = _makeStrategy(id);
+        const obj    = _makeStrategy(id, window._currentStrategyOptions || {});
         const sym    = document.getElementById('bt-symbol')?.value || '';
         const result = _simulate(candles, h4Candles, obj, stake, comm, sym);
         const wf     = await _walkForward(candles, h4Candles, obj, stake, comm, sym);
@@ -326,7 +326,7 @@ window.btRunOptimizer = async function() {
         progEl.textContent = `Testing combo ${i+1}/${limited.length}  SL×${sl}  TP×${tp}...`;
         await _sleep(8);
 
-        const base = _makeStrategy(strategy);
+        const base = _makeStrategy(strategy, window._currentStrategyOptions || {});
         const modified = {
             analyze(id, candles, h4, rsiState, atr, sym, rsi) {
                 const sig = base.analyze(id, candles, h4, rsiState, atr, sym, rsi);
@@ -523,7 +523,7 @@ async function _run() {
         _setProgress(65, `Running BREAKOUT strategy...`);
         await _sleep(30);
         
-        const stratObj = _makeStrategy(strategy);
+        const stratObj = _makeStrategy(strategy, window._currentStrategyOptions || {});
         if (!stratObj) {
             _setProgress(0, `Error: "${strategy}" is not implemented in the backtest engine yet.`);
             _setRunning(false);

@@ -339,12 +339,12 @@ export async function _walkForward(candles, h4Candles, strategyObj, stake, commi
 // 📄 Location: js/backtest-core.js
 import { VwapReversionStrategy } from './strategies/vwap_reversion.js';
 
-export function _getBuiltinStrategy(id) {
+export function _getBuiltinStrategy(id, options = {}) {
     if (id === 'vwap_reversion') {
         return {
             analyze(stratId, candles, h4, rsiState, atr, symbol, rsi) {
                 try {
-                    const signal = VwapReversionStrategy.checkEntry(candles, atr, symbol);
+                    const signal = VwapReversionStrategy.checkEntry(candles, atr, symbol, options);
                     if (!signal) return null;
                     return {
                         type: signal.type,
@@ -371,7 +371,7 @@ export function _getBuiltinStrategy(id) {
                 // But if the class constructor initializes tracking properties, you can leave it.
                 
                 // 2. FIX: Call checkEntry on the Class Name directly, not 'strategy'
-                const signal = BreakoutTrendStrategy.checkEntry(candles, atr, symbol);
+                const signal = BreakoutTrendStrategy.checkEntry(candles, atr, symbol, options);
                 if (!signal) return null;
                 
                 return {
