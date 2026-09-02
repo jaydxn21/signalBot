@@ -200,6 +200,11 @@
                         </label>
                     </div>
 
+                    <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer;font-size:10px;opacity:0.75;" onclick="document.getElementById('bt-auto-optimize').click()">
+                        <input type="checkbox" id="bt-auto-optimize" style="cursor:pointer;">
+                        Auto-optimize + export after run (grid search, apply best combo, re-run, download CSV)
+                    </label>
+
                     <button id="bt-run-btn" class="bt-run-btn">
                         <span id="bt-run-label">▶  RUN BACKTEST</span>
                         <span id="bt-run-spinner" style="display:none;">⟳  FETCHING...</span>

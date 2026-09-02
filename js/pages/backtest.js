@@ -21,6 +21,7 @@ let _markers      = [];
 let _trades       = [];
 let _wfResult     = null;
 let _lastStats    = null;
+let _autoOptimizeInProgress = false;
 let _btMode       = 'single';
 let _cachedCandles    = null;
 let _cachedH4Candles  = null;
@@ -363,6 +364,8 @@ window.btRunOptimizer = async function() {
     btn.disabled = false;
     progEl.style.display = 'none';
     _renderOptimizerResults(results, strategy);
+    window._lastOptimizerResults = results;
+    return results;
 };
 
 function _renderOptimizerResults(results, strategy) {
@@ -697,6 +700,42 @@ async function _run() {
             document.getElementById('bt-progress').style.display = 'none';
             document.getElementById('bt-results').style.display  = '';
         }, 400);
+
+        // Auto-optimize pipeline: grid search -> apply best combo -> re-run
+        // -> export CSV. Guarded flag prevents infinite recursion since the
+        // re-run below also passes through this same completion block.
+        if (document.getElementById('bt-auto-optimize')?.checked && !_autoOptimizeInProgress) {
+            _autoOptimizeInProgress = true;
+            setTimeout(async () => {
+                try {
+                    _setProgress(5, 'Auto-optimize: running grid search...');
+                    document.getElementById('bt-progress').style.display = '';
+                    document.getElementById('bt-results').style.display  = 'none';
+
+                    const optResults = await window.btRunOptimizer();
+                    if (optResults && optResults.length) {
+                        const best = optResults[0];
+                        const slField = document.getElementById('bt-sl-mult');
+                        const tpField = document.getElementById('bt-tp-mult');
+                        if (slField) slField.value = best.sl;
+                        if (tpField) tpField.value = best.tp;
+
+                        _setProgress(50, `Auto-optimize: re-running with best combo SL×${best.sl} TP×${best.tp}...`);
+                        _autoOptimizeInProgress = false; // allow the coming re-run to complete normally
+                        await _run();
+
+                        setTimeout(() => {
+                            _exportCSV();
+                        }, 600);
+                    } else {
+                        _autoOptimizeInProgress = false;
+                    }
+                } catch (e) {
+                    console.error('[Backtest] Auto-optimize pipeline failed:', e);
+                    _autoOptimizeInProgress = false;
+                }
+            }, 500);
+        }
 
     } catch(e) {
         console.error('[Backtest]', e);
