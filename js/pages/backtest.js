@@ -474,6 +474,16 @@ window.btSaveStrategy = async function() {
 };
 
 window.btLoadStrategy = async function(name) {
+    // Always clear manual SL/TP override fields first. Without this, stale
+    // values left in those inputs from a previous manual test silently
+    // override every subsequently loaded saved config's own options, since
+    // _run() treats "field is non-empty" as "user wants an override" with
+    // no way to distinguish that from "leftover from last time".
+    const slField = document.getElementById('bt-sl-mult');
+    const tpField = document.getElementById('bt-tp-mult');
+    if (slField) slField.value = '';
+    if (tpField) tpField.value = '';
+
     if (!name) {
         window._currentStrategyOptions = {};
         return;
@@ -490,7 +500,7 @@ window.btLoadStrategy = async function(name) {
     const stratSelect = document.getElementById('bt-strategy');
     if (stratSelect && strat.type) {
         stratSelect.value = strat.type;
-        window.btStrategyChanged?.(strat.type);
+        window.btStrategyChanged?.(strat.type, true);
     }
 
     console.log(`[Backtest] Loaded "${name}" (${strat.type}):`, strat.options);
