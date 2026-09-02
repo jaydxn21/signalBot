@@ -130,6 +130,7 @@ export class BreakoutTrendStrategy {
         const confirmationCandles = options.confirmationCandles ?? 2;
         const minBreakoutSize     = options.minBreakoutSize     ?? 0.3;
         const stopLossMultiplier  = options.stopLossMultiplier  ?? 1.2;
+        const takeProfitMultiplier = options.takeProfitMultiplier ?? 2;
         const useATRStop          = options.useATRStop          ?? true;
         const requireTrendFilter  = options.requireTrendFilter  ?? true;
         const minVolatilityFilter = options.minVolatilityFilter ?? 0.7;
@@ -261,7 +262,7 @@ export class BreakoutTrendStrategy {
                     `Trend: ${trend}`,
                     `Breakout size: ${(breakoutUpSize / range * 100).toFixed(1)}% of range`
                 ],
-                tpMultiplier: 2,
+                tpMultiplier: takeProfitMultiplier,
                 slMultiplier: stopLossMultiplier,
                 reason: `Resistance breakout above ${resistance.toFixed(5)} with ${trend} trend`,
                 // Metadata for tracking
@@ -321,7 +322,7 @@ export class BreakoutTrendStrategy {
                     `Trend: ${trend}`,
                     `Breakout size: ${(breakoutDownSize / range * 100).toFixed(1)}% of range`
                 ],
-                tpMultiplier: 2,
+                tpMultiplier: takeProfitMultiplier,
                 slMultiplier: stopLossMultiplier,
                 reason: `Support breakdown below ${support.toFixed(5)} with ${trend} trend`,
                 _meta: {

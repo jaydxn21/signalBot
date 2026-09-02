@@ -577,6 +577,20 @@ async function _run() {
     const count       = parseInt(document.getElementById('bt-count').value);
     const stake       = parseFloat(document.getElementById('bt-stake').value) || 1;
     const comm        = parseFloat(document.getElementById('bt-commission').value) || 0;
+
+    // Manual SL/TP multiplier overrides — merge into current strategy options
+    // if the fields are non-empty. Left blank, the loaded strategy's saved
+    // options (or the strategy file's own defaults) are used unchanged.
+    const slMultOverride = document.getElementById('bt-sl-mult')?.value;
+    const tpMultOverride = document.getElementById('bt-tp-mult')?.value;
+    if (slMultOverride !== '' && slMultOverride != null) {
+        window._currentStrategyOptions = window._currentStrategyOptions || {};
+        window._currentStrategyOptions.stopLossMultiplier = parseFloat(slMultOverride);
+    }
+    if (tpMultOverride !== '' && tpMultOverride != null) {
+        window._currentStrategyOptions = window._currentStrategyOptions || {};
+        window._currentStrategyOptions.takeProfitMultiplier = parseFloat(tpMultOverride);
+    }
     const dateFrom    = document.getElementById('bt-date-from')?.value  || '';
     const dateTo      = document.getElementById('bt-date-to')?.value    || '';
 
