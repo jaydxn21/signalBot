@@ -350,7 +350,14 @@ window.btRunOptimizer = async function() {
         });
     }
 
-    results.sort((a, b) => b.confidence - a.confidence);
+    results.sort((a, b) => {
+        // Primary sort: confidence score. Ties (or near-ties) broken by
+        // actual OOS profit factor so the genuinely stronger performer
+        // surfaces first instead of arbitrary array order.
+        const confDiff = b.confidence - a.confidence;
+        if (Math.abs(confDiff) > 0.5) return confDiff;
+        return b.oosPF - a.oosPF;
+    });
 
     btn.disabled = false;
     progEl.style.display = 'none';

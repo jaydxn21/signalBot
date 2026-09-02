@@ -217,9 +217,12 @@ export function _detectOverfit(isStats, oosStats) {
             score -= 10;
         }
     }
-    score = Math.min(100, score);
+    // Cap raised to 115 so genuinely strong PF results (1.5+) can still
+    // rank above merely-passing ones instead of all clipping to the same
+    // ceiling. Grade thresholds below account for the wider scale.
+    score = Math.min(115, score);
 
-    const grade = score >= 80 ? 'A' : score >= 65 ? 'B' : score >= 50 ? 'C' : score >= 35 ? 'D' : 'F';
+    const grade = score >= 90 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 35 ? 'D' : 'F';
 
     return {
         score:    Math.max(0, score),
