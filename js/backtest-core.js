@@ -200,6 +200,25 @@ export function _detectOverfit(isStats, oosStats) {
         score = Math.min(score, 40);
     }
 
+    // 7. PROPORTIONAL QUALITY ADJUSTMENT
+    // Checks above are pass/fail gates — a strategy just above breakeven and
+    // one comfortably profitable both score 100 if neither gate trips. This
+    // adds a graded penalty/bonus so "barely passes" and "genuinely strong"
+    // don't get identical scores. Based on OOS profit factor and expectancy,
+    // since those are meaningful across any R:R ratio without needing it
+    // passed in explicitly.
+    if (oosStats.profitFactor >= 1) {
+        // PF 1.0 -> 0 adjustment, PF 1.5+ -> up to +15, scaled linearly
+        const pfBonus = Math.min(15, (oosStats.profitFactor - 1) * 30);
+        score += pfBonus;
+        // Weak-but-passing PF gets a mild penalty instead of a bonus
+        if (oosStats.profitFactor < 1.10) {
+            warnings.push(`OOS profit factor ${oosStats.profitFactor.toFixed(2)} is only marginally above breakeven`);
+            score -= 10;
+        }
+    }
+    score = Math.min(100, score);
+
     const grade = score >= 80 ? 'A' : score >= 65 ? 'B' : score >= 50 ? 'C' : score >= 35 ? 'D' : 'F';
 
     return {
