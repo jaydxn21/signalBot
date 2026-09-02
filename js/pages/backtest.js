@@ -20,6 +20,7 @@ let _candleSeries = null;
 let _markers      = [];
 let _trades       = [];
 let _wfResult     = null;
+let _lastStats    = null;
 let _btMode       = 'single';
 let _cachedCandles    = null;
 let _cachedH4Candles  = null;
@@ -687,6 +688,7 @@ async function _run() {
 
         _trades          = result.trades;
         _wfResult        = wf;
+        _lastStats       = result.stats;
         _cachedCandles   = filteredCandles;
 
         _setProgress(100, 'Complete');
@@ -1017,18 +1019,118 @@ function _hidePlaceholder() {
 // ─────────────────────────────────────────────────────────────
 // EXPORT
 // ─────────────────────────────────────────────────────────────
+function _csvEscape(v) {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
 function _exportCSV() {
     if (!_trades.length) return;
-    const rows = ['#,Time,Direction,Entry,SL,TP,Exit,Outcome,PnL'];
+    const rows = [];
+
+    const symbol    = document.getElementById('bt-symbol')?.value    || '';
+    const strategy  = document.getElementById('bt-strategy')?.value  || '';
+    const tf        = document.getElementById('bt-tf')?.value        || '';
+    const stake     = document.getElementById('bt-stake')?.value     || '';
+    const comm      = document.getElementById('bt-commission')?.value|| '';
+    const slMult    = document.getElementById('bt-sl-mult')?.value   || '';
+    const tpMult    = document.getElementById('bt-tp-mult')?.value   || '';
+    const s         = _lastStats;
+    const wf        = _wfResult;
+    const isS       = wf?.is?.stats;
+    const oosS      = wf?.oos?.stats;
+    const overfit   = wf?.overfit;
+
+    // ── META ────────────────────────────────────────────────
+    rows.push('=== META ===');
+    rows.push('field,value');
+    rows.push(`export_timestamp,${new Date().toISOString()}`);
+    rows.push(`symbol,${_csvEscape(symbol)}`);
+    rows.push(`strategy,${_csvEscape(strategy)}`);
+    rows.push(`timeframe_minutes,${_csvEscape(tf)}`);
+    rows.push(`stake,${_csvEscape(stake)}`);
+    rows.push(`commission,${_csvEscape(comm)}`);
+    rows.push(`sl_mult_override,${_csvEscape(slMult)}`);
+    rows.push(`tp_mult_override,${_csvEscape(tpMult)}`);
+    rows.push(`total_candles,${_csvEscape(_cachedCandles?.length ?? '')}`);
+    rows.push('');
+
+    // ── OVERALL STATS ───────────────────────────────────────
+    if (s) {
+        rows.push('=== OVERALL_STATS ===');
+        rows.push('metric,value');
+        rows.push(`total_trades,${s.total}`);
+        rows.push(`wins,${s.wins}`);
+        rows.push(`losses,${s.losses}`);
+        rows.push(`win_rate_pct,${(s.winRate*100).toFixed(2)}`);
+        rows.push(`profit_factor,${s.profitFactor}`);
+        rows.push(`net_pnl,${s.netPnL}`);
+        rows.push(`max_drawdown,${s.maxDD}`);
+        rows.push(`avg_rr,${s.avgRR}`);
+        rows.push(`max_consec_losses,${s.maxStreak}`);
+        rows.push(`expectancy,${s.expectancy}`);
+        rows.push('');
+    }
+
+    // ── WALK-FORWARD: IN-SAMPLE ─────────────────────────────
+    if (isS) {
+        rows.push('=== WALK_FORWARD_IN_SAMPLE ===');
+        rows.push('metric,value');
+        rows.push(`total_trades,${isS.total}`);
+        rows.push(`win_rate_pct,${(isS.winRate*100).toFixed(2)}`);
+        rows.push(`profit_factor,${isS.profitFactor}`);
+        rows.push(`net_pnl,${isS.netPnL}`);
+        rows.push(`max_drawdown,${isS.maxDD}`);
+        rows.push(`avg_rr,${isS.avgRR}`);
+        rows.push(`max_consec_losses,${isS.maxStreak}`);
+        rows.push(`expectancy,${isS.expectancy}`);
+        rows.push('');
+    }
+
+    // ── WALK-FORWARD: OUT-OF-SAMPLE ─────────────────────────
+    if (oosS) {
+        rows.push('=== WALK_FORWARD_OUT_OF_SAMPLE ===');
+        rows.push('metric,value');
+        rows.push(`total_trades,${oosS.total}`);
+        rows.push(`win_rate_pct,${(oosS.winRate*100).toFixed(2)}`);
+        rows.push(`profit_factor,${oosS.profitFactor}`);
+        rows.push(`net_pnl,${oosS.netPnL}`);
+        rows.push(`max_drawdown,${oosS.maxDD}`);
+        rows.push(`avg_rr,${oosS.avgRR}`);
+        rows.push(`max_consec_losses,${oosS.maxStreak}`);
+        rows.push(`expectancy,${oosS.expectancy}`);
+        rows.push('');
+    }
+
+    // ── OVERFIT ANALYSIS ─────────────────────────────────────
+    if (overfit) {
+        rows.push('=== OVERFIT_ANALYSIS ===');
+        rows.push('metric,value');
+        rows.push(`score,${overfit.score}`);
+        rows.push(`grade,${overfit.grade}`);
+        rows.push(`is_overfit,${overfit.isOverfit}`);
+        rows.push(`verdict,${_csvEscape(overfit.verdict)}`);
+        rows.push('');
+        rows.push('=== OVERFIT_WARNINGS ===');
+        rows.push('warning');
+        (overfit.warnings || []).forEach(w => rows.push(_csvEscape(w)));
+        rows.push('');
+    }
+
+    // ── TRADE LOG ─────────────────────────────────────────────
+    rows.push('=== TRADE_LOG ===');
+    rows.push('#,time,direction,entry,sl,tp,exit,outcome,pnl');
     _trades.filter(t=>t.outcome).forEach((t, i) => {
         const d  = new Date(t.time * 1000);
         const ts = d.toISOString().slice(0,19).replace('T',' ');
         rows.push(`${i+1},${ts},${t.type},${t.entry},${t.sl},${t.tp},${t.exit||''},${t.outcome},${t.pnl??''}`);
     });
+
     const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
     const a    = document.createElement('a');
     a.href     = URL.createObjectURL(blob);
-    a.download = `nexus_backtest_${Date.now()}.csv`;
+    a.download = `nexus_backtest_${symbol}_${strategy}_${Date.now()}.csv`;
     a.click();
 }
 
