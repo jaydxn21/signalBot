@@ -575,8 +575,10 @@ async function _run() {
 
     _setRunning(true);
     _setProgress(5, 'Connecting to Deriv...');
+    const STRATEGY_LABELS = { breakout: 'BREAKOUT', vwap_reversion: 'VWAP REVERSION' };
+    const strategyLabel = STRATEGY_LABELS[strategy] || strategy.toUpperCase();
     document.getElementById('bt-chart-title').textContent =
-        `${symbol.replace('frx','').replace('cry','')}  ·  ${_tfLabel(tf)}  ·  BREAKOUT`;
+        `${symbol.replace('frx','').replace('cry','')}  ·  ${_tfLabel(tf)}  ·  ${strategyLabel}`;
 
     try {
         _setProgress(10, `Fetching ${count} candles...`);
