@@ -503,6 +503,13 @@ window.btLoadStrategy = async function(name) {
         window.btStrategyChanged?.(strat.type, true);
     }
 
+    // Populate the visible SL/TP MULT fields with the loaded values so
+    // it's clear something actually loaded, instead of leaving them
+    // blank and indistinguishable from "nothing happened".
+    const opts = strat.options || {};
+    if (slField && opts.stopLossMultiplier != null) slField.value = opts.stopLossMultiplier;
+    if (tpField && opts.takeProfitMultiplier != null) tpField.value = opts.takeProfitMultiplier;
+
     console.log(`[Backtest] Loaded "${name}" (${strat.type}):`, strat.options);
 };
 
