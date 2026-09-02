@@ -22,6 +22,29 @@ let _trades       = [];
 let _wfResult     = null;
 let _lastStats    = null;
 let _autoOptimizeInProgress = false;
+let _autoOptimizeApplied    = false;
+let _autoOptimizeCancelled  = false;
+
+function _setAutoOptimizeButtonState(running) {
+    const btn = document.getElementById('bt-run-btn');
+    const label = document.getElementById('bt-run-label');
+    if (!btn || !label) return;
+    if (running) {
+        label.textContent = '■  STOP AUTO-OPTIMIZE';
+        btn.dataset.autoOptRunning = 'true';
+    } else {
+        label.textContent = '▶  RUN BACKTEST';
+        delete btn.dataset.autoOptRunning;
+    }
+}
+
+window.btCancelAutoOptimize = function() {
+    _autoOptimizeCancelled = true;
+    _autoOptimizeInProgress = false;
+    _autoOptimizeApplied = false;
+    _setAutoOptimizeButtonState(false);
+    _setProgress(0, 'Cancelled.');
+};
 let _btMode       = 'single';
 let _cachedCandles    = null;
 let _cachedH4Candles  = null;
@@ -523,7 +546,14 @@ export const Backtest = {
         _populateSavedStrategies();
 
         document.getElementById('bt-run-btn')
-            .addEventListener('click', _run);
+            .addEventListener('click', () => {
+                const btn = document.getElementById('bt-run-btn');
+                if (btn?.dataset.autoOptRunning === 'true') {
+                    window.btCancelAutoOptimize();
+                } else {
+                    _run();
+                }
+            });
         document.getElementById('bt-show-signals')
             .addEventListener('change', _toggleMarkers);
         document.getElementById('bt-export-btn')
@@ -704,15 +734,23 @@ async function _run() {
         // Auto-optimize pipeline: grid search -> apply best combo -> re-run
         // -> export CSV. Guarded flag prevents infinite recursion since the
         // re-run below also passes through this same completion block.
-        if (document.getElementById('bt-auto-optimize')?.checked && !_autoOptimizeInProgress) {
+        if (document.getElementById('bt-auto-optimize')?.checked && !_autoOptimizeInProgress && !_autoOptimizeApplied) {
             _autoOptimizeInProgress = true;
+            _autoOptimizeCancelled = false;
+            _setAutoOptimizeButtonState(true);
+
             setTimeout(async () => {
                 try {
+                    if (_autoOptimizeCancelled) { _autoOptimizeInProgress = false; _setAutoOptimizeButtonState(false); return; }
+
                     _setProgress(5, 'Auto-optimize: running grid search...');
                     document.getElementById('bt-progress').style.display = '';
                     document.getElementById('bt-results').style.display  = 'none';
 
                     const optResults = await window.btRunOptimizer();
+
+                    if (_autoOptimizeCancelled) { _autoOptimizeInProgress = false; _setAutoOptimizeButtonState(false); return; }
+
                     if (optResults && optResults.length) {
                         const best = optResults[0];
                         const slField = document.getElementById('bt-sl-mult');
@@ -721,18 +759,25 @@ async function _run() {
                         if (tpField) tpField.value = best.tp;
 
                         _setProgress(50, `Auto-optimize: re-running with best combo SL×${best.sl} TP×${best.tp}...`);
-                        _autoOptimizeInProgress = false; // allow the coming re-run to complete normally
+
+                        // Mark that the optimized combo has been applied so the
+                        // upcoming re-run's completion block does NOT trigger
+                        // another optimize cycle — this is what prevents the
+                        // infinite loop. Guard flag itself stays true through
+                        // the whole pipeline including export.
+                        _autoOptimizeApplied = true;
                         await _run();
 
-                        setTimeout(() => {
-                            _exportCSV();
-                        }, 600);
-                    } else {
-                        _autoOptimizeInProgress = false;
+                        if (!_autoOptimizeCancelled) {
+                            setTimeout(() => { _exportCSV(); }, 600);
+                        }
                     }
                 } catch (e) {
                     console.error('[Backtest] Auto-optimize pipeline failed:', e);
+                } finally {
                     _autoOptimizeInProgress = false;
+                    _autoOptimizeApplied = false;
+                    _setAutoOptimizeButtonState(false);
                 }
             }, 500);
         }
