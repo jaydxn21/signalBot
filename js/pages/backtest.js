@@ -342,10 +342,10 @@ window.btRunOptimizer = async function() {
             confidence: wf.overfit.score,
             grade:      wf.overfit.grade,
             gradeColor: wf.overfit.color,
-            oosWR:      wf.oos.stats.winRate,
+            oosWR:      wf.oos.stats.winRate * 100,
             oosPF:      wf.oos.stats.profitFactor,
             oosNetPnL:  wf.oos.stats.netPnL,
-            isWR:       wf.is.stats.winRate,
+            isWR:       wf.is.stats.winRate * 100,
             trades:     wf.oos.stats.total,
         });
     }
