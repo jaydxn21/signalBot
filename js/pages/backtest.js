@@ -317,6 +317,57 @@ window.btToggleBatch = function() {
     if (isHidden) _populateBatchSymbolList();
 };
 
+// ─────────────────────────────────────────────────────────────
+// BATCH OPTIMIZER
+// ─────────────────────────────────────────────────────────────
+const CATEGORY_LABEL_MAP = {
+    'Synthetic':      '⚡ Synthetic',
+    'Forex':          '💱 Forex',
+    'Crypto':         '₿ Crypto',
+    'Commodities':    '🥇 Commodities',
+    'Crash & Boom':   '💥 Crash & Boom',
+};
+
+function _populateBatchSymbolList() {
+    const listEl = document.getElementById('bt-batch-symbol-list');
+    if (!listEl || listEl.dataset.populated === 'true') return;
+
+    const symbolSelect = document.getElementById('bt-symbol');
+    const optgroups = symbolSelect.querySelectorAll('optgroup');
+
+    let html = '';
+    optgroups.forEach(og => {
+        const rawLabel = og.getAttribute('label') || '';
+        // Strip emoji prefix to get a clean category key matching CATEGORY_LABEL_MAP values
+        const catKey = Object.keys(CATEGORY_LABEL_MAP).find(k => rawLabel.includes(k)) || rawLabel;
+
+        html += `<div style="width:100%;font-size:0.5rem;font-weight:700;letter-spacing:0.08em;color:var(--text-muted);margin-top:6px;">${rawLabel}</div>`;
+        og.querySelectorAll('option').forEach(opt => {
+            html += `
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;">
+                    <input type="checkbox" class="bt-batch-symbol-cb" value="${opt.value}" data-category="${catKey}">
+                    ${opt.textContent}
+                </label>`;
+        });
+    });
+
+    listEl.innerHTML = html;
+    listEl.dataset.populated = 'true';
+}
+
+window.btBatchSelectCategory = function(category) {
+    const checkboxes = document.querySelectorAll('.bt-batch-symbol-cb');
+    checkboxes.forEach(cb => {
+        if (category === 'all') cb.checked = true;
+        else if (category === 'none') cb.checked = false;
+        else if (cb.dataset.category === category) cb.checked = true;
+    });
+};
+
+function _getSelectedBatchSymbols() {
+    return Array.from(document.querySelectorAll('.bt-batch-symbol-cb:checked')).map(cb => cb.value);
+}
+
 window.btRunOptimizer = async function() {
     const strategy = document.getElementById('bt-strategy').value;
     if (!_usesGenericBacktestEngine(strategy)) {
