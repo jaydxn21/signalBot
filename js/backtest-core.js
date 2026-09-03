@@ -179,6 +179,23 @@ export function _detectOverfit(isStats, oosStats) {
     if (oosStats.total < 10) { warnings.push(`Only ${oosStats.total} trades in OOS — results not statistically reliable`); score -= 20; }
     if (isStats.total < 15)  { warnings.push(`Only ${isStats.total} trades in IS — increase candle count for reliable results`); score -= 10; }
 
+    // HARD CAP: below a real minimum sample size, no combination of good
+    // metrics can produce a trustworthy grade. A "999 profit factor" from
+    // 2 trades with zero losses is a statistical artifact, not an edge —
+    // this must override even the proportional PF bonus below, since a
+    // large bonus on tiny samples can otherwise swamp the deduction above
+    // and still produce a misleading B/A grade.
+    let sampleSizeCap = 115;
+    if (oosStats.total < 10) {
+        warnings.push(`OOS sample size (${oosStats.total} trades) is too small for any grade above D — increase candle count`);
+        sampleSizeCap = 40;
+    } else if (oosStats.total < 20) {
+        warnings.push(`OOS sample size (${oosStats.total} trades) is small — treat this grade with caution`);
+        sampleSizeCap = 65;
+    } else if (oosStats.total < 50) {
+        sampleSizeCap = 90;
+    }
+
     // 5. IS win rate suspiciously high
     if (isStats.winRate > 0.85 && isStats.total > 20) { warnings.push(`IS win rate ${(isStats.winRate*100).toFixed(0)}% is suspiciously high — possible overfit`); score -= 15; }
 
@@ -220,7 +237,7 @@ export function _detectOverfit(isStats, oosStats) {
     // Cap raised to 115 so genuinely strong PF results (1.5+) can still
     // rank above merely-passing ones instead of all clipping to the same
     // ceiling. Grade thresholds below account for the wider scale.
-    score = Math.min(115, score);
+    score = Math.min(sampleSizeCap, score);
 
     const grade = score >= 90 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 35 ? 'D' : 'F';
 
