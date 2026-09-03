@@ -381,6 +381,16 @@ window.btRunBatch = async function() {
         return;
     }
 
+    // Force off the single-run auto-optimize checkbox for the duration of
+    // the batch. Otherwise every _run() call inside the loop below would
+    // ALSO trigger the single-run auto-optimize pipeline (a second,
+    // redundant optimizer pass plus its own CSV download) on top of the
+    // batch's own per-symbol optimization -- causing one CSV per symbol
+    // instead of the single consolidated export this feature is meant to produce.
+    const autoOptCb = document.getElementById('bt-auto-optimize');
+    const autoOptWasChecked = autoOptCb?.checked || false;
+    if (autoOptCb) autoOptCb.checked = false;
+
     const strategy = document.getElementById('bt-strategy').value;
     if (!_usesGenericBacktestEngine(strategy)) {
         alert(`${strategy.toUpperCase()} is not supported yet in batch mode.`);
@@ -462,6 +472,7 @@ window.btRunBatch = async function() {
     }
 
     symbolSelect.value = originalSymbol;
+    if (autoOptCb) autoOptCb.checked = autoOptWasChecked;
     btn.textContent = '▶ RUN BATCH';
     btn.onclick = window.btRunBatch;
     progEl.style.display = 'none';
