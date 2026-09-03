@@ -328,6 +328,9 @@ const CATEGORY_LABEL_MAP = {
     'Crash & Boom':   '💥 Crash & Boom',
 };
 
+let _batchCancelled = false;
+let _batchRunning   = false;
+
 function _populateBatchSymbolList() {
     const listEl = document.getElementById('bt-batch-symbol-list');
     if (!listEl || listEl.dataset.populated === 'true') return;
@@ -338,7 +341,6 @@ function _populateBatchSymbolList() {
     let html = '';
     optgroups.forEach(og => {
         const rawLabel = og.getAttribute('label') || '';
-        // Strip emoji prefix to get a clean category key matching CATEGORY_LABEL_MAP values
         const catKey = Object.keys(CATEGORY_LABEL_MAP).find(k => rawLabel.includes(k)) || rawLabel;
 
         html += `<div style="width:100%;font-size:0.5rem;font-weight:700;letter-spacing:0.08em;color:var(--text-muted);margin-top:6px;">${rawLabel}</div>`;
@@ -366,6 +368,158 @@ window.btBatchSelectCategory = function(category) {
 
 function _getSelectedBatchSymbols() {
     return Array.from(document.querySelectorAll('.bt-batch-symbol-cb:checked')).map(cb => cb.value);
+}
+
+window.btCancelBatch = function() {
+    _batchCancelled = true;
+};
+
+window.btRunBatch = async function() {
+    const symbols = _getSelectedBatchSymbols();
+    if (!symbols.length) {
+        alert('Select at least one symbol to run the batch on.');
+        return;
+    }
+
+    const strategy = document.getElementById('bt-strategy').value;
+    if (!_usesGenericBacktestEngine(strategy)) {
+        alert(`${strategy.toUpperCase()} is not supported yet in batch mode.`);
+        return;
+    }
+
+    const btn = document.getElementById('bt-batch-run-btn');
+    const progEl = document.getElementById('bt-batch-progress');
+    const symbolSelect = document.getElementById('bt-symbol');
+    const originalSymbol = symbolSelect.value;
+
+    btn.textContent = '■ STOP BATCH';
+    btn.onclick = window.btCancelBatch;
+    progEl.style.display = '';
+    _batchCancelled = false;
+    _batchRunning = true;
+
+    const batchResults = [];
+
+    for (let i = 0; i < symbols.length; i++) {
+        if (_batchCancelled) break;
+        const sym = symbols[i];
+        progEl.textContent = `Testing symbol ${i+1}/${symbols.length}: ${sym}...`;
+
+        try {
+            symbolSelect.value = sym;
+            await _run();
+            if (_batchCancelled) break;
+
+            // Copy batch-specific SL/TP ranges into the single optimizer's
+            // fields so btRunOptimizer() picks them up, then restore after.
+            const slMinEl = document.getElementById('bt-opt-sl-min');
+            const slMaxEl = document.getElementById('bt-opt-sl-max');
+            const slStepEl = document.getElementById('bt-opt-sl-step');
+            const tpMinEl = document.getElementById('bt-opt-tp-min');
+            const tpMaxEl = document.getElementById('bt-opt-tp-max');
+            const tpStepEl = document.getElementById('bt-opt-tp-step');
+            const maxEl = document.getElementById('bt-opt-max');
+
+            const savedRanges = {
+                slMin: slMinEl.value, slMax: slMaxEl.value, slStep: slStepEl.value,
+                tpMin: tpMinEl.value, tpMax: tpMaxEl.value, tpStep: tpStepEl.value,
+                max: maxEl.value,
+            };
+
+            slMinEl.value  = document.getElementById('bt-batch-sl-min').value;
+            slMaxEl.value  = document.getElementById('bt-batch-sl-max').value;
+            slStepEl.value = document.getElementById('bt-batch-sl-step').value;
+            tpMinEl.value  = document.getElementById('bt-batch-tp-min').value;
+            tpMaxEl.value  = document.getElementById('bt-batch-tp-max').value;
+            tpStepEl.value = document.getElementById('bt-batch-tp-step').value;
+            maxEl.value    = document.getElementById('bt-batch-max').value;
+
+            const optResults = await window.btRunOptimizer();
+
+            slMinEl.value = savedRanges.slMin; slMaxEl.value = savedRanges.slMax; slStepEl.value = savedRanges.slStep;
+            tpMinEl.value = savedRanges.tpMin; tpMaxEl.value = savedRanges.tpMax; tpStepEl.value = savedRanges.tpStep;
+            maxEl.value = savedRanges.max;
+
+            if (optResults && optResults.length) {
+                const best = optResults[0];
+                batchResults.push({
+                    symbol: sym,
+                    symbolLabel: symbolSelect.options[symbolSelect.selectedIndex]?.textContent || sym,
+                    sl: best.sl, tp: best.tp,
+                    rr: (best.tp / best.sl),
+                    isWR: best.isWR, oosWR: best.oosWR, oosPF: best.oosPF,
+                    oosNetPnL: best.oosNetPnL, trades: best.trades,
+                    confidence: best.confidence, grade: best.grade, gradeColor: best.gradeColor,
+                    stats: _lastStats, wfResult: _wfResult,
+                });
+            } else {
+                batchResults.push({ symbol: sym, symbolLabel: sym, error: 'No optimizer results (insufficient signals)' });
+            }
+        } catch (e) {
+            console.error(`[Batch] ${sym} failed:`, e);
+            batchResults.push({ symbol: sym, symbolLabel: sym, error: e.message });
+        }
+    }
+
+    symbolSelect.value = originalSymbol;
+    btn.textContent = '▶ RUN BATCH';
+    btn.onclick = window.btRunBatch;
+    progEl.style.display = 'none';
+    _batchRunning = false;
+
+    window._lastBatchResults = batchResults;
+    _renderBatchResults(batchResults);
+};
+
+function _renderBatchResults(results) {
+    const el = document.getElementById('bt-batch-results');
+    if (!el) return;
+
+    const valid = results.filter(r => !r.error);
+    valid.sort((a, b) => {
+        const confDiff = b.confidence - a.confidence;
+        if (Math.abs(confDiff) > 0.5) return confDiff;
+        return b.oosPF - a.oosPF;
+    });
+    const errored = results.filter(r => r.error);
+
+    let html = `<div style="padding:10px 20px 20px;">`;
+    if (valid.length) {
+        html += `
+        <table class="bt-opt-table">
+            <thead><tr>
+                <th>#</th><th>SYMBOL</th><th>SL×ATR</th><th>TP×ATR</th><th>R:R</th>
+                <th>OOS WR%</th><th>OOS PF</th><th>NET P&L</th><th>TRADES</th><th>CONFIDENCE</th>
+            </tr></thead>
+            <tbody>
+            ${valid.map((r, i) => `
+                <tr class="${i === 0 ? 'bt-opt-best-row' : ''}">
+                    <td style="color:var(--text-muted)">${i+1}</td>
+                    <td style="font-weight:700">${r.symbolLabel}</td>
+                    <td>${r.sl}</td>
+                    <td>${r.tp}</td>
+                    <td>${r.rr.toFixed(2)}</td>
+                    <td style="color:${r.oosWR>=50?'#10b981':'#ef4444'};font-weight:700">${r.oosWR.toFixed(1)}%</td>
+                    <td style="color:${r.oosPF>=1?'#10b981':'#ef4444'};font-weight:600">${r.oosPF===Infinity?'∞':r.oosPF.toFixed(2)}</td>
+                    <td style="color:${r.oosNetPnL>=0?'#10b981':'#ef4444'}">${r.oosNetPnL>=0?'+':''}${r.oosNetPnL.toFixed(2)}</td>
+                    <td>${r.trades}</td>
+                    <td><span style="font-weight:800;color:${r.gradeColor};font-family:var(--font-mono)">${r.confidence.toFixed(1)} ${r.grade}</span></td>
+                </tr>
+            `).join('')}
+            </tbody>
+        </table>`;
+    }
+    if (errored.length) {
+        html += `<div style="margin-top:12px;font-size:0.6rem;color:var(--text-muted);">
+            <div style="font-weight:700;margin-bottom:4px;">Skipped:</div>
+            ${errored.map(r => `<div>• ${r.symbolLabel}: ${r.error}</div>`).join('')}
+        </div>`;
+    }
+    if (valid.length) {
+        html += `<button class="bt-ghost-btn" style="margin-top:14px;" onclick="window.btExportBatchCSV()">⬇ EXPORT BATCH CSV</button>`;
+    }
+    html += `</div>`;
+    el.innerHTML = html;
 }
 
 window.btRunOptimizer = async function() {
