@@ -533,6 +533,116 @@ function _renderBatchResults(results) {
     el.innerHTML = html;
 }
 
+window.btExportBatchCSV = function() {
+    const results = window._lastBatchResults;
+    if (!results || !results.length) return;
+
+    const rows = [];
+    const strategy = document.getElementById('bt-strategy')?.value || '';
+    const valid = results.filter(r => !r.error);
+    valid.sort((a, b) => {
+        const confDiff = b.confidence - a.confidence;
+        if (Math.abs(confDiff) > 0.5) return confDiff;
+        return b.oosPF - a.oosPF;
+    });
+
+    // ── BATCH META ──────────────────────────────────────────
+    rows.push('=== BATCH_META ===');
+    rows.push('field,value');
+    rows.push(`export_timestamp,${new Date().toISOString()}`);
+    rows.push(`strategy,${_csvEscape(strategy)}`);
+    rows.push(`symbols_tested,${results.length}`);
+    rows.push(`symbols_succeeded,${valid.length}`);
+    rows.push(`symbols_skipped,${results.length - valid.length}`);
+    rows.push('');
+
+    // ── LEADERBOARD (quick-scan summary, sorted best to worst) ─
+    rows.push('=== BATCH_LEADERBOARD ===');
+    rows.push('rank,symbol,symbol_label,best_sl_mult,best_tp_mult,rr,oos_win_rate_pct,oos_profit_factor,oos_net_pnl,trades,confidence_score,grade');
+    valid.forEach((r, i) => {
+        rows.push([
+            i + 1, r.symbol, _csvEscape(r.symbolLabel), r.sl, r.tp, r.rr.toFixed(2),
+            r.oosWR.toFixed(2), r.oosPF === Infinity ? 'inf' : r.oosPF.toFixed(3),
+            r.oosNetPnL, r.trades, r.confidence.toFixed(2), r.grade
+        ].join(','));
+    });
+    rows.push('');
+
+    if (results.length > valid.length) {
+        rows.push('=== BATCH_SKIPPED ===');
+        rows.push('symbol,reason');
+        results.filter(r => r.error).forEach(r => {
+            rows.push(`${r.symbol},${_csvEscape(r.error)}`);
+        });
+        rows.push('');
+    }
+
+    // ── PER-SYMBOL DETAIL (full stats, same shape as single-symbol export) ─
+    valid.forEach(r => {
+        const s    = r.stats;
+        const wf   = r.wfResult;
+        const isS  = wf?.is?.stats;
+        const oosS = wf?.oos?.stats;
+        const overfit = wf?.overfit;
+        const tag  = r.symbol.replace(/[^a-zA-Z0-9_]/g, '_');
+
+        rows.push(`=== ${tag}_OVERALL_STATS ===`);
+        rows.push('metric,value');
+        if (s) {
+            rows.push(`total_trades,${s.total}`);
+            rows.push(`wins,${s.wins}`);
+            rows.push(`losses,${s.losses}`);
+            rows.push(`win_rate_pct,${(s.winRate*100).toFixed(2)}`);
+            rows.push(`profit_factor,${s.profitFactor}`);
+            rows.push(`net_pnl,${s.netPnL}`);
+            rows.push(`max_drawdown,${s.maxDD}`);
+            rows.push(`avg_rr,${s.avgRR}`);
+            rows.push(`max_consec_losses,${s.maxStreak}`);
+            rows.push(`expectancy,${s.expectancy}`);
+        }
+        rows.push('');
+
+        if (isS) {
+            rows.push(`=== ${tag}_WALK_FORWARD_IN_SAMPLE ===`);
+            rows.push('metric,value');
+            rows.push(`total_trades,${isS.total}`);
+            rows.push(`win_rate_pct,${(isS.winRate*100).toFixed(2)}`);
+            rows.push(`profit_factor,${isS.profitFactor}`);
+            rows.push(`net_pnl,${isS.netPnL}`);
+            rows.push(`max_drawdown,${isS.maxDD}`);
+            rows.push(`expectancy,${isS.expectancy}`);
+            rows.push('');
+        }
+
+        if (oosS) {
+            rows.push(`=== ${tag}_WALK_FORWARD_OUT_OF_SAMPLE ===`);
+            rows.push('metric,value');
+            rows.push(`total_trades,${oosS.total}`);
+            rows.push(`win_rate_pct,${(oosS.winRate*100).toFixed(2)}`);
+            rows.push(`profit_factor,${oosS.profitFactor}`);
+            rows.push(`net_pnl,${oosS.netPnL}`);
+            rows.push(`max_drawdown,${oosS.maxDD}`);
+            rows.push(`expectancy,${oosS.expectancy}`);
+            rows.push('');
+        }
+
+        if (overfit) {
+            rows.push(`=== ${tag}_OVERFIT_ANALYSIS ===`);
+            rows.push('metric,value');
+            rows.push(`score,${overfit.score}`);
+            rows.push(`grade,${overfit.grade}`);
+            rows.push(`verdict,${_csvEscape(overfit.verdict)}`);
+            rows.push('');
+        }
+    });
+
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `nexus_batch_${strategy}_${Date.now()}.csv`;
+    a.click();
+};
+
 window.btRunOptimizer = async function() {
     const strategy = document.getElementById('bt-strategy').value;
     if (!_usesGenericBacktestEngine(strategy)) {
