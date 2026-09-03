@@ -310,6 +310,13 @@ window.btToggleOptimizer = function() {
     wrap.style.display = wrap.style.display === 'none' ? '' : 'none';
 };
 
+window.btToggleBatch = function() {
+    const wrap = document.getElementById('bt-batch-wrap');
+    const isHidden = wrap.style.display === 'none';
+    wrap.style.display = isHidden ? '' : 'none';
+    if (isHidden) _populateBatchSymbolList();
+};
+
 window.btRunOptimizer = async function() {
     const strategy = document.getElementById('bt-strategy').value;
     if (!_usesGenericBacktestEngine(strategy)) {

@@ -215,6 +215,10 @@
                         data-tip="Grid search SL/TP ranges to find best parameter combination"
                         onclick="window.btToggleOptimizer()">⚙ PARAMETER OPTIMIZER</button>
 
+                    <button id="bt-batch-btn" class="bt-ghost-btn" style="margin-top:6px;"
+                        data-tip="Run + optimize across multiple symbols at once, ranked leaderboard"
+                        onclick="window.btToggleBatch()">📊 BATCH OPTIMIZER</button>
+
                     <div id="bt-progress" style="display:none;">
                         <div id="bt-progress-bar"><div id="bt-progress-fill"></div></div>
                         <div id="bt-progress-label">Fetching candles...</div>
@@ -353,6 +357,59 @@
                             </div>
                         </div>
                         <div id="bt-optimizer-results"></div>
+                    </div>
+
+                    <!-- Batch Optimizer Panel -->
+                    <div id="bt-batch-wrap" style="display:none;">
+                        <div class="bt-panel-label" style="padding:14px 20px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            BATCH OPTIMIZER
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;">run + optimize across multiple symbols</span>
+                            <button onclick="window.btRunBatch()" class="bt-opt-run-btn" id="bt-batch-run-btn">▶ RUN BATCH</button>
+                            <div id="bt-batch-progress" style="display:none;font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono);"></div>
+                        </div>
+
+                        <div style="padding:10px 20px;">
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('Synthetic')" style="font-size:0.58rem;padding:5px 10px;">⚡ Synthetic</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('Forex')" style="font-size:0.58rem;padding:5px 10px;">💱 Forex</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('Crypto')" style="font-size:0.58rem;padding:5px 10px;">₿ Crypto</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('Commodities')" style="font-size:0.58rem;padding:5px 10px;">🥇 Commodities</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('Crash & Boom')" style="font-size:0.58rem;padding:5px 10px;">💥 Crash & Boom</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('all')" style="font-size:0.58rem;padding:5px 10px;">✓ All</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btBatchSelectCategory('none')" style="font-size:0.58rem;padding:5px 10px;">✕ None</button>
+                            </div>
+                            <div id="bt-batch-symbol-list" style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:0.6rem;color:var(--text-dark);max-height:140px;overflow-y:auto;padding:8px;border:1px solid var(--border-color,rgba(100,116,139,0.2));border-radius:6px;"></div>
+                        </div>
+
+                        <div class="bt-opt-config">
+                            <div class="bt-opt-field">
+                                <div class="bt-opt-label" data-tip="Stop loss multiplier range to test per symbol">SL MULT RANGE</div>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <input id="bt-batch-sl-min" type="number" class="bt-input" value="0.8" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">to</span>
+                                    <input id="bt-batch-sl-max" type="number" class="bt-input" value="2.0" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">step</span>
+                                    <input id="bt-batch-sl-step" type="number" class="bt-input" value="0.2" step="0.1" style="width:55px">
+                                </div>
+                            </div>
+
+                            <div class="bt-opt-field">
+                                <div class="bt-opt-label" data-tip="Take profit multiplier range to test per symbol">TP MULT RANGE</div>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <input id="bt-batch-tp-min" type="number" class="bt-input" value="1.0" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">to</span>
+                                    <input id="bt-batch-tp-max" type="number" class="bt-input" value="3.0" step="0.2" style="width:60px">
+                                    <span style="font-size:0.6rem;color:var(--text-muted)">step</span>
+                                    <input id="bt-batch-tp-step" type="number" class="bt-input" value="0.5" step="0.1" style="width:55px">
+                                </div>
+                            </div>
+                            <div class="bt-opt-field" style="align-self:flex-end;">
+                                <div class="bt-opt-label" data-tip="Max SL/TP combos tested per symbol">MAX COMBOS/SYMBOL</div>
+                                <input id="bt-batch-max" type="number" class="bt-input" value="20" min="5" max="100" style="width:70px">
+                            </div>
+                        </div>
+
+                        <div id="bt-batch-results"></div>
                     </div>
 
                     <!-- Trade log -->
