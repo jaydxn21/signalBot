@@ -179,21 +179,24 @@ export function _detectOverfit(isStats, oosStats) {
     if (oosStats.total < 10) { warnings.push(`Only ${oosStats.total} trades in OOS — results not statistically reliable`); score -= 20; }
     if (isStats.total < 15)  { warnings.push(`Only ${isStats.total} trades in IS — increase candle count for reliable results`); score -= 10; }
 
-    // HARD CAP: below a real minimum sample size, no combination of good
-    // metrics can produce a trustworthy grade. A "999 profit factor" from
-    // 2 trades with zero losses is a statistical artifact, not an edge —
-    // this must override even the proportional PF bonus below, since a
-    // large bonus on tiny samples can otherwise swamp the deduction above
-    // and still produce a misleading B/A grade.
-    let sampleSizeCap = 115;
+    // SAMPLE SIZE CONFIDENCE MULTIPLIER: instead of a flat cap per band
+    // (which flattened every result in a range to an identical score,
+    // erasing real differences between e.g. a 45%-WR and 62%-WR result
+    // that both happened to have 20-50 trades), scale continuously.
+    // A "999 profit factor" from 2 trades with zero losses is a
+    // statistical artifact, not an edge — this multiplier suppresses
+    // that kind of result without also flattening larger-but-still-modest
+    // samples down to a shared ceiling.
+    let sampleSizeMultiplier = 1.0;
     if (oosStats.total < 10) {
         warnings.push(`OOS sample size (${oosStats.total} trades) is too small for any grade above D — increase candle count`);
-        sampleSizeCap = 40;
-    } else if (oosStats.total < 20) {
-        warnings.push(`OOS sample size (${oosStats.total} trades) is small — treat this grade with caution`);
-        sampleSizeCap = 65;
-    } else if (oosStats.total < 50) {
-        sampleSizeCap = 90;
+        sampleSizeMultiplier = 0.35;
+    } else if (oosStats.total < 100) {
+        warnings.push(`OOS sample size (${oosStats.total} trades) is on the smaller side — treat this grade with some caution`);
+        // Scales smoothly from 0.55 at 10 trades up to 1.0 at 100 trades,
+        // so 24 trades and 45 trades (both "medium-small") still land at
+        // meaningfully different multipliers rather than an identical cap.
+        sampleSizeMultiplier = 0.55 + 0.45 * ((oosStats.total - 10) / 90);
     }
 
     // 5. IS win rate suspiciously high
@@ -234,10 +237,12 @@ export function _detectOverfit(isStats, oosStats) {
             score -= 10;
         }
     }
-    // Cap raised to 115 so genuinely strong PF results (1.5+) can still
-    // rank above merely-passing ones instead of all clipping to the same
-    // ceiling. Grade thresholds below account for the wider scale.
-    score = Math.min(sampleSizeCap, score);
+    // Apply the sample-size confidence multiplier to the whole score
+    // (after the absolute-profitability gates and PF bonus above have
+    // already been applied), then cap at 115 so genuinely strong,
+    // well-sampled results can still rank above merely-passing ones.
+    score = score * sampleSizeMultiplier;
+    score = Math.min(115, score);
 
     const grade = score >= 90 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 35 ? 'D' : 'F';
 
