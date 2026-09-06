@@ -219,6 +219,10 @@
                         data-tip="Run + optimize across multiple symbols at once, ranked leaderboard"
                         onclick="window.btToggleBatch()">📊 BATCH OPTIMIZER</button>
 
+                    <button id="bt-ultimate-btn" class="bt-ghost-btn" style="margin-top:6px;"
+                        data-tip="Every symbol × every timeframe × every strategy, one consolidated CSV. Can take a long time."
+                        onclick="window.btToggleUltimate()">🚀 ULTIMATE TEST</button>
+
                     <div id="bt-progress" style="display:none;">
                         <div id="bt-progress-bar"><div id="bt-progress-fill"></div></div>
                         <div id="bt-progress-label">Fetching candles...</div>
@@ -410,6 +414,63 @@
                         </div>
 
                         <div id="bt-batch-results"></div>
+                    </div>
+
+                    <!-- Ultimate Test Panel -->
+                    <div id="bt-ultimate-wrap" style="display:none;">
+                        <div class="bt-panel-label" style="padding:14px 20px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            ULTIMATE TEST
+                            <span style="font-size:0.5rem;color:var(--text-muted);font-weight:400;">every symbol × every timeframe × every strategy, one CSV</span>
+                            <button onclick="window.btRunUltimate()" class="bt-opt-run-btn" id="bt-ultimate-run-btn">▶ RUN ULTIMATE TEST</button>
+                            <div id="bt-ultimate-progress" style="display:none;font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono);"></div>
+                        </div>
+
+                        <div style="padding:10px 20px;">
+                            <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:6px;">SYMBOLS</div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('Synthetic')" style="font-size:0.58rem;padding:5px 10px;">⚡ Synthetic</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('Forex')" style="font-size:0.58rem;padding:5px 10px;">💱 Forex</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('Crypto')" style="font-size:0.58rem;padding:5px 10px;">₿ Crypto</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('Commodities')" style="font-size:0.58rem;padding:5px 10px;">🥇 Commodities</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('Crash & Boom')" style="font-size:0.58rem;padding:5px 10px;">💥 Crash & Boom</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('all')" style="font-size:0.58rem;padding:5px 10px;">✓ All</button>
+                                <button type="button" class="bt-ghost-btn" onclick="window.btUltimateSelectCategory('none')" style="font-size:0.58rem;padding:5px 10px;">✕ None</button>
+                            </div>
+                            <div id="bt-ultimate-symbol-list" style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:0.6rem;color:var(--text-dark);max-height:120px;overflow-y:auto;padding:8px;border:1px solid var(--border-color,rgba(100,116,139,0.2));border-radius:6px;margin-bottom:14px;"></div>
+
+                            <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:6px;">TIMEFRAMES <span style="opacity:0.6;font-weight:400;">(tested highest → lowest)</span></div>
+                            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;font-size:0.62rem;">
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-tf-14400" checked value="14400"> H4</label>
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-tf-3600" checked value="3600"> H1</label>
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-tf-1800" checked value="1800"> M30</label>
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-tf-900" checked value="900"> M15</label>
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-tf-300" value="300"> M5</label>
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;opacity:0.6;"><input type="checkbox" id="bt-ultimate-tf-60" value="60"> M1 <span style="font-size:0.55rem;">(slow, noisy)</span></label>
+                            </div>
+
+                            <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:6px;">STRATEGIES</div>
+                            <div style="display:flex;gap:14px;margin-bottom:14px;font-size:0.62rem;">
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-strat-breakout" checked value="breakout"> 📈 Breakout</label>
+                                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="bt-ultimate-strat-vwap" checked value="vwap_reversion"> 📉 VWAP Reversion</label>
+                            </div>
+
+                            <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+                                <div class="bt-opt-field">
+                                    <div class="bt-opt-label" data-tip="Lookback days per symbol/timeframe cell">LOOKBACK DAYS</div>
+                                    <input id="bt-ultimate-days" type="number" class="bt-input" value="365" min="30" style="width:80px">
+                                </div>
+                                <div class="bt-opt-field">
+                                    <div class="bt-opt-label" data-tip="Max SL/TP combos tested per cell — kept low since this prioritizes breadth over fine-tuning">MAX COMBOS/CELL</div>
+                                    <input id="bt-ultimate-max" type="number" class="bt-input" value="10" min="3" max="30" style="width:70px">
+                                </div>
+                                <div style="font-size:0.58rem;color:var(--text-muted);max-width:260px;">
+                                    ⚠ This can take a long time. Estimate: symbols × timeframes × strategies × combos = total backtest cycles.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="bt-ultimate-estimate" style="padding:0 20px 10px;font-size:0.62rem;color:var(--text-muted);font-family:var(--font-mono);"></div>
+                        <div id="bt-ultimate-results"></div>
                     </div>
 
                     <!-- Trade log -->

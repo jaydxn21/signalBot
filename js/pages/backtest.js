@@ -643,6 +643,351 @@ window.btExportBatchCSV = function() {
     a.click();
 };
 
+// ─────────────────────────────────────────────────────────────
+// ULTIMATE TEST — every symbol × every timeframe × every strategy
+// ─────────────────────────────────────────────────────────────
+const TF_LABELS = { '14400': 'H4', '3600': 'H1', '1800': 'M30', '900': 'M15', '300': 'M5', '60': 'M1' };
+
+let _ultimateCancelled = false;
+let _ultimateRunning   = false;
+
+function _populateUltimateSymbolList() {
+    const listEl = document.getElementById('bt-ultimate-symbol-list');
+    if (!listEl || listEl.dataset.populated === 'true') return;
+
+    const symbolSelect = document.getElementById('bt-symbol');
+    const optgroups = symbolSelect.querySelectorAll('optgroup');
+
+    let html = '';
+    optgroups.forEach(og => {
+        const rawLabel = og.getAttribute('label') || '';
+        const catKey = Object.keys(CATEGORY_LABEL_MAP).find(k => rawLabel.includes(k)) || rawLabel;
+
+        html += `<div style="width:100%;font-size:0.5rem;font-weight:700;letter-spacing:0.08em;color:var(--text-muted);margin-top:6px;">${rawLabel}</div>`;
+        og.querySelectorAll('option').forEach(opt => {
+            html += `
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;">
+                    <input type="checkbox" class="bt-ultimate-symbol-cb" value="${opt.value}" data-category="${catKey}" onchange="window._updateUltimateEstimate()">
+                    ${opt.textContent}
+                </label>`;
+        });
+    });
+
+    listEl.innerHTML = html;
+    listEl.dataset.populated = 'true';
+
+    // Wire estimate updates on TF/strategy checkboxes too, once, on first populate
+    document.querySelectorAll('#bt-ultimate-wrap input[type="checkbox"]:not(.bt-ultimate-symbol-cb)').forEach(cb => {
+        cb.addEventListener('change', window._updateUltimateEstimate);
+    });
+    window._updateUltimateEstimate();
+}
+
+window.btUltimateSelectCategory = function(category) {
+    const checkboxes = document.querySelectorAll('.bt-ultimate-symbol-cb');
+    checkboxes.forEach(cb => {
+        if (category === 'all') cb.checked = true;
+        else if (category === 'none') cb.checked = false;
+        else if (cb.dataset.category === category) cb.checked = true;
+    });
+    window._updateUltimateEstimate();
+};
+
+function _getUltimateSelections() {
+    const symbols = Array.from(document.querySelectorAll('.bt-ultimate-symbol-cb:checked')).map(cb => ({
+        value: cb.value,
+        label: cb.parentElement.textContent.trim(),
+    }));
+    const timeframes = Array.from(document.querySelectorAll('[id^="bt-ultimate-tf-"]:checked')).map(cb => cb.value);
+    const strategies = Array.from(document.querySelectorAll('[id^="bt-ultimate-strat-"]:checked')).map(cb => cb.value);
+    return { symbols, timeframes, strategies };
+}
+
+window._updateUltimateEstimate = function() {
+    const { symbols, timeframes, strategies } = _getUltimateSelections();
+    const maxCombos = parseInt(document.getElementById('bt-ultimate-max')?.value) || 10;
+    const cells = symbols.length * timeframes.length * strategies.length;
+    const totalCycles = cells * maxCombos;
+    const el = document.getElementById('bt-ultimate-estimate');
+    if (el) {
+        el.textContent = cells > 0
+            ? `${symbols.length} symbols × ${timeframes.length} timeframes × ${strategies.length} strategies = ${cells} cells × up to ${maxCombos} combos each ≈ ${totalCycles} backtest cycles. This can take a long time — use the stop button if needed.`
+            : 'Select at least one symbol, timeframe, and strategy.';
+    }
+};
+
+window.btCancelUltimate = function() {
+    _ultimateCancelled = true;
+};
+
+window.btRunUltimate = async function() {
+    const { symbols, timeframes, strategies } = _getUltimateSelections();
+    if (!symbols.length || !timeframes.length || !strategies.length) {
+        alert('Select at least one symbol, one timeframe, and one strategy.');
+        return;
+    }
+
+    const days = parseInt(document.getElementById('bt-ultimate-days')?.value) || 365;
+    const btn = document.getElementById('bt-ultimate-run-btn');
+    const progEl = document.getElementById('bt-ultimate-progress');
+    const symbolSelect = document.getElementById('bt-symbol');
+    const tfSelect = document.getElementById('bt-tf');
+    const stratSelect = document.getElementById('bt-strategy');
+    const countInput = document.getElementById('bt-count');
+    const originalSymbol = symbolSelect.value;
+    const originalTf = tfSelect.value;
+    const originalStrat = stratSelect.value;
+
+    const autoOptCb = document.getElementById('bt-auto-optimize');
+    const autoOptWasChecked = autoOptCb?.checked || false;
+    if (autoOptCb) autoOptCb.checked = false;
+
+    btn.textContent = '■ STOP ULTIMATE TEST';
+    btn.onclick = window.btCancelUltimate;
+    progEl.style.display = '';
+    _ultimateCancelled = false;
+    _ultimateRunning = true;
+
+    // Sort timeframes highest -> lowest as requested (H4 first)
+    const tfOrder = ['14400','3600','1800','900','300','60'];
+    const sortedTf = tfOrder.filter(tf => timeframes.includes(tf));
+
+    const allResults = [];
+    let cellIndex = 0;
+    const totalCells = symbols.length * sortedTf.length * strategies.length;
+
+    // Save/restore optimizer range fields once, around the whole run
+    const slMinEl = document.getElementById('bt-opt-sl-min');
+    const slMaxEl = document.getElementById('bt-opt-sl-max');
+    const slStepEl = document.getElementById('bt-opt-sl-step');
+    const tpMinEl = document.getElementById('bt-opt-tp-min');
+    const tpMaxEl = document.getElementById('bt-opt-tp-max');
+    const tpStepEl = document.getElementById('bt-opt-tp-step');
+    const maxEl = document.getElementById('bt-opt-max');
+    const savedRanges = {
+        slMin: slMinEl.value, slMax: slMaxEl.value, slStep: slStepEl.value,
+        tpMin: tpMinEl.value, tpMax: tpMaxEl.value, tpStep: tpStepEl.value, max: maxEl.value,
+    };
+    const ultMax = document.getElementById('bt-ultimate-max').value;
+
+    outer:
+    for (const tf of sortedTf) {
+        for (const sym of symbols) {
+            for (const strat of strategies) {
+                if (_ultimateCancelled) break outer;
+                cellIndex++;
+                progEl.textContent = `Cell ${cellIndex}/${totalCells}: ${sym.value} · ${TF_LABELS[tf]} · ${strat}...`;
+
+                try {
+                    symbolSelect.value = sym.value;
+                    tfSelect.value = tf;
+                    stratSelect.value = strat;
+                    if (countInput) countInput.value = days;
+                    window.btBuildCandleOptions?.();
+
+                    await _run();
+                    if (_ultimateCancelled) break outer;
+
+                    slMinEl.value = savedRanges.slMin; slMaxEl.value = savedRanges.slMax; slStepEl.value = savedRanges.slStep;
+                    tpMinEl.value = savedRanges.tpMin; tpMaxEl.value = savedRanges.tpMax; tpStepEl.value = savedRanges.tpStep;
+                    maxEl.value = ultMax;
+
+                    const optResults = await window.btRunOptimizer();
+
+                    maxEl.value = savedRanges.max;
+
+                    if (optResults && optResults.length) {
+                        const best = optResults[0];
+                        allResults.push({
+                            symbol: sym.value, symbolLabel: sym.label, timeframe: tf, timeframeLabel: TF_LABELS[tf],
+                            strategy: strat, sl: best.sl, tp: best.tp, rr: best.tp / best.sl,
+                            isWR: best.isWR, oosWR: best.oosWR, oosPF: best.oosPF, oosNetPnL: best.oosNetPnL,
+                            trades: best.trades, confidence: best.confidence, grade: best.grade, gradeColor: best.gradeColor,
+                            stats: _lastStats, wfResult: _wfResult,
+                        });
+                    } else {
+                        allResults.push({ symbol: sym.value, symbolLabel: sym.label, timeframe: tf, timeframeLabel: TF_LABELS[tf], strategy: strat, error: 'No optimizer results (insufficient signals)' });
+                    }
+                } catch (e) {
+                    console.error(`[Ultimate] ${sym.value}/${TF_LABELS[tf]}/${strat} failed:`, e);
+                    allResults.push({ symbol: sym.value, symbolLabel: sym.label, timeframe: tf, timeframeLabel: TF_LABELS[tf], strategy: strat, error: e.message });
+                }
+            }
+        }
+    }
+
+    symbolSelect.value = originalSymbol;
+    tfSelect.value = originalTf;
+    stratSelect.value = originalStrat;
+    if (autoOptCb) autoOptCb.checked = autoOptWasChecked;
+    btn.textContent = '▶ RUN ULTIMATE TEST';
+    btn.onclick = window.btRunUltimate;
+    progEl.style.display = 'none';
+    _ultimateRunning = false;
+
+    window._lastUltimateResults = allResults;
+    _renderUltimateResults(allResults);
+};
+
+function _renderUltimateResults(results) {
+    const el = document.getElementById('bt-ultimate-results');
+    if (!el) return;
+
+    const valid = results.filter(r => !r.error);
+    valid.sort((a, b) => {
+        const confDiff = b.confidence - a.confidence;
+        if (Math.abs(confDiff) > 0.5) return confDiff;
+        return b.oosPF - a.oosPF;
+    });
+    const errored = results.filter(r => r.error);
+
+    let html = `<div style="padding:10px 20px 20px;">`;
+    html += `<div style="font-size:0.62rem;color:var(--text-muted);margin-bottom:10px;">${valid.length} cells completed · ${errored.length} skipped</div>`;
+    if (valid.length) {
+        html += `
+        <table class="bt-opt-table">
+            <thead><tr>
+                <th>#</th><th>SYMBOL</th><th>TF</th><th>STRATEGY</th><th>SL×ATR</th><th>TP×ATR</th><th>R:R</th>
+                <th>OOS WR%</th><th>OOS PF</th><th>NET P&L</th><th>TRADES</th><th>CONFIDENCE</th>
+            </tr></thead>
+            <tbody>
+            ${valid.slice(0, 100).map((r, i) => `
+                <tr class="${i === 0 ? 'bt-opt-best-row' : ''}">
+                    <td style="color:var(--text-muted)">${i+1}</td>
+                    <td style="font-weight:700">${r.symbolLabel}</td>
+                    <td>${r.timeframeLabel}</td>
+                    <td>${r.strategy}</td>
+                    <td>${r.sl}</td>
+                    <td>${r.tp}</td>
+                    <td>${r.rr.toFixed(2)}</td>
+                    <td style="color:${r.oosWR>=50?'#10b981':'#ef4444'};font-weight:700">${r.oosWR.toFixed(1)}%</td>
+                    <td style="color:${r.oosPF>=1?'#10b981':'#ef4444'};font-weight:600">${r.oosPF===Infinity?'∞':r.oosPF.toFixed(2)}</td>
+                    <td style="color:${r.oosNetPnL>=0?'#10b981':'#ef4444'}">${r.oosNetPnL>=0?'+':''}${r.oosNetPnL.toFixed(2)}</td>
+                    <td>${r.trades}</td>
+                    <td><span style="font-weight:800;color:${r.gradeColor};font-family:var(--font-mono)">${r.confidence.toFixed(1)} ${r.grade}</span></td>
+                </tr>
+            `).join('')}
+            </tbody>
+        </table>
+        ${valid.length > 100 ? `<div style="font-size:0.6rem;color:var(--text-muted);margin-top:8px;">Showing top 100 of ${valid.length} — full results in the exported CSV.</div>` : ''}`;
+    }
+    if (errored.length) {
+        html += `<div style="margin-top:12px;font-size:0.6rem;color:var(--text-muted);max-height:150px;overflow-y:auto;">
+            <div style="font-weight:700;margin-bottom:4px;">Skipped:</div>
+            ${errored.map(r => `<div>• ${r.symbolLabel} / ${r.timeframeLabel} / ${r.strategy}: ${r.error}</div>`).join('')}
+        </div>`;
+    }
+    if (valid.length) {
+        html += `<button class="bt-ghost-btn" style="margin-top:14px;" onclick="window.btExportUltimateCSV()">⬇ EXPORT ULTIMATE TEST CSV</button>`;
+    }
+    html += `</div>`;
+    el.innerHTML = html;
+}
+
+window.btExportUltimateCSV = function() {
+    const results = window._lastUltimateResults;
+    if (!results || !results.length) return;
+
+    const rows = [];
+    const valid = results.filter(r => !r.error);
+    valid.sort((a, b) => {
+        const confDiff = b.confidence - a.confidence;
+        if (Math.abs(confDiff) > 0.5) return confDiff;
+        return b.oosPF - a.oosPF;
+    });
+
+    rows.push('=== ULTIMATE_TEST_META ===');
+    rows.push('field,value');
+    rows.push(`export_timestamp,${new Date().toISOString()}`);
+    rows.push(`cells_tested,${results.length}`);
+    rows.push(`cells_succeeded,${valid.length}`);
+    rows.push(`cells_skipped,${results.length - valid.length}`);
+    rows.push('');
+
+    rows.push('=== ULTIMATE_TEST_LEADERBOARD ===');
+    rows.push('rank,symbol,timeframe,strategy,best_sl_mult,best_tp_mult,rr,oos_win_rate_pct,oos_profit_factor,oos_net_pnl,trades,confidence_score,grade');
+    valid.forEach((r, i) => {
+        rows.push([
+            i + 1, r.symbol, r.timeframeLabel, r.strategy, r.sl, r.tp, r.rr.toFixed(2),
+            r.oosWR.toFixed(2), r.oosPF === Infinity ? 'inf' : r.oosPF.toFixed(3),
+            r.oosNetPnL, r.trades, r.confidence.toFixed(2), r.grade
+        ].join(','));
+    });
+    rows.push('');
+
+    const skipped = results.filter(r => r.error);
+    if (skipped.length) {
+        rows.push('=== ULTIMATE_TEST_SKIPPED ===');
+        rows.push('symbol,timeframe,strategy,reason');
+        skipped.forEach(r => {
+            rows.push(`${r.symbol},${r.timeframeLabel},${r.strategy},${_csvEscape(r.error)}`);
+        });
+        rows.push('');
+    }
+
+    valid.forEach(r => {
+        const s = r.stats;
+        const wf = r.wfResult;
+        const isS = wf?.is?.stats;
+        const oosS = wf?.oos?.stats;
+        const overfit = wf?.overfit;
+        const tag = `${r.symbol}_${r.timeframeLabel}_${r.strategy}`.replace(/[^a-zA-Z0-9_]/g, '_');
+
+        rows.push(`=== ${tag}_OVERALL_STATS ===`);
+        rows.push('metric,value');
+        if (s) {
+            rows.push(`total_trades,${s.total}`);
+            rows.push(`win_rate_pct,${(s.winRate*100).toFixed(2)}`);
+            rows.push(`profit_factor,${s.profitFactor}`);
+            rows.push(`net_pnl,${s.netPnL}`);
+            rows.push(`max_drawdown,${s.maxDD}`);
+            rows.push(`max_consec_losses,${s.maxStreak}`);
+            rows.push(`expectancy,${s.expectancy}`);
+        }
+        rows.push('');
+
+        if (isS) {
+            rows.push(`=== ${tag}_WF_IN_SAMPLE ===`);
+            rows.push('metric,value');
+            rows.push(`total_trades,${isS.total}`);
+            rows.push(`win_rate_pct,${(isS.winRate*100).toFixed(2)}`);
+            rows.push(`profit_factor,${isS.profitFactor}`);
+            rows.push(`net_pnl,${isS.netPnL}`);
+            rows.push('');
+        }
+        if (oosS) {
+            rows.push(`=== ${tag}_WF_OUT_OF_SAMPLE ===`);
+            rows.push('metric,value');
+            rows.push(`total_trades,${oosS.total}`);
+            rows.push(`win_rate_pct,${(oosS.winRate*100).toFixed(2)}`);
+            rows.push(`profit_factor,${oosS.profitFactor}`);
+            rows.push(`net_pnl,${oosS.netPnL}`);
+            rows.push('');
+        }
+        if (overfit) {
+            rows.push(`=== ${tag}_OVERFIT ===`);
+            rows.push('metric,value');
+            rows.push(`score,${overfit.score}`);
+            rows.push(`grade,${overfit.grade}`);
+            rows.push(`verdict,${_csvEscape(overfit.verdict)}`);
+            rows.push('');
+        }
+    });
+
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `nexus_ultimate_test_${Date.now()}.csv`;
+    a.click();
+};
+
+window.btToggleUltimate = function() {
+    const wrap = document.getElementById('bt-ultimate-wrap');
+    const isHidden = wrap.style.display === 'none';
+    wrap.style.display = isHidden ? '' : 'none';
+    if (isHidden) _populateUltimateSymbolList();
+};
+
 window.btRunOptimizer = async function() {
     const strategy = document.getElementById('bt-strategy').value;
     if (!_usesGenericBacktestEngine(strategy)) {
