@@ -1,22 +1,37 @@
 # -*- coding: utf-8 -*-
+import argparse
 import pandas as pd
 import json
 import joblib
 import os
+from datetime import datetime, timezone
 from sklearn.ensemble import RandomForestClassifier
 
 class TradeLearner:
     def __init__(self, model_path="models/trade_model.pkl"):
         self.model_path = model_path
-        os.makedirs("models", exist_ok=True)
+        os.makedirs(os.path.dirname(self.model_path) or "models", exist_ok=True)
         self.model = None
 
     def load_data(self, json_file="mt5_trades.json"):
-        with open(json_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        df = pd.DataFrame(data)
-        
+        """Load trades from one file, or merge several (comma-separated
+        paths / a list), so the Auto-Researcher's exported walk-forward
+        trades (data/research-trades.json) can be combined with any
+        manually-collected live trades (mt5_trades.json)."""
+        files = json_file if isinstance(json_file, (list, tuple)) else [json_file]
+        rows = []
+        for f in files:
+            if not f or not os.path.exists(f):
+                continue
+            with open(f, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+                if data:
+                    rows.extend(data)
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            raise ValueError(f"No trade data found in: {files}")
+
         # === SAFE FEATURE ENGINEERING ===
         df['rr_ratio'] = abs(df['tp'] - df['entry']) / (abs(df['sl'] - df['entry']) + 0.0001)
         
@@ -78,7 +93,12 @@ class TradeLearner:
         for feat, imp in importance.items():
             print(f"   {feat:12} : {imp:.4f}")
         
-        return True
+        return {
+            "trained_on_count": len(df),
+            "accuracy": accuracy,
+            "feature_importance": importance.to_dict(),
+            "model_path": self.model_path,
+        }
 
     def predict(self, features_dict):
         if self.model is None:
@@ -92,7 +112,39 @@ class TradeLearner:
         return round(prob * 100, 1)
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Train/retrain the trade outcome prediction model.")
+    parser.add_argument(
+        "--data", action="append", default=None,
+        help="Path to a trades JSON file. Repeat --data to merge multiple files. "
+             "Defaults to mt5_trades.json if omitted.",
+    )
+    parser.add_argument(
+        "--out", default=None,
+        help="Output path for the trained model (.pkl). Defaults to models/trade_model.pkl. "
+             "Pass a versioned path (e.g. models/trade_model_<timestamp>.pkl) to keep history.",
+    )
+    parser.add_argument(
+        "--print-json", action="store_true",
+        help="Print a single-line JSON summary (prefixed RESULT_JSON:) for programmatic callers.",
+    )
+    return parser.parse_args()
+
+
 # Run training
 if __name__ == "__main__":
-    learner = TradeLearner()
-    learner.train()
+    args = _parse_args()
+    model_path = args.out or "models/trade_model.pkl"
+    data_files = args.data or ["mt5_trades.json"]
+
+    learner = TradeLearner(model_path=model_path)
+    try:
+        result = learner.train(data_files)
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        if args.print_json:
+            print("RESULT_JSON:" + json.dumps(result))
+    except Exception as e:
+        print(f"❌ Training failed: {e}")
+        if args.print_json:
+            print("RESULT_JSON:" + json.dumps({"error": str(e)}))
+        raise SystemExit(1)

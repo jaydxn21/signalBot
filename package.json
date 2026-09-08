@@ -9,6 +9,8 @@
     "dev": "node --watch server.js",
     "engine": "node engine/engine.js",
     "cli": "node engine/cli.js",
+    "research": "node engine/auto-researcher.js",
+    "research:once": "node engine/auto-researcher.js --once",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop ecosystem.config.cjs",
     "pm2:restart": "pm2 restart ecosystem.config.cjs",
@@ -22,6 +24,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
     "firebase-admin": "^13.10.0",
