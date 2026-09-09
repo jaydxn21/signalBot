@@ -8,7 +8,13 @@
 // machine without code changes.
 
 function parseList(value, fallback) {
-  if (!value) return fallback;
+  if (!value) {
+    // Fallback may itself be a joined string (e.g. "300,900"); normalize it
+    // the same way so callers always get back an array either way.
+    return typeof fallback === 'string'
+      ? fallback.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean)
+      : fallback;
+  }
   return value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
 }
 
