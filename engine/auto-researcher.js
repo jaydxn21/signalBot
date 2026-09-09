@@ -57,16 +57,27 @@ async function runCycle() {
 
   const grid = buildParamGrid(rConfig.grid);
   const winners = [];
+  const allResults = [];
   let totalCombosRun = 0;
   let totalTradesExported = 0;
 
   for (const symbol of rConfig.symbols) {
+    // Fetch H4 trend-context candles once per symbol (not once per
+    // timeframe) — with a 19-symbol default matrix, redundant H4 fetches
+    // would needlessly multiply Deriv API calls. H4 context is optional
+    // (strategies treat an empty array as "no higher-TF filter"), so a
+    // failure here doesn't block the symbol's timeframes.
+    let h4Candles = [];
+    try {
+      h4Candles = await fetchWithRetry(symbol, 14400, rConfig.h4CandleCount);
+    } catch (err) {
+      log(`⚠ H4 fetch failed for ${symbol}, continuing without H4 trend context: ${err.message}`);
+    }
+
     for (const timeframeSeconds of rConfig.timeframes) {
       let candles;
-      let h4Candles;
       try {
         candles = await fetchWithRetry(symbol, timeframeSeconds, rConfig.candleCount);
-        h4Candles = await fetchWithRetry(symbol, 14400, rConfig.h4CandleCount);
       } catch (err) {
         log(`❌ Skipping ${symbol}@${timeframeSeconds}s — candle fetch failed: ${err.message}`);
         continue;
@@ -100,18 +111,35 @@ async function runCycle() {
         await store.saveRun({ ...best, cycleId, isWinner });
         log(`${isWinner ? '✅' : '·'} ${symbol}/${strategyId}@${timeframeSeconds}s best=${JSON.stringify(best.params)} score=${best.score.toFixed(1)} grade=${best.grade} oosWR=${(best.oosStats.winRate * 100).toFixed(1)}%`);
 
+        allResults.push({ ...best, cycleId, isWinner });
         if (isWinner) {
           winners.push(best);
           const learnerTrades = toLearnerTrades({ trades: best.trades, symbol, strategyId });
           totalTradesExported += store.appendTrades(learnerTrades);
         }
-
-        await sleep(rConfig.delayBetweenCombosMs);
       }
+
+      // Politeness pause between symbol/timeframe fetches — this is where
+      // network load actually happens (grid-search combos afterward are
+      // pure in-memory CPU work on the already-fetched candles).
+      await sleep(rConfig.delayBetweenFetchesMs);
     }
   }
 
   log(`🏁 Cycle ${cycleId} complete — ${totalCombosRun} combos evaluated, ${winners.length} winners, ${totalTradesExported} trades exported for training`);
+
+  if (rConfig.githubReportsEnabled) {
+    try {
+      const { publishReportToGitHub } = await import('./research/github-reporter.js');
+      const published = await publishReportToGitHub({
+        cycleId, results: allResults,
+        repo: rConfig.githubRepo, branch: rConfig.githubBranch, reportsPath: rConfig.githubReportsPath,
+      });
+      log(`📝 Published report to GitHub: ${published.path}`);
+    } catch (err) {
+      log(`⚠ GitHub report publish failed (Supabase/local report already saved): ${err.message}`);
+    }
+  }
 
   if (rConfig.autoRetrain) {
     await maybeRetrain();

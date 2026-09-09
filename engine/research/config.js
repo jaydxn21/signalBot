@@ -18,10 +18,18 @@ function toNumber(value, fallback) {
 }
 
 // Deriv symbol codes this repo's strategies already understand
-// (kept in sync with engine/strategy-runner.js's SYMBOL_MAP).
+// (kept in sync with engine/strategy-runner.js's SYMBOL_MAP), expanded to
+// match every symbol the repo already has training_data/*.csv for — those
+// are the instruments this project is actively tracking/trading, so the
+// researcher covers all of them by default rather than a narrow subset.
 const DEFAULT_SYMBOLS = [
   'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
   '1HZ10V', '1HZ75V', '1HZ100V',
+  'JD10', 'JD75', 'JD100',
+  'BOOM1000', 'CRASH1000',
+  'stpRNG',
+  'frxEURUSD', 'frxUSDJPY', 'frxXAUUSD', 'frxEURGBP',
+  'cryBTCUSD', 'cryETHUSD',
 ];
 
 const DEFAULT_STRATEGIES = ['breakout', 'vwap_reversion'];
@@ -55,20 +63,40 @@ export function loadResearchConfig() {
     commission: toNumber(process.env.RESEARCH_COMMISSION, 0),
 
     // Scheduling
-    intervalHours: toNumber(process.env.RESEARCH_INTERVAL_HOURS, 6),
+    // Default 8h — chosen as a middle ground between "system" (an 8h cycle
+    // comfortably finishes background CPU work on modest HP hardware
+    // between runs, even with the expanded default symbol matrix) and
+    // "limits" (roughly 3 cycles/day × ~114 Deriv WS candle requests/cycle
+    // stays well clear of anything resembling abuse, especially spaced out
+    // by delayBetweenFetchesMs below).
+    intervalHours: toNumber(process.env.RESEARCH_INTERVAL_HOURS, 8),
     runOnStart: process.env.RESEARCH_RUN_ON_START !== 'false',
-    delayBetweenCombosMs: toNumber(process.env.RESEARCH_COMBO_DELAY_MS, 500),
+    // Politeness pause after each symbol/timeframe's candle fetch (the only
+    // network-bound step — grid-search combos afterward are pure in-memory
+    // CPU work), so a 19-symbol × 2-timeframe sweep doesn't hammer Deriv's
+    // WS endpoint back-to-back.
+    delayBetweenFetchesMs: toNumber(process.env.RESEARCH_FETCH_DELAY_MS, 1500),
 
     // Grading thresholds — only combos scoring at/above this are kept as
     // "winners" in the report and eligible to feed the model retrainer.
     minWinnerScore: toNumber(process.env.RESEARCH_MIN_WINNER_SCORE, 65),
 
-    // Model retraining
+    // Model retraining — triggered only once enough *new* labeled trades
+    // have accumulated since the last successful train (not every cycle
+    // regardless), so the model isn't repeatedly refit on near-identical
+    // data. Cheap to raise/lower per RESEARCH_MIN_NEW_TRADES_FOR_RETRAIN.
     autoRetrain: process.env.RESEARCH_AUTO_RETRAIN !== 'false',
     minNewTradesForRetrain: toNumber(process.env.RESEARCH_MIN_NEW_TRADES_FOR_RETRAIN, 25),
     pythonBin: process.env.RESEARCH_PYTHON_BIN || 'python3',
 
-    // Optional secondary report sink (opt-in, off by default)
+    // Optional secondary report sink (opt-in, off by default). Primary
+    // record stays Supabase/local JSON (dashboard-queryable); this commits
+    // a Markdown summary per cycle to a `reports/` folder via the GitHub
+    // Contents API for anyone who prefers reviewing reports as commits.
     githubReportsEnabled: process.env.RESEARCH_GITHUB_REPORTS === 'true',
+    githubRepo: process.env.GITHUB_REPO || process.env.GITHUB_REPOSITORY || null,
+    githubBranch: process.env.GITHUB_BRANCH || null,
+    githubReportsPath: process.env.RESEARCH_REPORTS_PATH || 'reports',
   };
 }
+
