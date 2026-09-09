@@ -31,9 +31,10 @@ export function buildParamGrid({
 // combination and return a normalized report row.
 export async function runWalkForwardCombo({
   symbol, timeframeSeconds, strategyId, params,
+  strategyOptions = {},
   candles, h4Candles, stake = 10, commission = 0,
 }) {
-  const strategyObj = _getBuiltinStrategy(strategyId, params);
+  const strategyObj = _getBuiltinStrategy(strategyId, { ...strategyOptions, ...params });
   if (!strategyObj) {
     return { symbol, timeframeSeconds, strategyId, params, error: `Unknown strategy: ${strategyId}` };
   }
@@ -63,13 +64,14 @@ export async function runWalkForwardCombo({
 export async function runGridSearch({
   symbol, timeframeSeconds, strategyId,
   candles, h4Candles, stake = 10, commission = 0,
+  strategyOptions = {},
   grid = buildParamGrid(),
 }) {
   const results = [];
   for (const params of grid) {
     try {
       const result = await runWalkForwardCombo({
-        symbol, timeframeSeconds, strategyId, params, candles, h4Candles, stake, commission,
+        symbol, timeframeSeconds, strategyId, params, strategyOptions, candles, h4Candles, stake, commission,
       });
       results.push(result);
     } catch (err) {

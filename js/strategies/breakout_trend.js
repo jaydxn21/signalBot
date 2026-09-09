@@ -135,16 +135,18 @@ export class BreakoutTrendStrategy {
         const requireTrendFilter  = options.requireTrendFilter  ?? true;
         const minVolatilityFilter = options.minVolatilityFilter ?? 0.7;
         const maxConsecutiveLosses= options.maxConsecutiveLosses ?? 3;
+        const verboseLogs         = options.verboseLogs ?? true;
+        const log = (...args) => { if (verboseLogs) console.log(...args); };
 
         if (candles.length < 21) {
-            console.log(`[${symbol}] Waiting for more candles (${candles.length}/21)`);
+            log(`[${symbol}] Waiting for more candles (${candles.length}/21)`);
             return null;
         }
 
         // Check for consecutive losses
         const losses = this.getConsecutiveLosses(symbol);
         if (losses >= maxConsecutiveLosses) {
-            console.log(`[${symbol}] ⚠️ PAUSING: ${losses} consecutive losses reached (max: ${maxConsecutiveLosses})`);
+            log(`[${symbol}] ⚠️ PAUSING: ${losses} consecutive losses reached (max: ${maxConsecutiveLosses})`);
             return null;
         }
 
@@ -183,13 +185,13 @@ export class BreakoutTrendStrategy {
         
         // Don't trade in low volatility
         if (range < avgRange * volatilityFilter) {
-            console.log(`[${symbol}] 📊 Low volatility: range=${range.toFixed(5)}, avgRange=${avgRange.toFixed(5)}`);
+            log(`[${symbol}] 📊 Low volatility: range=${range.toFixed(5)}, avgRange=${avgRange.toFixed(5)}`);
             return null;
         }
 
         // Detect trend
         const trend = this.detectTrend(candles, 20, 50, atr);
-        console.log(`[${symbol}] 📈 Trend: ${trend} | Range: ${low.toFixed(5)} - ${high.toFixed(5)} | Current: ${close.toFixed(5)}`);
+        log(`[${symbol}] 📈 Trend: ${trend} | Range: ${low.toFixed(5)} - ${high.toFixed(5)} | Current: ${close.toFixed(5)}`);
 
         const resistance = high;
         const support = low;
@@ -226,18 +228,18 @@ export class BreakoutTrendStrategy {
 
         // Check if breakout is significant enough
         if (isBreakoutUp && breakoutUpSize < minSizeThreshold) {
-            console.log(`[${symbol}] ⚠️ Breakout up too small: ${breakoutUpSize.toFixed(5)} < ${minSizeThreshold.toFixed(5)}`);
+            log(`[${symbol}] ⚠️ Breakout up too small: ${breakoutUpSize.toFixed(5)} < ${minSizeThreshold.toFixed(5)}`);
             isBreakoutUp = false;
         }
 
         // Apply trend filter
         if (isBreakoutUp && requireTrendFilter && trend !== 'UP') {
-            console.log(`[${symbol}] 🚫 Breakout up rejected: Downtrend detected`);
+            log(`[${symbol}] 🚫 Breakout up rejected: Downtrend detected`);
             isBreakoutUp = false;
         }
 
         if (isBreakoutUp) {
-            console.log(`[${symbol}] 🔥 BREAKOUT UP detected! Resistance: ${resistance.toFixed(5)} → Current: ${close.toFixed(5)}`);
+            log(`[${symbol}] 🔥 BREAKOUT UP detected! Resistance: ${resistance.toFixed(5)} → Current: ${close.toFixed(5)}`);
             
             // Calculate stop loss distance
             let slDistance;
@@ -289,17 +291,17 @@ export class BreakoutTrendStrategy {
         }
 
         if (isBreakoutDown && breakoutDownSize < minSizeThreshold) {
-            console.log(`[${symbol}] ⚠️ Breakout down too small: ${breakoutDownSize.toFixed(5)} < ${minSizeThreshold.toFixed(5)}`);
+            log(`[${symbol}] ⚠️ Breakout down too small: ${breakoutDownSize.toFixed(5)} < ${minSizeThreshold.toFixed(5)}`);
             isBreakoutDown = false;
         }
 
         if (isBreakoutDown && requireTrendFilter && trend !== 'DOWN') {
-            console.log(`[${symbol}] 🚫 Breakout down rejected: Uptrend detected`);
+            log(`[${symbol}] 🚫 Breakout down rejected: Uptrend detected`);
             isBreakoutDown = false;
         }
 
         if (isBreakoutDown) {
-            console.log(`[${symbol}] 🔥 BREAKOUT DOWN detected! Support: ${support.toFixed(5)} → Current: ${close.toFixed(5)}`);
+            log(`[${symbol}] 🔥 BREAKOUT DOWN detected! Support: ${support.toFixed(5)} → Current: ${close.toFixed(5)}`);
             
             let slDistance;
             if (useATRStop && atr) {
@@ -338,7 +340,7 @@ export class BreakoutTrendStrategy {
         // Log current position in range
         const upDistance = ((resistance - close) / range * 100);
         const downDistance = ((close - support) / range * 100);
-        console.log(`[${symbol}] 📊 Position in range: ↑${upDistance.toFixed(1)}% to breakout | ↓${downDistance.toFixed(1)}% to breakdown`);
+        log(`[${symbol}] 📊 Position in range: ↑${upDistance.toFixed(1)}% to breakout | ↓${downDistance.toFixed(1)}% to breakdown`);
 
         return null;
     }
