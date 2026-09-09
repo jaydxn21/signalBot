@@ -30,6 +30,15 @@ function log(msg) {
   console.log(`[auto-researcher] ${new Date().toISOString()} ${msg}`);
 }
 
+function formatProgress(current, total, width = 20) {
+  const safeTotal = Math.max(total, 1);
+  const ratio = Math.min(Math.max(current / safeTotal, 0), 1);
+  const filled = Math.round(ratio * width);
+  const bar = `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
+  const pct = (ratio * 100).toFixed(1).padStart(5, ' ');
+  return `[${bar}] ${pct}% (${current}/${total})`;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -56,6 +65,8 @@ async function runCycle() {
   log(`🔬 Starting research cycle ${cycleId} — ${rConfig.symbols.length} symbols × ${rConfig.timeframes.length} timeframes × ${rConfig.strategies.length} strategies`);
 
   const grid = buildParamGrid(rConfig.grid);
+  const totalUnits = rConfig.symbols.length * rConfig.timeframes.length * rConfig.strategies.length;
+  let completedUnits = 0;
   const winners = [];
   const allResults = [];
   let totalCombosRun = 0;
@@ -80,23 +91,31 @@ async function runCycle() {
         candles = await fetchWithRetry(symbol, timeframeSeconds, rConfig.candleCount);
       } catch (err) {
         log(`❌ Skipping ${symbol}@${timeframeSeconds}s — candle fetch failed: ${err.message}`);
+        completedUnits += rConfig.strategies.length;
         continue;
       }
 
       if (candles.length < 100) {
         log(`⚠ Skipping ${symbol}@${timeframeSeconds}s — only ${candles.length} candles returned`);
+        completedUnits += rConfig.strategies.length;
         continue;
       }
 
       for (const strategyId of rConfig.strategies) {
         let results;
         try {
+          const currentUnit = completedUnits + 1;
+          log(`⏳ ${formatProgress(currentUnit, totalUnits)} ${symbol}@${timeframeSeconds}s ${strategyId}`);
           results = await runGridSearch({
             symbol, timeframeSeconds, strategyId, candles, h4Candles,
-            stake: rConfig.stake, commission: rConfig.commission, grid,
+            stake: rConfig.stake,
+            commission: rConfig.commission,
+            grid,
+            strategyOptions: { verboseLogs: rConfig.verboseStrategyLogs },
           });
         } catch (err) {
           log(`❌ ${symbol}/${strategyId}@${timeframeSeconds}s grid search failed: ${err.message}`);
+          completedUnits += 1;
           continue;
         }
 
@@ -104,12 +123,14 @@ async function runCycle() {
         const best = results[0];
         if (!best) {
           log(`⚠ ${symbol}/${strategyId}@${timeframeSeconds}s — no valid results`);
+          completedUnits += 1;
           continue;
         }
 
         const isWinner = best.score >= rConfig.minWinnerScore;
         await store.saveRun({ ...best, cycleId, isWinner });
-        log(`${isWinner ? '✅' : '·'} ${symbol}/${strategyId}@${timeframeSeconds}s best=${JSON.stringify(best.params)} score=${best.score.toFixed(1)} grade=${best.grade} oosWR=${(best.oosStats.winRate * 100).toFixed(1)}%`);
+        completedUnits += 1;
+        log(`${isWinner ? '✅' : '·'} ${formatProgress(completedUnits, totalUnits)} ${symbol}/${strategyId}@${timeframeSeconds}s score=${best.score.toFixed(1)} grade=${best.grade}`);
 
         allResults.push({ ...best, cycleId, isWinner });
         if (isWinner) {

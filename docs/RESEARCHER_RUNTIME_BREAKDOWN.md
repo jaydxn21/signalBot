@@ -23,6 +23,10 @@ High log volume is expected because each cycle prints:
 
 With default symbols/timeframes/strategies, this is a lot of iterations, so `researcher-out.log` grows quickly.
 
+The researcher now emits concise progress lines per symbol/timeframe/strategy, e.g.:
+
+- `[██████░░░░░░░░░░░░░░]  30.3% (23/76) R_25@300s breakout`
+
 ## 3) How the cycle works (high level)
 
 For each cycle, the researcher:
@@ -78,6 +82,11 @@ pm2 restart signalbot-researcher --update-env
 # quick runtime status
 pm2 status
 ```
+
+Optional verbosity control:
+
+- `RESEARCH_VERBOSE_STRATEGY_LOGS=false` (default): concise logs
+- `RESEARCH_VERBOSE_STRATEGY_LOGS=true`: enable detailed strategy diagnostics
 
 ## 7) Quick health checklist
 

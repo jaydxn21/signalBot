@@ -95,6 +95,7 @@ alongside your existing `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` /
 | `RESEARCH_RUN_ON_START` | `true` | Run one cycle immediately on process start |
 | `RESEARCH_FETCH_DELAY_MS` | `1500` | Pause after each symbol/timeframe's candle fetch (Deriv API politeness) |
 | `RESEARCH_MIN_WINNER_SCORE` | `65` | Minimum overfit-adjusted score to flag a result as a "winner" |
+| `RESEARCH_VERBOSE_STRATEGY_LOGS` | `false` | When `true`, enables verbose per-candle strategy diagnostics (very noisy); default keeps logs concise |
 | `RESEARCH_AUTO_RETRAIN` | `true` | Whether to retrain the model automatically after each cycle (still gated by the trade-count threshold below) |
 | `RESEARCH_MIN_NEW_TRADES_FOR_RETRAIN` | `25` | Minimum new labeled trades required before retraining again |
 | `RESEARCH_PYTHON_BIN` | `python3` | Python executable used to run `trade_learner.py` |

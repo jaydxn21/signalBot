@@ -86,6 +86,9 @@ export function loadResearchConfig() {
     // Grading thresholds — only combos scoring at/above this are kept as
     // "winners" in the report and eligible to feed the model retrainer.
     minWinnerScore: toNumber(process.env.RESEARCH_MIN_WINNER_SCORE, 65),
+    // Per-candle strategy diagnostics are very noisy in unattended runs;
+    // keep them off by default and allow opt-in when debugging.
+    verboseStrategyLogs: process.env.RESEARCH_VERBOSE_STRATEGY_LOGS === 'true',
 
     // Model retraining — triggered only once enough *new* labeled trades
     // have accumulated since the last successful train (not every cycle
@@ -105,4 +108,3 @@ export function loadResearchConfig() {
     githubReportsPath: process.env.RESEARCH_REPORTS_PATH || 'reports',
   };
 }
-
